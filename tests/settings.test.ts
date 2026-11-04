@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -12,11 +18,13 @@ const roots: string[] = []
 function directory() {
   const path = mkdtempSync(join(tmpdir(), "still-settings-"))
   roots.push(path)
+
   return path
 }
 
 afterEach(() => {
-  for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true })
+  for (const path of roots.splice(0))
+    rmSync(path, { recursive: true, force: true })
 })
 
 describe("SettingsStore real file integration", () => {
@@ -46,10 +54,12 @@ describe("SettingsStore real file integration", () => {
     const root = directory()
     const store = new SettingsStore(root)
     let calls = 0
+
     const unsubscribe = store.subscribe(() => {
       expect(new SettingsStore(root).getSnapshot().editorFontSize).toBe(19)
       calls += 1
     })
+
     store.update({ editorFontSize: 19 })
     expect(calls).toBe(1)
     unsubscribe()
@@ -75,7 +85,10 @@ describe("SettingsStore real file integration", () => {
     writeFileSync(path, "{broken")
     expect(() => new SettingsStore(root)).toThrow(/settings/)
     expect(readFileSync(path, "utf8")).toBe("{broken")
-    writeFileSync(path, JSON.stringify({ version: 1, preferences: { apiKey: "not-a-secret" } }))
+    writeFileSync(
+      path,
+      JSON.stringify({ version: 1, preferences: { apiKey: "not-a-secret" } }),
+    )
     expect(() => new SettingsStore(root)).toThrow(Error)
   })
 
@@ -92,7 +105,6 @@ describe("SettingsStore real file integration", () => {
   })
 
   test("does not follow a settings-file symlink", () => {
-    if (process.platform === "win32") return
     const root = directory()
     const outside = join(directory(), "outside.json")
     writeFileSync(outside, "keep")
