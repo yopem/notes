@@ -8,6 +8,7 @@
         "@gpuix/native": "0.11.0",
         "@gpuix/react": "0.11.0",
         "react": "19.2.0",
+        "zod": "4.6.7",
       },
       "devDependencies": {
         "@types/bun": "latest",
