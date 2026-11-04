@@ -34,7 +34,7 @@ export function NoteList({ color, notes, selectedId, title, query, onSelect, onN
             <text style={{ color: color.foreground, fontFamily: "Inter", fontSize: 14, fontWeight: 500, lineClamp: 1, flexGrow: 1, minWidth: 0 }}>{note.title || "Untitled"}</text>
             {note.pinned && <Icon name="pin" size={13} color={color.mutedForeground} />}
           </div>
-          <text style={{ color: color.mutedForeground, fontFamily: "Inter", fontSize: 12, lineHeight: 18, lineClamp: 2 }}>{note.body.replace(/[#*_>`~\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 180) || "A little space for your next thought."}</text>
+          <text style={{ color: color.mutedForeground, fontFamily: "Inter", fontSize: 12, lineHeight: 18, lineClamp: 2 }}>{note.body.replace(/[#*_>`~[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 180) || "A little space for your next thought."}</text>
           <Label color={color} size={11} muted>{new Date(note.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</Label>
         </NativeButton>)}
       </virtual-list>

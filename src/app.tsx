@@ -119,7 +119,8 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
       setView("all"); setQuery(""); setMode("edit");
       setNotice("Markdown imported. Original file unchanged.");
     } else if (dialog.kind === "export") {
-      if (drafts[dialog.id]) store.updateNote(dialog.id, drafts[dialog.id]);
+      const draft = drafts[dialog.id];
+      if (draft) store.updateNote(dialog.id, draft);
       const destination = store.exportMarkdown(dialog.id, value || homedir());
       setNotice(`Exported to ${destination}`);
     } else if (dialog.kind === "delete") store.deleteNote(dialog.id);
