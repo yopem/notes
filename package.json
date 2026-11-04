@@ -12,7 +12,7 @@
     "format:check": "oxfmt --check --config node_modules/@yopem/oxfmt-config/src/.oxfmtrc.json package.json tsconfig.json oxlint.config.ts src tests scripts README.md LICENSE.md",
     "test:store": "bun test tests/store.test.ts",
     "test:native": "bun scripts/native-e2e.ts",
-    "build": "bun build --compile src/main.tsx --outfile dist/still-notes"
+    "build": "bun scripts/build.ts"
   },
   "dependencies": {
     "@gpuix/native": "0.11.0",
