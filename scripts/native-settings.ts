@@ -59,6 +59,7 @@ export async function verifySettings(app: App, dataDirectory: string) {
   await app.getByTestId("setting-editorFontSize").fill("18")
   await app.getByTestId("setting-save-editorFontSize").click()
   await app.getByTestId("settings-tab-appearance").click()
+  await app.getByTestId("setting-themeMode-dark").waitFor()
   await app.getByTestId("setting-themeMode-dark").click()
   await app.getByTestId("settings-close").press("escape")
   const closedDeadline = Date.now() + 5000
@@ -69,7 +70,9 @@ export async function verifySettings(app: App, dataDirectory: string) {
     await Bun.sleep(16)
   assert.equal(await app.getByTestId("settings-panel").count(), 0)
   await app.getByTestId("settings-open").click()
+  await app.getByTestId("settings-panel").waitFor()
   await app.getByTestId("settings-tab-editor").click()
+  await app.getByTestId("setting-current-editorFontSize").waitFor()
   const deadline = Date.now() + 5000
 
   while (
@@ -83,6 +86,13 @@ export async function verifySettings(app: App, dataDirectory: string) {
     "18",
   )
   await app.getByTestId("settings-close").click()
+  const finalDeadline = Date.now() + 5000
+  while (
+    (await app.getByTestId("settings-panel").count()) &&
+    Date.now() < finalDeadline
+  )
+    await Bun.sleep(16)
+  assert.equal(await app.getByTestId("settings-panel").count(), 0)
 
   return [
     "Native settings edit, validation, immediate disk persistence, theme and reopen",
