@@ -67,6 +67,11 @@ describe("positioned Markdown document", () => {
       expect(source.slice(link.start, link.end)).not.toBe("")
   })
 
+  test("does not create nested wiki links inside Markdown link labels", () => {
+    const document = analyzeMarkdown("[**[[Literal]]**](https://example.com) [[Real]]")
+    expect(document.links.map((link) => link.target)).toEqual(["https://example.com", "Real"])
+  })
+
   test("ignores escaped wiki markers and preserves real link offsets", () => {
     const source = "\\[[Literal]] and [[Real note]]"
     const document = analyzeMarkdown(source)
