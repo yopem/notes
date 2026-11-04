@@ -42,7 +42,11 @@ try {
   await app.getByText("Field notes").waitFor();
   await app.getByTestId("new-note").click();
   await app.getByTestId("note-title").fill("Native notebook check");
-  await app.getByTestId("note-body").fill("# Native notebook check\n\nWritten in GPUix.\n\n- [ ] Keep thoughts local\n- [x] No Electron\n\n**Unicode:** café 日本語 🌿");
+  await app
+    .getByTestId("note-body")
+    .fill(
+      "# Native notebook check\n\nWritten in GPUix.\n\n- [ ] Keep thoughts local\n- [x] No Electron\n\n**Unicode:** café 日本語 🌿",
+    );
   await textIs("save-status", "Saved locally");
   await app.getByTestId("preview-toggle").click();
   await app.getByTestId("markdown-preview").waitFor();
@@ -95,15 +99,27 @@ try {
   await app.getByTestId("note-row").click();
   await app.getByTestId("preview-toggle").click();
   await app.screenshot({ path: join(artifacts, "04-restart-compact.png") });
-  assert(readFileSync(join(dataDirectory, "workspace.json"), "utf8").includes("Native notebook check"));
+  assert(
+    readFileSync(join(dataDirectory, "workspace.json"), "utf8").includes("Native notebook check"),
+  );
   steps.push("Restart real process, restore persisted content, compact window layout");
   await app.close();
   app = undefined;
 
-  writeFileSync(join(artifacts, "native-e2e.json"), JSON.stringify({ result: "passed", runtime: "GPUix native live-window automation", dataDirectory, steps }, null, 2));
+  writeFileSync(
+    join(artifacts, "native-e2e.json"),
+    JSON.stringify(
+      { result: "passed", runtime: "GPUix native live-window automation", dataDirectory, steps },
+      null,
+      2,
+    ),
+  );
   console.info(`Native E2E passed: ${steps.length} workflows. Artifacts: ${artifacts}`);
 } catch (error) {
-  writeFileSync(join(artifacts, "native-e2e.json"), JSON.stringify({ result: "failed", dataDirectory, steps, error: String(error) }, null, 2));
+  writeFileSync(
+    join(artifacts, "native-e2e.json"),
+    JSON.stringify({ result: "failed", dataDirectory, steps, error: String(error) }, null, 2),
+  );
   throw error;
 } finally {
   await app?.close();
