@@ -1,0 +1,1322 @@
+diff --git a/packages/native/js/host.ts b/packages/native/js/host.ts
+index fac0b75..24c2c52 100644
+--- a/packages/native/js/host.ts
++++ b/packages/native/js/host.ts
+@@ -521,6 +521,11 @@ export interface InputProps extends HostProps {
+   placeholder?: string
+   readOnly?: boolean
+   theme?: GpuixTheme
++  /** Native pre-dispatch routing. Insert Escape enters normal mode. */
++  editorMode?: 'insert' | 'normal' | 'readOnly'
++  editorLanguage?: string
++  editorPath?: string
++
+ }
+
+ export interface TextareaProps extends InputProps {
+diff --git a/packages/native/src/custom_elements/input.rs b/packages/native/src/custom_elements/input.rs
+index 7be2d25..094b2c8 100644
+--- a/packages/native/src/custom_elements/input.rs
++++ b/packages/native/src/custom_elements/input.rs
+@@ -23,6 +23,7 @@ use gpui::{
+ use unicode_segmentation::UnicodeSegmentation;
+ use web_time::Instant;
+
++use super::editor_protocol::*;
+ use super::{CustomElement, CustomElementFactory, CustomRenderContext};
+ use crate::renderer::{emit_event_full, emit_key_event, EventCallback};
+ use crate::theme::Theme;
+@@ -136,6 +137,35 @@ fn drag_scroll_delta(
+     distance.signum() * (distance.abs() * 0.2).clamp(1.0, line_height)
+ }
+
++fn underline_marked_runs(runs: Vec<TextRun>, marked: &Range<usize>) -> Vec<TextRun> {
++    let mut result = Vec::new();
++    let mut at = 0;
++    for run in runs {
++        let end = at + run.len;
++        let mut boundaries = vec![at, end];
++        for boundary in [marked.start, marked.end] {
++            if boundary > at && boundary < end {
++                boundaries.push(boundary);
++            }
++        }
++        boundaries.sort_unstable();
++        for pair in boundaries.windows(2) {
++            let mut part = run.clone();
++            part.len = pair[1] - pair[0];
++            if pair[0] >= marked.start && pair[1] <= marked.end {
++                part.underline = Some(UnderlineStyle {
++                    color: Some(part.color),
++                    thickness: px(1.0),
++                    wavy: false,
++                });
++            }
++            result.push(part);
++        }
++        at = end;
++    }
++    result
++}
++
+ fn utf16_offset_to_utf8(text: &str, offset: usize) -> usize {
+     let mut utf8_offset = 0;
+     let mut utf16_count = 0;
+@@ -184,8 +214,12 @@ pub fn init(cx: &mut App) {
+ /// the keystroke reach the terminal platform while a field has focus.
+ pub fn init_terminal(cx: &mut App) {
+     cx.bind_keys(
+-        [INPUT_KEY_CONTEXT, TEXTAREA_KEY_CONTEXT, TEXTAREA_SUBMIT_KEY_CONTEXT]
+-            .map(|context| KeyBinding::new("ctrl-c", gpui::NoAction, Some(context))),
++        [
++            INPUT_KEY_CONTEXT,
++            TEXTAREA_KEY_CONTEXT,
++            TEXTAREA_SUBMIT_KEY_CONTEXT,
++        ]
++        .map(|context| KeyBinding::new("ctrl-c", gpui::NoAction, Some(context))),
+     );
+ }
+
+@@ -321,10 +355,14 @@ struct TextEditorElement {
+     value: String,
+     placeholder: String,
+     read_only: bool,
++    editor_mode: Option<EditorMode>,
++    last_mode_prop: Option<Option<EditorMode>>,
+     min_rows: usize,
+     max_rows: usize,
+     last_prop_value: Option<String>,
+     theme: Theme,
++    language: Option<String>,
++    path: Option<String>,
+     state: Option<Entity<TextEditorState>>,
+ }
+
+@@ -335,13 +373,39 @@ impl TextEditorElement {
+             value: String::new(),
+             placeholder: String::new(),
+             read_only: false,
++            editor_mode: None,
++            last_mode_prop: None,
+             min_rows: 1,
+             max_rows: if multiline { 10 } else { 1 },
+             last_prop_value: None,
+             theme: Theme::dark(),
++            language: None,
++            path: None,
+             state: None,
+         }
+     }
++    fn sync_state_props(&mut self, state: &mut TextEditorState, cx: &mut Context<TextEditorState>) {
++        state.placeholder = self.placeholder.clone().into();
++        state.syntax_theme = self.theme.clone();
++        state.language = self.language.clone();
++        state.path = self.path.clone();
++        state.read_only = self.read_only;
++        if self.last_mode_prop != Some(self.editor_mode) && state.marked_range.is_none() {
++            state.mode = self.editor_mode.unwrap_or_default();
++            state.modal_enabled = self.editor_mode.is_some();
++            self.last_mode_prop = Some(self.editor_mode);
++        }
++        state.min_rows = self.min_rows.max(1);
++        state.max_rows = self.max_rows.max(state.min_rows);
++        if state.caret_color != self.theme.caret {
++            state.caret_color = self.theme.caret;
++            cx.notify();
++        }
++        if self.last_prop_value.as_ref() != Some(&self.value) {
++            state.sync_prop_value(self.value.clone(), cx);
++        }
++        self.last_prop_value = Some(self.value.clone());
++    }
+ }
+
+ impl CustomElement for TextEditorElement {
+@@ -371,6 +435,9 @@ impl CustomElement for TextEditorElement {
+                 let min_rows = self.min_rows;
+                 let max_rows = self.max_rows;
+                 let caret_color = self.theme.caret;
++                let syntax_theme = self.theme.clone();
++                let language = self.language.clone();
++                let path = self.path.clone();
+                 let callback = callback.clone();
+                 let id = ctx.id;
+                 let cursor = value.len();
+@@ -412,14 +479,67 @@ impl CustomElement for TextEditorElement {
+                     blink_task: None,
+                     pending_values: VecDeque::new(),
+                     undo_stack: VecDeque::new(),
+-                    redo_stack: Vec::new(),
++                    redo_stack: VecDeque::new(),
+                     last_edit: None,
++                    syntax_theme,
++                    language,
++                    path,
++                    revision: 0,
++                    mode: EditorMode::Insert,
++                    modal_enabled: false,
++                    key_subscription: None,
++                    last_reported: None,
+                 })
+             })
+             .clone();
+
+-        let prop_changed = self.last_prop_value.as_ref() != Some(&self.value);
+         state.update(cx, |state, cx| {
++            if state.key_subscription.is_none() {
++                let weak = cx.entity().downgrade();
++                state.key_subscription = Some(cx.intercept_keystrokes(move |event, window, cx| {
++                    let _ = weak.update(cx, |state, cx| {
++                        if !state.focus_handle.is_focused(window) {
++                            return;
++                        }
++                        let escape = state.modal_enabled
++                            && state.mode == EditorMode::Insert
++                            && event.keystroke.key == "escape"
++                            && state.marked_range.is_none();
++                        if escape {
++                            state.mode = EditorMode::Normal;
++                            cx.notify();
++                        }
++                        if escape || state.mode.routes_keys() {
++                            {
++                                // The interceptor runs before root capture assigns an ID.
++                                let dispatch_id = crate::renderer::next_keystroke_id();
++                                emit_event_full(
++                                    &state.callback,
++                                    state.element_id,
++                                    "keyDown",
++                                    |payload| {
++                                        payload.key = Some(event.keystroke.key.clone());
++                                        payload.key_char = event.keystroke.key_char.clone();
++                                        payload.modifiers = Some(event.keystroke.modifiers.into());
++                                        payload.keystroke_id = Some(dispatch_id);
++                                        payload.value = Some(
++                                            serde_json::json!({
++                                                "nativeEditorRoute": true,
++                                                "revision": state.revision,
++                                                "mode": state.mode,
++                                            })
++                                            .to_string(),
++                                        );
++                                    },
++                                );
++                            }
++                            window.prevent_default();
++                            cx.stop_propagation();
++                            state.report_state();
++                        }
++                    });
++                }));
++            }
+             state.callback = callback;
+             state.emits_change = emits_change;
+             if state.emits_submit != emits_submit {
+@@ -428,19 +548,8 @@ impl CustomElement for TextEditorElement {
+             }
+             state.emits_key_down = emits_key_down;
+             state.emits_key_up = emits_key_up;
+-            state.placeholder = self.placeholder.clone().into();
+-            state.read_only = self.read_only;
+-            state.min_rows = self.min_rows.max(1);
+-            state.max_rows = self.max_rows.max(state.min_rows);
+-            if state.caret_color != self.theme.caret {
+-                state.caret_color = self.theme.caret;
+-                cx.notify();
+-            }
+-            if prop_changed {
+-                state.sync_prop_value(self.value.clone(), cx);
+-            }
++            self.sync_state_props(state, cx);
+         });
+-        self.last_prop_value = Some(self.value.clone());
+
+         let element_id = gpui::SharedString::from(format!("__gpuix_editor_{}", ctx.id));
+         let mut editor = div()
+@@ -529,6 +638,13 @@ impl CustomElement for TextEditorElement {
+             "value" => self.value = value.as_str().unwrap_or_default().to_string(),
+             "placeholder" => self.placeholder = value.as_str().unwrap_or_default().to_string(),
+             "readOnly" => self.read_only = value.as_bool().unwrap_or(false),
++            "editorMode" => {
++                if value.is_null() {
++                    self.editor_mode = None;
++                } else if let Ok(mode) = serde_json::from_value(value) {
++                    self.editor_mode = Some(mode);
++                }
++            }
+             "minRows" => self.min_rows = value.as_u64().unwrap_or(1) as usize,
+             "maxRows" => {
+                 self.max_rows = value
+@@ -537,6 +653,8 @@ impl CustomElement for TextEditorElement {
+                     as usize
+             }
+             "theme" => self.theme = Theme::from_prop(Some(&value)),
++            "editorLanguage" => self.language = value.as_str().map(str::to_owned),
++            "editorPath" => self.path = value.as_str().map(str::to_owned),
+             _ => {}
+         }
+     }
+@@ -546,6 +664,9 @@ impl CustomElement for TextEditorElement {
+             "value",
+             "placeholder",
+             "readOnly",
++            "editorMode",
++            "editorLanguage",
++            "editorPath",
+             "minRows",
+             "maxRows",
+             "theme",
+@@ -554,10 +675,25 @@ impl CustomElement for TextEditorElement {
+
+     fn supported_events(&self) -> &'static [&'static str] {
+         &[
+-            "change", "submit", "click", "keyDown", "keyUp", "focus", "blur", "fileDrop",
++            "change", "submit", "click", "keyDown", "keyUp", "focus", "blur", "fileDrop", "editorState",
+         ]
+     }
+
++    fn editor_command(
++        &mut self,
++        command: EditorCommand,
++        events: &std::collections::HashSet<String>,
++        window: &mut Window,
++        cx: &mut App,
++    ) -> Result<serde_json::Value, String> {
++        let state = self.state.clone().ok_or("Editor has not rendered")?;
++        state.update(cx, |state, cx| {
++            state.emits_change = events.contains("change");
++            self.sync_state_props(state, cx);
++            state.command(command, window, cx)
++        })
++    }
++
+     fn destroy(&mut self) {
+         self.state = None;
+     }
+@@ -637,12 +773,40 @@ fn edits_coalesce(
+ }
+
+ fn push_undo_snapshot(history: &mut VecDeque<EditSnapshot>, snapshot: EditSnapshot) {
+-    if history.len() == UNDO_LIMIT {
+-        history.pop_front();
++    let bytes: usize = history.iter().map(|item| item.content.len()).sum();
++    if snapshot.content.len() > HISTORY_BYTES {
++        history.clear();
++        return;
++    }
++    let mut bytes = bytes;
++    while !history.is_empty()
++        && (history.len() >= UNDO_LIMIT || bytes + snapshot.content.len() > HISTORY_BYTES)
++    {
++        if let Some(old) = history.pop_front() {
++            bytes -= old.content.len();
++        }
+     }
+     history.push_back(snapshot);
+ }
+
++#[derive(PartialEq)]
++struct StateStamp {
++    revision: u64,
++    selection: Range<usize>,
++    reversed: bool,
++    marked: Option<Range<usize>>,
++    top: f32,
++    left: f32,
++    width: f32,
++    height: f32,
++    content_height: f32,
++    content_width: f32,
++    mode: EditorMode,
++    read_only: bool,
++    undo: bool,
++    redo: bool,
++}
++
+ struct TextEditorState {
+     element_id: u64,
+     callback: Option<EventCallback>,
+@@ -680,11 +844,253 @@ struct TextEditorState {
+     blink_task: Option<Task<()>>,
+     pending_values: VecDeque<String>,
+     undo_stack: VecDeque<EditSnapshot>,
+-    redo_stack: Vec<EditSnapshot>,
++    redo_stack: VecDeque<EditSnapshot>,
+     last_edit: Option<LastEdit>,
++    syntax_theme: Theme,
++    language: Option<String>,
++    path: Option<String>,
++    revision: u64,
++    mode: EditorMode,
++    modal_enabled: bool,
++    key_subscription: Option<gpui::Subscription>,
++    last_reported: Option<StateStamp>,
+ }
+
+ impl TextEditorState {
++    fn public_snapshot(snapshot: &EditSnapshot) -> TextSnapshot {
++        TextSnapshot {
++            text: snapshot.content.clone(),
++            start: snapshot.content[..snapshot.selected_range.start]
++                .encode_utf16()
++                .count(),
++            end: snapshot.content[..snapshot.selected_range.end]
++                .encode_utf16()
++                .count(),
++            direction: if snapshot.selection_reversed {
++                Direction::Backward
++            } else {
++                Direction::Forward
++            },
++        }
++    }
++
++    fn import_snapshot(snapshot: TextSnapshot, multiline: bool) -> Result<EditSnapshot, String> {
++        if !multiline && single_line_text(&snapshot.text) != snapshot.text {
++            return Err("Single-line snapshot contains line breaks".into());
++        }
++        // Native IME can select scalar boundaries inside a grapheme cluster.
++        let start = checked_offset(&snapshot.text, snapshot.start)?;
++        let end = checked_offset(&snapshot.text, snapshot.end)?;
++        if start > end {
++            return Err("Snapshot selection is reversed".into());
++        }
++        Ok(EditSnapshot {
++            content: snapshot.text,
++            selected_range: start..end,
++            selection_reversed: matches!(snapshot.direction, Direction::Backward),
++        })
++    }
++
++    fn public_state(&self) -> serde_json::Value {
++        let range = self.range_to_utf16(&self.selected_range);
++        let bounds = self.last_bounds.map(|bounds| bounds.size);
++        serde_json::json!({
++            "text": self.content, "revision": self.revision,
++            "selection": { "start": range.start, "end": range.end,
++                "direction": if self.selection_reversed { "backward" } else { "forward" } },
++            "composition": self.marked_range.as_ref().map(|range| {
++                let range = self.range_to_utf16(range);
++                serde_json::json!({"start": range.start, "end": range.end})
++            }),
++            "mode": self.mode,
++            "readOnly": self.read_only || self.mode == EditorMode::ReadOnly,
++            "canUndo": !self.undo_stack.is_empty(), "canRedo": !self.redo_stack.is_empty(),
++            "viewport": { "top": self.scroll_top, "left": self.scroll_left,
++                "width": bounds.map(|size| f32::from(size.width)).unwrap_or(0.0),
++                "height": bounds.map(|size| f32::from(size.height)).unwrap_or(0.0),
++                "contentHeight": self.content_height, "contentWidth": self.content_width }
++        })
++    }
++
++    fn report_state(&mut self) {
++        let bounds = self.last_bounds.map(|bounds| bounds.size);
++        let stamp = StateStamp {
++            revision: self.revision,
++            selection: self.selected_range.clone(),
++            reversed: self.selection_reversed,
++            marked: self.marked_range.clone(),
++            top: self.scroll_top,
++            left: self.scroll_left,
++            width: bounds.map(|size| f32::from(size.width)).unwrap_or(0.0),
++            height: bounds.map(|size| f32::from(size.height)).unwrap_or(0.0),
++            content_height: self.content_height,
++            content_width: self.content_width,
++            mode: self.mode,
++            read_only: self.read_only,
++            undo: !self.undo_stack.is_empty(),
++            redo: !self.redo_stack.is_empty(),
++        };
++        if self.last_reported.as_ref() != Some(&stamp) {
++            self.last_reported = Some(stamp);
++            let value = self.public_state().to_string();
++            emit_event_full(&self.callback, self.element_id, "editorState", |payload| {
++                payload.value = Some(value);
++            });
++        }
++    }
++
++    fn command(
++        &mut self,
++        command: EditorCommand,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) -> Result<serde_json::Value, String> {
++        match command {
++            EditorCommand::GetState => return Ok(self.public_state()),
++            EditorCommand::GetSnapshot => {
++                if self.marked_range.is_some() {
++                    return Err("Cannot snapshot an active IME composition".into());
++                }
++                return serde_json::to_value(EditorSnapshot {
++                    version: 1,
++                    current: Self::public_snapshot(&self.snapshot()),
++                    undo: self.undo_stack.iter().map(Self::public_snapshot).collect(),
++                    redo: self.redo_stack.iter().map(Self::public_snapshot).collect(),
++                    scroll_top: self.scroll_top,
++                    scroll_left: self.scroll_left,
++                })
++                .map_err(|error| error.to_string());
++            }
++            EditorCommand::SetMode { mode } => {
++                if self.marked_range.is_some() && mode != self.mode {
++                    return Err("Editor owns an active IME composition".into());
++                }
++                self.mode = mode;
++                self.modal_enabled = true;
++            }
++            EditorCommand::SetSelection {
++                revision,
++                start,
++                end,
++                direction,
++            } => {
++                check_revision(self.revision, revision, self.marked_range.is_some())?;
++                let range = checked_range(&self.content, start, end)?;
++                self.selected_range = range;
++                self.selection_reversed = matches!(direction, Direction::Backward);
++                self.last_edit = None;
++                self.follow_cursor = true;
++                self.reset_blink(cx);
++            }
++            EditorCommand::ReplaceRange {
++                revision,
++                start,
++                end,
++                text,
++                selection,
++            } => {
++                check_revision(self.revision, revision, self.marked_range.is_some())?;
++                if self.read_only || self.mode == EditorMode::ReadOnly {
++                    return Err("Editor is read-only".into());
++                }
++                let range = checked_range(&self.content, start, end)?;
++                let text = if self.multiline {
++                    text
++                } else {
++                    single_line_text(&text)
++                };
++                let next =
++                    self.content[..range.start].to_owned() + &text + &self.content[range.end..];
++                let selected = selection
++                    .map(|selection| {
++                        checked_range(&next, selection.start, selection.end).map(|range| {
++                            (range, matches!(selection.direction, Direction::Backward))
++                        })
++                    })
++                    .transpose()?;
++                // A command is one undo transaction, never coalesced with typing.
++                self.last_edit = None;
++                let mode = self.mode;
++                self.mode = EditorMode::Insert;
++                self.replace_text_in_range(Some(start..end), &text, window, cx);
++                self.mode = mode;
++                if let Some((range, reversed)) = selected {
++                    self.selected_range = range;
++                    self.selection_reversed = reversed;
++                } else {
++                    let cursor = next_grapheme_boundary(&self.content, self.selected_range.end);
++                    self.selected_range = cursor..cursor;
++                }
++                self.last_edit = None;
++            }
++            EditorCommand::Undo { revision } | EditorCommand::Redo { revision } => {
++                check_revision(self.revision, revision, self.marked_range.is_some())?;
++                if self.read_only || self.mode == EditorMode::ReadOnly {
++                    return Err("Editor is read-only".into());
++                }
++                if matches!(command, EditorCommand::Undo { .. }) {
++                    self.undo(&Undo, window, cx);
++                } else {
++                    self.redo(&Redo, window, cx);
++                }
++            }
++            EditorCommand::SetViewport { top, left } => {
++                if !top.is_finite() || !left.is_finite() || top < 0.0 || left < 0.0 {
++                    return Err("Viewport offsets must be finite and non-negative".into());
++                }
++                self.scroll_top = top;
++                self.scroll_left = left;
++                self.follow_cursor = false;
++            }
++            EditorCommand::RestoreSnapshot { revision, snapshot } => {
++                check_revision(self.revision, revision, self.marked_range.is_some())?;
++                if self.read_only || self.mode == EditorMode::ReadOnly {
++                    return Err("Editor is read-only".into());
++                }
++                if snapshot.version != 1
++                    || snapshot.undo.len() > UNDO_LIMIT
++                    || snapshot.redo.len() > UNDO_LIMIT
++                    || !snapshot.scroll_top.is_finite()
++                    || !snapshot.scroll_left.is_finite()
++                    || snapshot.scroll_top < 0.0
++                    || snapshot.scroll_left < 0.0
++                {
++                    return Err("Invalid editor snapshot".into());
++                }
++                let bytes: usize = snapshot
++                    .undo
++                    .iter()
++                    .chain(&snapshot.redo)
++                    .map(|item| item.text.len())
++                    .sum();
++                if bytes > HISTORY_BYTES * 2 {
++                    return Err("Snapshot history exceeds byte limit".into());
++                }
++                let current = Self::import_snapshot(snapshot.current, self.multiline)?;
++                let undo: Result<VecDeque<_>, _> = snapshot
++                    .undo
++                    .into_iter()
++                    .map(|item| Self::import_snapshot(item, self.multiline))
++                    .collect();
++                let redo: Result<VecDeque<_>, _> = snapshot
++                    .redo
++                    .into_iter()
++                    .map(|item| Self::import_snapshot(item, self.multiline))
++                    .collect();
++                let (undo, redo) = (undo?, redo?);
++                self.restore(current, cx);
++                self.undo_stack = undo;
++                self.redo_stack = redo;
++                self.scroll_top = snapshot.scroll_top;
++                self.scroll_left = snapshot.scroll_left;
++                self.follow_cursor = false;
++            }
++        }
++        self.report_state();
++        cx.notify();
++        Ok(self.public_state())
++    }
++
+     fn reset_blink(&mut self, cx: &Context<Self>) {
+         self.blink_anchor = cx.background_executor().now();
+     }
+@@ -734,6 +1140,7 @@ impl TextEditorState {
+             return;
+         }
+         self.content = value;
++        self.revision += 1;
+         let end = self.content.len();
+         self.selected_range = end..end;
+         self.selection_reversed = false;
+@@ -749,6 +1156,7 @@ impl TextEditorState {
+     }
+
+     fn emit_change(&mut self) {
++        self.revision += 1;
+         if self.emits_change {
+             self.pending_values.push_back(self.content.clone());
+             while self.pending_values.len() > 32 {
+@@ -888,7 +1296,7 @@ impl TextEditorState {
+     }
+
+     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+         if self.selected_range.is_empty() {
+@@ -902,7 +1310,7 @@ impl TextEditorState {
+     }
+
+     fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+         if self.selected_range.is_empty() {
+@@ -1026,7 +1434,7 @@ impl TextEditorState {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+         if self.selected_range.is_empty() {
+@@ -1041,7 +1449,7 @@ impl TextEditorState {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+         if self.selected_range.is_empty() {
+@@ -1056,7 +1464,7 @@ impl TextEditorState {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+         if self.selected_range.is_empty() {
+@@ -1075,7 +1483,7 @@ impl TextEditorState {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+         if self.selected_range.is_empty() {
+@@ -1097,7 +1505,7 @@ impl TextEditorState {
+     }
+
+     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
+-        if self.read_only || self.selected_range.is_empty() {
++        if self.read_only || self.mode == EditorMode::ReadOnly || self.selected_range.is_empty() {
+             return;
+         }
+         self.copy(&Copy, window, cx);
+@@ -1105,7 +1513,7 @@ impl TextEditorState {
+     }
+
+     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             cx.propagate();
+             return;
+         }
+@@ -1117,20 +1525,21 @@ impl TextEditorState {
+     }
+
+     fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+         if let Some(previous) = self.undo_stack.pop_back() {
+-            self.redo_stack.push(self.snapshot());
++            let snapshot = self.snapshot();
++            push_undo_snapshot(&mut self.redo_stack, snapshot);
+             self.restore(previous, cx);
+         }
+     }
+
+     fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+-        if self.read_only {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
+             return;
+         }
+-        if let Some(next) = self.redo_stack.pop() {
++        if let Some(next) = self.redo_stack.pop_back() {
+             let snapshot = self.snapshot();
+             push_undo_snapshot(&mut self.undo_stack, snapshot);
+             self.restore(next, cx);
+@@ -1138,7 +1547,7 @@ impl TextEditorState {
+     }
+
+     fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
+-        if self.multiline && !self.read_only {
++        if self.multiline && !self.read_only && self.mode.accepts_text() {
+             self.replace_text_in_range(None, "\n", window, cx);
+         }
+     }
+@@ -1410,28 +1819,34 @@ impl TextEditorState {
+         } else {
+             style.color
+         };
+-        let run = |len: usize, underline: bool| TextRun {
+-            len,
+-            font: style.font(),
+-            color,
+-            background_color: None,
+-            underline: underline.then_some(UnderlineStyle {
+-                color: Some(color),
+-                thickness: px(1.0),
+-                wavy: false,
+-            }),
+-            strikethrough: None,
++        let highlight = if !is_placeholder && (self.language.is_some() || self.path.is_some()) {
++            crate::syntax::cache::highlight_cached(
++                &display,
++                self.path.as_deref(),
++                self.language.as_deref(),
++            )
++        } else {
++            None
+         };
++        let mut spans = Vec::new();
++        if let Some(highlight) = highlight {
++            let mut offset = 0;
++            for (line, source) in display.split('\n').enumerate() {
++                if let Some(line_spans) = highlight.lines.get(line) {
++                    spans.extend(line_spans.iter().map(|span| {
++                        (
++                            offset + span.range.start..offset + span.range.end,
++                            self.syntax_theme.syntax.color(span.kind),
++                        )
++                    }));
++                }
++                offset += source.len() + 1;
++            }
++        }
++        let runs = crate::text::runs::runs_for_spans(&display, &spans, &style.font(), color);
+         let runs = match self.marked_range.as_ref() {
+-            Some(marked) if !is_placeholder => vec![
+-                run(marked.start, false),
+-                run(marked.len(), true),
+-                run(display.len() - marked.end, false),
+-            ]
+-            .into_iter()
+-            .filter(|run| run.len > 0)
+-            .collect(),
+-            _ => vec![run(display.len(), false)],
++            Some(marked) if !is_placeholder => underline_marked_runs(runs, marked),
++            _ => runs,
+         };
+         let wrap_width = self.multiline.then_some(width);
+         let lines = window
+@@ -1539,7 +1954,7 @@ impl EntityInputHandler for TextEditorState {
+         _: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        if self.read_only {
++        if self.read_only || !self.mode.accepts_text() {
+             return;
+         }
+         let range = range_utf16
+@@ -1575,7 +1990,7 @@ impl EntityInputHandler for TextEditorState {
+         _: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        if self.read_only {
++        if self.read_only || !self.mode.accepts_text() {
+             return;
+         }
+         let range = range_utf16
+@@ -1656,7 +2071,7 @@ impl EntityInputHandler for TextEditorState {
+     }
+
+     fn accepts_text_input(&self, _: &mut Window, _: &mut Context<Self>) -> bool {
+-        !self.read_only
++        !self.read_only && self.mode.accepts_text()
+     }
+ }
+
+@@ -1726,7 +2141,13 @@ impl gpui::Render for TextEditorState {
+             })
+             .when(self.emits_key_up, move |editor| {
+                 editor.on_key_up(move |event, _window, _cx| {
+-                    emit_key_event(&key_up_callback, element_id, "keyUp", &event.keystroke, None);
++                    emit_key_event(
++                        &key_up_callback,
++                        element_id,
++                        "keyUp",
++                        &event.keystroke,
++                        None,
++                    );
+                 })
+             })
+             .w_full()
+@@ -1803,6 +2224,7 @@ impl gpui::Element for EditorTextElement {
+         self.input.update(cx, |input, _| {
+             input.last_bounds = Some(bounds);
+             input.clamp_scroll(f32::from(bounds.size.width), f32::from(bounds.size.height));
++            input.report_state();
+         });
+         let input = self.input.read(cx);
+         let origin = point(
+@@ -1945,6 +2367,32 @@ impl gpui::IntoElement for EditorTextElement {
+ mod tests {
+     use super::*;
+
++    #[test]
++    fn routed_keys_have_distinct_dispatch_ids() {
++        let first = crate::renderer::next_keystroke_id();
++        let second = crate::renderer::next_keystroke_id();
++        assert!(second > first);
++    }
++
++    #[test]
++    fn editor_syntax_keeps_ime_underline_and_exact_coverage() {
++        let runs = crate::text::runs::plain_runs(
++            "a😀b",
++            &gpui::font("Mono"),
++            gpui::rgba(0x000000ff).into(),
++        );
++        let runs = underline_marked_runs(runs, &(1..5));
++        assert_eq!(runs.iter().map(|run| run.len).sum::<usize>(), 6);
++        assert_eq!(
++            runs.iter()
++                .filter(|run| run.underline.is_some())
++                .map(|run| run.len)
++                .sum::<usize>(),
++            4
++        );
++        assert!(runs.iter().all(|run| run.font == gpui::font("Mono")));
++    }
++
+     fn has_binding(bindings: &[KeyBinding], keystroke: &str, action: &dyn gpui::Action) -> bool {
+         let keystroke = gpui::Keystroke::parse(keystroke).unwrap();
+         bindings.iter().any(|binding| {
+diff --git a/packages/native/src/custom_elements/mod.rs b/packages/native/src/custom_elements/mod.rs
+index 158269f..4996ac7 100644
+--- a/packages/native/src/custom_elements/mod.rs
++++ b/packages/native/src/custom_elements/mod.rs
+@@ -16,6 +16,7 @@ use crate::renderer::EventCallback;
+ pub mod anchored;
+ pub mod code;
+ pub mod diff;
++pub mod editor_protocol;
+ pub mod img;
+ pub mod input;
+ pub mod markdown;
+@@ -227,6 +228,16 @@ pub trait CustomElement: 'static {
+     /// Clean up resources (GPUI entities, subscriptions, etc.)
+     fn destroy(&mut self);
+
++    fn editor_command(
++        &mut self,
++        _command: editor_protocol::EditorCommand,
++        _events: &HashSet<String>,
++        _window: &mut gpui::Window,
++        _cx: &mut gpui::App,
++    ) -> Result<serde_json::Value, String> {
++        Err("Element is not a mounted text editor".into())
++    }
++
+     /// Current live GPU image on `<img>`, if any.
+     fn live_image(&self) -> Option<std::sync::Arc<gpui::RenderImage>> {
+         None
+@@ -387,6 +398,23 @@ impl CustomElementRegistry {
+         entry.element.render(ctx, window, cx)
+     }
+
++    pub fn editor_command(
++        &mut self,
++        id: u64,
++        command: editor_protocol::EditorCommand,
++        props: &HashMap<String, serde_json::Value>,
++        events: &HashSet<String>,
++        window: &mut gpui::Window,
++        cx: &mut gpui::App,
++    ) -> Result<serde_json::Value, String> {
++        let entry = self
++            .instances
++            .get_mut(&id)
++            .ok_or("Editor has not rendered or was unmounted")?;
++        entry.sync(props);
++        entry.element.editor_command(command, events, window, cx)
++    }
++
+     /// Store a decoded image on an `<img>` host node, creating the adapter if needed.
+     pub fn set_live_image(
+         &mut self,
+diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
+index 8c104a4..f562bda 100644
+--- a/packages/native/src/renderer.rs
++++ b/packages/native/src/renderer.rs
+@@ -485,6 +485,11 @@ enum UiCommand {
+         bytes: Vec<u8>,
+         response: SyncSender<std::result::Result<(), String>>,
+     },
++    EditorCommand {
++        id: u64,
++        command: crate::custom_elements::editor_protocol::EditorCommand,
++        response: SyncSender<std::result::Result<String, String>>,
++    },
+     GetScrollOffset {
+         id: u64,
+         response: SyncSender<Option<[f64; 2]>>,
+@@ -683,6 +688,21 @@ async fn run_ui_commands(
+                     response.send(view.register_font(bytes, window, cx)).ok();
+                 })
+             }
++            UiCommand::EditorCommand {
++                id,
++                command,
++                response,
++            } => {
++                let result = window
++                    .update(cx, |view, window, cx| {
++                        view.editor_command(id, command, window, cx)
++                            .map(|value| value.to_string())
++                    })
++                    .map_err(|error| error.to_string())
++                    .and_then(|result| result);
++                let _ = response.send(result);
++                Ok(())
++            }
+             UiCommand::GetScrollOffset { id, response } => {
+                 let offset = VIRTUAL_LIST_STATES
+                     .with(|cell| {
+@@ -1573,7 +1593,6 @@ impl GpuixRenderer {
+         *self.initialized.lock().unwrap()
+     }
+
+-
+     /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
+     /// false on other platforms. Call tick() in the callback; it never blocks.
+     /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
+@@ -2132,6 +2151,45 @@ impl GpuixRenderer {
+         Err(Error::from_reason("Unsupported operating system"))
+     }
+
++    /// Execute a revision-guarded editor command. Offsets use UTF-16 code units.
++    /// Returns JSON editor state, or a versioned snapshot for getSnapshot.
++    #[napi]
++    pub fn editor_command(&self, element_id: f64, command_json: String) -> Result<String> {
++        let id = to_element_id(element_id)?;
++        if command_json.len() > 32 * 1024 * 1024 {
++            return Err(Error::from_reason("Editor command exceeds 32 MiB"));
++        }
++        let command =
++            serde_json::from_str::<crate::custom_elements::editor_protocol::EditorCommand>(
++                &command_json,
++            )
++            .map_err(|error| Error::from_reason(error.to_string()))?;
++        #[cfg(target_os = "macos")]
++        return update_window(move |view, window, cx| {
++            view.editor_command(id, command, window, cx)
++                .map(|value| value.to_string())
++        })?
++        .map_err(Error::from_reason);
++        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++        {
++            let (response, receiver) = sync_channel(1);
++            self.send_ui_command(UiCommand::EditorCommand {
++                id,
++                command,
++                response,
++            })?;
++            return recv_ui_response(receiver, "the GPUI editor command")?
++                .map_err(Error::from_reason);
++        }
++        #[cfg(not(any(
++            target_os = "macos",
++            target_os = "windows",
++            target_os = "linux",
++            target_os = "freebsd"
++        )))]
++        Err(Error::from_reason("Unsupported operating system"))
++    }
++
+     // ── Selection API ────────────────────────────────────────────────
+
+     /// The current text selection joined in document order, or null.
+@@ -3820,8 +3878,12 @@ pub(crate) fn emit_key_event(
+     });
+ }
+
+-fn next_keystroke_id() {
+-    KEYSTROKE_ID.with(|id| id.set(id.get() + 1));
++pub(crate) fn next_keystroke_id() -> f64 {
++    KEYSTROKE_ID.with(|id| {
++        let next = id.get() + 1;
++        id.set(next);
++        next as f64
++    })
+ }
+
+ fn window_key_events(
+@@ -3869,7 +3931,13 @@ fn window_key_events(
+                     return;
+                 }
+                 if key_up {
+-                    emit_key_event(&callback_up, event_id, "windowKeyUp", &event.keystroke, None);
++                    emit_key_event(
++                        &callback_up,
++                        event_id,
++                        "windowKeyUp",
++                        &event.keystroke,
++                        None,
++                    );
+                 }
+             });
+         },
+@@ -3957,6 +4025,25 @@ fn resolve_highlight(
+ }
+
+ impl GpuixView {
++    fn editor_command(
++        &mut self,
++        id: u64,
++        command: crate::custom_elements::editor_protocol::EditorCommand,
++        window: &mut gpui::Window,
++        cx: &mut gpui::Context<Self>,
++    ) -> std::result::Result<serde_json::Value, String> {
++        let (props, events) = {
++            let tree = self.tree.lock().unwrap();
++            let element = tree.elements.get(&id).ok_or("Editor was unmounted")?;
++            if !matches!(element.element_type.as_str(), "input" | "textarea") {
++                return Err("Element is not a text editor".into());
++            }
++            (element.custom_props().clone(), element.events().clone())
++        };
++        self.custom_registry
++            .editor_command(id, command, &props, &events, window, cx)
++    }
++
+     pub(crate) fn new(
+         tree: Arc<Mutex<RetainedTree>>,
+         event_callback: Option<EventCallback>,
+@@ -4041,10 +4128,8 @@ impl GpuixView {
+         window: &mut gpui::Window,
+         cx: &mut gpui::Context<Self>,
+     ) -> std::result::Result<(), String> {
+-        let image = crate::custom_elements::img::render_image_from_encoded(
+-            bytes,
+-            cx.svg_renderer(),
+-        )?;
++        let image =
++            crate::custom_elements::img::render_image_from_encoded(bytes, cx.svg_renderer())?;
+         self.set_live_image(id, image, window, cx)
+     }
+
+@@ -4314,7 +4399,9 @@ impl GpuixView {
+                 break None;
+             };
+             if let Some(entry) = self.virtual_lists.get(&parent_id) {
+-                break entry.logical_index_of(current).map(|index| (parent_id, index));
++                break entry
++                    .logical_index_of(current)
++                    .map(|index| (parent_id, index));
+             }
+             current = parent_id;
+         };
+@@ -4764,7 +4851,12 @@ impl VirtualListEntry {
+ }
+
+ impl GpuixView {
+-    pub(crate) fn request_focus(&mut self, id: u64, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
++    pub(crate) fn request_focus(
++        &mut self,
++        id: u64,
++        window: &mut gpui::Window,
++        cx: &mut gpui::Context<Self>,
++    ) {
+         self.reveal_virtual_list_ancestor(id);
+         if let Some(handle) = self.focus_handles.get(&id) {
+             self.pending_focus_element = None;
+@@ -6731,10 +6823,7 @@ fn report_layout(
+     callback: &EventCallback,
+     cx: &mut gpui::App,
+ ) {
+-    let size = (
+-        f32::from(bounds.size.width),
+-        f32::from(bounds.size.height),
+-    );
++    let size = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+     {
+         let mut reports = reports.borrow_mut();
+         let unchanged = reports.sizes.get(&id).is_some_and(|last| {
+diff --git a/packages/native/src/custom_elements/editor_protocol.rs b/packages/native/src/custom_elements/editor_protocol.rs
+new file mode 100644
+index 0000000..da6f81e
+--- /dev/null
++++ b/packages/native/src/custom_elements/editor_protocol.rs
+@@ -0,0 +1,211 @@
++use serde::{Deserialize, Serialize};
++use std::ops::Range;
++use unicode_segmentation::UnicodeSegmentation;
++
++pub const HISTORY_BYTES: usize = 8 * 1024 * 1024;
++
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub enum EditorMode {
++    #[default]
++    Insert,
++    Normal,
++    ReadOnly,
++}
++impl EditorMode {
++    pub fn accepts_text(self) -> bool {
++        self == Self::Insert
++    }
++    pub fn routes_keys(self) -> bool {
++        self == Self::Normal
++    }
++}
++
++#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub enum Direction {
++    Forward,
++    Backward,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct TextSnapshot {
++    pub text: String,
++    pub start: usize,
++    pub end: usize,
++    pub direction: Direction,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct EditorSnapshot {
++    pub version: u32,
++    pub current: TextSnapshot,
++    pub undo: Vec<TextSnapshot>,
++    pub redo: Vec<TextSnapshot>,
++    pub scroll_top: f32,
++    pub scroll_left: f32,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
++pub enum EditorCommand {
++    GetState,
++    GetSnapshot,
++    SetMode {
++        mode: EditorMode,
++    },
++    SetSelection {
++        revision: u64,
++        start: usize,
++        end: usize,
++        direction: Direction,
++    },
++    ReplaceRange {
++        revision: u64,
++        start: usize,
++        end: usize,
++        text: String,
++        selection: Option<TextSelection>,
++    },
++    Undo {
++        revision: u64,
++    },
++    Redo {
++        revision: u64,
++    },
++    SetViewport {
++        top: f32,
++        left: f32,
++    },
++    RestoreSnapshot {
++        revision: u64,
++        snapshot: EditorSnapshot,
++    },
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct TextSelection {
++    pub start: usize,
++    pub end: usize,
++    pub direction: Direction,
++}
++
++pub fn checked_offset(text: &str, offset: usize) -> Result<usize, String> {
++    let mut units = 0;
++    for (byte, ch) in text.char_indices() {
++        if units == offset {
++            return Ok(byte);
++        }
++        units += ch.len_utf16();
++        if units > offset {
++            return Err("UTF-16 offset splits a surrogate pair".into());
++        }
++    }
++    if units == offset {
++        Ok(text.len())
++    } else {
++        Err("UTF-16 offset exceeds text length".into())
++    }
++}
++
++pub fn checked_range(text: &str, start: usize, end: usize) -> Result<Range<usize>, String> {
++    if start > end {
++        return Err("Selection start exceeds end".into());
++    }
++    let start = checked_offset(text, start)?;
++    let end = checked_offset(text, end)?;
++    for offset in [start, end] {
++        if offset != text.len()
++            && !text
++                .grapheme_indices(true)
++                .any(|(index, _)| index == offset)
++        {
++            return Err("Range splits an extended grapheme cluster".into());
++        }
++    }
++    Ok(start..end)
++}
++
++pub fn next_grapheme_boundary(text: &str, byte: usize) -> usize {
++    text.grapheme_indices(true)
++        .map(|(index, _)| index)
++        .find(|index| *index >= byte)
++        .unwrap_or(text.len())
++}
++
++pub fn check_revision(actual: u64, expected: u64, composing: bool) -> Result<(), String> {
++    if actual != expected {
++        return Err("Stale editor revision".into());
++    }
++    if composing {
++        return Err("Editor owns an active IME composition".into());
++    }
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn utf16_rejects_surrogates_and_out_of_bounds() {
++        let text = "a😀e\u{301}中";
++        assert_eq!(checked_offset(text, 0), Ok(0));
++        assert_eq!(checked_offset(text, 1), Ok(1));
++        assert!(checked_offset(text, 2).is_err());
++        assert_eq!(checked_offset(text, 3), Ok(5));
++        assert!(checked_offset(text, 7).is_err());
++        assert_eq!(checked_offset(text, 6), Ok(text.len()));
++    }
++
++    #[test]
++    fn commands_keep_graphemes_whole() {
++        assert!(checked_range("e\u{301}😀", 0, 1).is_err());
++        assert_eq!(checked_range("e\u{301}😀", 0, 2), Ok(0..3));
++        assert!(checked_range("abc", 2, 1).is_err());
++    }
++
++    #[test]
++    fn caret_stays_after_a_joined_grapheme() {
++        assert_eq!(next_grapheme_boundary("e\u{301}", 1), 3);
++        assert_eq!(
++            next_grapheme_boundary("👩\u{200d}💻", "👩\u{200d}".len()),
++            "👩\u{200d}💻".len()
++        );
++        assert_eq!(next_grapheme_boundary("abc", 1), 1);
++        assert_eq!(next_grapheme_boundary("", 0), 0);
++    }
++
++    #[test]
++    fn command_wire_format_is_strict() {
++        assert!(
++            serde_json::from_str::<EditorCommand>(r#"{"type":"setMode","mode":"normal"}"#).is_ok()
++        );
++        assert!(
++            serde_json::from_str::<EditorCommand>(r#"{"type":"setMode","mode":"wrong"}"#).is_err()
++        );
++        assert!(serde_json::from_str::<EditorCommand>(
++            r#"{"type":"setSelection","revision":1,"start":-1,"end":0,"direction":"forward"}"#
++        )
++        .is_err());
++    }
++
++    #[test]
++    fn revision_and_composition_guards_precede_mutation() {
++        assert!(check_revision(4, 3, false).is_err());
++        assert!(check_revision(4, 4, true).is_err());
++        assert!(check_revision(4, 4, false).is_ok());
++    }
++
++    #[test]
++    fn modal_routing_preserves_insert_and_read_only() {
++        assert!(EditorMode::Insert.accepts_text());
++        assert!(!EditorMode::Normal.accepts_text());
++        assert!(!EditorMode::ReadOnly.accepts_text());
++        assert!(EditorMode::Normal.routes_keys());
++        assert!(!EditorMode::ReadOnly.routes_keys());
++    }
++}
