@@ -1,60 +1,83 @@
-import { useRef, useState, useSyncExternalStore } from "react";
-import { useGpuixRequired, useWindowSize, type KeyEvent, type PublicInstance } from "@gpuix/react";
-import { homedir } from "node:os";
-import { spawn } from "node:child_process";
-import type { NotesStore } from "@/store";
-import { palettes, inputStyle } from "@/theme";
-import { registerFonts } from "@/fonts";
-import { Sidebar, type View } from "@/components/sidebar";
-import { NoteList } from "@/components/note-list";
-import { Editor, type EditorMode } from "@/components/editor";
-import { AppDialog, type DialogState } from "@/components/dialog";
-import { Button, Label } from "@/components/ui/controls";
-import { Icon } from "@/components/ui/icons";
+import {
+  useGpuixRequired,
+  useWindowSize,
+  type KeyEvent,
+  type PublicInstance,
+} from "@gpuix/react"
+import { spawn } from "node:child_process"
+import { homedir } from "node:os"
+import { useRef, useState, useSyncExternalStore } from "react"
 
-interface Draft { title?: string; body?: string }
+import type { NotesStore } from "@/store"
 
-function attempt(action: () => void) {
-  try { action();
+import { AppDialog, type DialogState } from "@/components/dialog"
+import { Editor, type EditorMode } from "@/components/editor"
+import { NoteList } from "@/components/note-list"
+import { Sidebar, type View } from "@/components/sidebar"
+import { Button, Label } from "@/components/ui/controls"
+import { Icon } from "@/components/ui/icons"
+import { registerFonts } from "@/fonts"
+import { palettes, inputStyle } from "@/theme"
 
-    return ""; }
-  catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
+interface Draft {
+  title?: string
+  body?: string
 }
 
-export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory: string }) {
+function attempt(action: () => void) {
+  try {
+    action()
+
+    return ""
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : String(cause)
+  }
+}
+
+export function App({
+  store,
+  dataDirectory,
+}: {
+  store: NotesStore
+  dataDirectory: string
+}) {
   const workspace = useSyncExternalStore(
     (listener) => store.subscribe(listener),
     () => store.getSnapshot(),
-  );
+  )
 
-  const [view, setView] = useState<View>({ kind: "all" });
-  const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<EditorMode>("edit");
-  const [focusMode, setFocusMode] = useState(false);
-  const [navigationOpen, setNavigationOpen] = useState(false);
-  const [mobileEditor, setMobileEditor] = useState(false);
-  const [oldestFirst, setOldestFirst] = useState(false);
-  const [dialog, setDialog] = useState<DialogState | null>(null);
-  const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const searchRef = useRef<PublicInstance>(null);
-  const renderer = useGpuixRequired();
-  const { width } = useWindowSize();
-  const narrow = width < 780;
-  const showSidebar = !focusMode && (width >= 1120 || navigationOpen);
-  const color = palettes[workspace.theme];
-  const search = query.trim().toLocaleLowerCase();
+  const [view, setView] = useState<View>({ kind: "all" })
+  const [query, setQuery] = useState("")
+  const [mode, setMode] = useState<EditorMode>("edit")
+  const [focusMode, setFocusMode] = useState(false)
+  const [navigationOpen, setNavigationOpen] = useState(false)
+  const [mobileEditor, setMobileEditor] = useState(false)
+  const [oldestFirst, setOldestFirst] = useState(false)
+  const [dialog, setDialog] = useState<DialogState | null>(null)
+  const [notice, setNotice] = useState("")
+  const [error, setError] = useState("")
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
+  const searchRef = useRef<PublicInstance>(null)
+  const renderer = useGpuixRequired()
+  const { width } = useWindowSize()
+  const narrow = width < 780
+  const showSidebar = !focusMode && (width >= 1120 || navigationOpen)
+  const color = palettes[workspace.theme]
+  const search = query.trim().toLocaleLowerCase()
 
   const notes = workspace.notes
     .filter((note) => {
-      if (view.kind === "trash" ? !note.trashedAt : note.trashedAt) return false;
+      if (view.kind === "trash" ? !note.trashedAt : note.trashedAt) return false
 
-      if (view.kind === "pinned" && !note.pinned) return false;
+      if (view.kind === "pinned" && !note.pinned) return false
 
-      if (view.kind === "notebook" && note.notebookId !== view.notebookId) return false;
+      if (view.kind === "notebook" && note.notebookId !== view.notebookId)
+        return false
 
-      return !search || `${note.title}\n${note.body}`.toLocaleLowerCase().includes(search);
+      return (
+        !search ||
+        `${note.title}\n${note.body}`.toLocaleLowerCase().includes(search)
+      )
     })
     .sort(
       (a, b) =>
@@ -63,170 +86,203 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
           ? a.updatedAt.localeCompare(b.updatedAt)
           : b.updatedAt.localeCompare(a.updatedAt)) ||
         a.id.localeCompare(b.id),
-    );
+    )
 
-  const selected = notes.find((note) => note.id === workspace.selectedNoteId) ?? notes[0];
-  const note = selected ? { ...selected, ...drafts[selected.id] } : undefined;
-  const notebook = workspace.notebooks.find((item) => item.id === note?.notebookId);
+  const selected =
+    notes.find((note) => note.id === workspace.selectedNoteId) ?? notes[0]
+  const note = selected ? { ...selected, ...drafts[selected.id] } : undefined
+  const notebook = workspace.notebooks.find(
+    (item) => item.id === note?.notebookId,
+  )
 
   const title =
     view.kind === "notebook"
-      ? (workspace.notebooks.find((item) => item.id === view.notebookId)?.name ?? "Notebook")
+      ? (workspace.notebooks.find((item) => item.id === view.notebookId)
+          ?.name ?? "Notebook")
       : view.kind === "pinned"
         ? "Pinned notes"
         : view.kind === "trash"
           ? "Trash"
-          : "All notes";
+          : "All notes"
 
   function newNote() {
-    setError(attempt(() => {
-      const created = store.createNote(view.kind === "notebook" ? view.notebookId : undefined);
-      store.selectNote(created.id);
+    setError(
+      attempt(() => {
+        const created = store.createNote(
+          view.kind === "notebook" ? view.notebookId : undefined,
+        )
+        store.selectNote(created.id)
 
-      if (view.kind === "trash" || view.kind === "pinned") setView({ kind: "all" });
-      setQuery("");
-      setMode("edit");
-      setMobileEditor(true);
-      setNavigationOpen(false);
-    }));
+        if (view.kind === "trash" || view.kind === "pinned")
+          setView({ kind: "all" })
+        setQuery("")
+        setMode("edit")
+        setMobileEditor(true)
+        setNavigationOpen(false)
+      }),
+    )
   }
 
   function changeNote(patch: Draft) {
-    if (!note || note.trashedAt) return;
-    const id = note.id;
-    const pending = { ...drafts[id], ...patch };
-    setDrafts((current) => ({ ...current, [id]: pending }));
-    setError(attempt(() => {
-      store.updateNote(id, pending);
-      setDrafts((current) => {
-        const next = { ...current };
-        delete next[id];
+    if (!note || note.trashedAt) return
+    const id = note.id
+    const pending = { ...drafts[id], ...patch }
+    setDrafts((current) => ({ ...current, [id]: pending }))
+    setError(
+      attempt(() => {
+        store.updateNote(id, pending)
+        setDrafts((current) => {
+          const next = { ...current }
+          delete next[id]
 
-        return next;
-      });
-    }));
+          return next
+        })
+      }),
+    )
   }
 
   function retry() {
-    setError(attempt(() => {
-      for (const [id, draft] of Object.entries(drafts)) store.updateNote(id, draft);
-      setDrafts({});
-    }));
+    setError(
+      attempt(() => {
+        for (const [id, draft] of Object.entries(drafts))
+          store.updateNote(id, draft)
+        setDrafts({})
+      }),
+    )
   }
 
   function openSearch() {
-    setFocusMode(false);
-    setMobileEditor(false);
+    setFocusMode(false)
+    setMobileEditor(false)
 
-    if (searchRef.current) renderer.focusElement?.(searchRef.current.id);
+    if (searchRef.current) renderer.focusElement?.(searchRef.current.id)
   }
 
   function onKeyDown(event: KeyEvent) {
-    if (dialog || !(event.modifiers?.cmd || event.modifiers?.ctrl)) return;
-    const key = event.key?.toLowerCase();
+    if (dialog || !(event.modifiers?.cmd || event.modifiers?.ctrl)) return
+    const key = event.key?.toLowerCase()
 
     if (key === "n") {
-      event.preventDefault();
-      newNote();
+      event.preventDefault()
+      newNote()
     } else if ((key === "p" && !event.modifiers?.shift) || key === "k") {
-      event.preventDefault();
-      openSearch();
+      event.preventDefault()
+      openSearch()
     } else if (key === "p" && event.modifiers?.shift) {
-      event.preventDefault();
-      setMode(mode === "preview" ? "edit" : "preview");
+      event.preventDefault()
+      setMode(mode === "preview" ? "edit" : "preview")
     } else if (key === "f" && event.modifiers?.shift) {
-      event.preventDefault();
-      setFocusMode(!focusMode);
+      event.preventDefault()
+      setFocusMode(!focusMode)
     } else if (key === "o") {
-      event.preventDefault();
-      setDialog({ kind: "import" });
+      event.preventDefault()
+      setDialog({ kind: "import" })
     } else if (key === "4" || key === "5" || key === "6") {
-      event.preventDefault();
-      setMode(key === "4" ? "edit" : key === "5" ? "split" : "preview");
+      event.preventDefault()
+      setMode(key === "4" ? "edit" : key === "5" ? "split" : "preview")
     } else if (key === "s") {
-      event.preventDefault();
-      retry();
+      event.preventDefault()
+      retry()
     }
   }
 
   function importFiles(paths: string[]) {
-    setError(attempt(() => {
-      const imported = store.importMarkdown(
-        paths,
-        view.kind === "notebook" ? view.notebookId : undefined,
-      );
+    setError(
+      attempt(() => {
+        const imported = store.importMarkdown(
+          paths,
+          view.kind === "notebook" ? view.notebookId : undefined,
+        )
 
-      if (imported[0]) store.selectNote(imported[0].id);
-      setView({ kind: "all" });
-      setQuery("");
-      setMode("edit");
-      setNotice(
-        `Imported ${imported.length} ${imported.length === 1 ? "note" : "notes"}. Original files unchanged.`,
-      );
-    }));
+        if (imported[0]) store.selectNote(imported[0].id)
+        setView({ kind: "all" })
+        setQuery("")
+        setMode("edit")
+        setNotice(
+          `Imported ${imported.length} ${imported.length === 1 ? "note" : "notes"}. Original files unchanged.`,
+        )
+      }),
+    )
   }
 
   function confirmDialog(value: string) {
-    if (!dialog) return;
+    if (!dialog) return
 
     if (dialog.kind === "notebook") {
-      const created = store.createNotebook(value);
-      setView({ kind: "notebook", notebookId: created.id });
-      setQuery("");
-    } else if (dialog.kind === "rename") store.renameNotebook(dialog.id, value);
-    else if (dialog.kind === "move") store.updateNote(dialog.id, { notebookId: value });
+      const created = store.createNotebook(value)
+      setView({ kind: "notebook", notebookId: created.id })
+      setQuery("")
+    } else if (dialog.kind === "rename") store.renameNotebook(dialog.id, value)
+    else if (dialog.kind === "move")
+      store.updateNote(dialog.id, { notebookId: value })
     else if (dialog.kind === "import") {
       const imported = store.importMarkdown(
         [value],
         view.kind === "notebook" ? view.notebookId : undefined,
-      );
+      )
 
-      if (imported[0]) store.selectNote(imported[0].id);
-      setView({ kind: "all" });
-      setQuery("");
-      setMode("edit");
-      setNotice("Markdown imported. Original file unchanged.");
+      if (imported[0]) store.selectNote(imported[0].id)
+      setView({ kind: "all" })
+      setQuery("")
+      setMode("edit")
+      setNotice("Markdown imported. Original file unchanged.")
     } else if (dialog.kind === "export") {
-      const draft = drafts[dialog.id];
+      const draft = drafts[dialog.id]
 
-      if (draft) store.updateNote(dialog.id, draft);
-      const destination = store.exportMarkdown(dialog.id, value || homedir());
-      setNotice(`Exported to ${destination}`);
-    } else if (dialog.kind === "delete") store.deleteNote(dialog.id);
-    setDialog(null);
+      if (draft) store.updateNote(dialog.id, draft)
+      const destination = store.exportMarkdown(dialog.id, value || homedir())
+      setNotice(`Exported to ${destination}`)
+    } else if (dialog.kind === "delete") store.deleteNote(dialog.id)
+    setDialog(null)
   }
 
   function openLink(value: string) {
-    setError(attempt(() => {
-      const url = new URL(value);
+    setError(
+      attempt(() => {
+        const url = new URL(value)
 
-      if (url.protocol !== "https:" && url.protocol !== "http:" && url.protocol !== "mailto:")
-        throw new Error("Only http, https and mailto links can open outside Still Notes.");
+        if (
+          url.protocol !== "https:" &&
+          url.protocol !== "http:" &&
+          url.protocol !== "mailto:"
+        )
+          throw new Error(
+            "Only http, https and mailto links can open outside Still Notes.",
+          )
 
-      const command =
-        process.platform === "darwin"
-          ? "open"
-          : process.platform === "win32"
-            ? "rundll32"
-            : "xdg-open";
+        const command =
+          process.platform === "darwin"
+            ? "open"
+            : process.platform === "win32"
+              ? "rundll32"
+              : "xdg-open"
 
-      const args =
-        process.platform === "win32" ? ["url.dll,FileProtocolHandler", url.href] : [url.href];
+        const args =
+          process.platform === "win32"
+            ? ["url.dll,FileProtocolHandler", url.href]
+            : [url.href]
 
-      const child = spawn(command, args, { stdio: "ignore", detached: true, shell: false });
-      child.on("error", (cause) => setError(`Could not open link: ${cause.message}`));
-      child.on("exit", (code) => {
-        if (code) setError(`Link opener exited with code ${code}.`);
-      });
-      child.unref();
-    }));
+        const child = spawn(command, args, {
+          stdio: "ignore",
+          detached: true,
+          shell: false,
+        })
+        child.on("error", (cause) =>
+          setError(`Could not open link: ${cause.message}`),
+        )
+        child.on("exit", (code) => {
+          if (code) setError(`Link opener exited with code ${code}.`)
+        })
+        child.unref()
+      }),
+    )
   }
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Native root receives bubbled keyboard commands and file drops.
     <div
       ref={(instance) => {
-        if (instance) registerFonts(renderer);
+        if (instance) registerFonts(renderer)
       }}
       testId="app"
       role="application"
@@ -243,7 +299,14 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
         fontFamily: "Inter",
       }}
     >
-      <div style={{ display: "flex", flexDirection: "row", flexGrow: 1, minHeight: 0 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          flexGrow: 1,
+          minHeight: 0,
+        }}
+      >
         {showSidebar && (
           <Sidebar
             color={color}
@@ -251,13 +314,15 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
             notes={workspace.notes}
             view={view}
             onView={(next) => {
-              setView(next);
-              setQuery("");
-              setNavigationOpen(false);
-              setMobileEditor(false);
+              setView(next)
+              setQuery("")
+              setNavigationOpen(false)
+              setMobileEditor(false)
             }}
             onNewNotebook={() => setDialog({ kind: "notebook" })}
-            onRename={(item) => setDialog({ kind: "rename", id: item.id, name: item.name })}
+            onRename={(item) =>
+              setDialog({ kind: "rename", id: item.id, name: item.name })
+            }
             onImport={() => setDialog({ kind: "import" })}
           />
         )}
@@ -285,15 +350,22 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
               paddingRight: 4,
             }}
           >
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
               {!showSidebar && (
                 <Button
                   color={color}
                   icon="menu"
                   label="Show notebooks"
                   onClick={() => {
-                    setFocusMode(false);
-                    setNavigationOpen(true);
+                    setFocusMode(false)
+                    setNavigationOpen(true)
                   }}
                 />
               )}
@@ -327,9 +399,9 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                 value={query}
                 placeholder="Search your notes…"
                 onChange={(event) => {
-                  setQuery(event.value ?? "");
-                  setMobileEditor(false);
-                  setFocusMode(false);
+                  setQuery(event.value ?? "")
+                  setMobileEditor(false)
+                  setFocusMode(false)
                 }}
                 style={{
                   ...inputStyle(color),
@@ -359,10 +431,20 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
               <Button
                 color={color}
                 icon={workspace.theme === "light" ? "moon" : "sun"}
-                label={workspace.theme === "light" ? "Use dark theme" : "Use light theme"}
+                label={
+                  workspace.theme === "light"
+                    ? "Use dark theme"
+                    : "Use light theme"
+                }
                 testId="theme-toggle"
                 onClick={() =>
-                  setError(attempt(() => store.setTheme(workspace.theme === "light" ? "dark" : "light")))
+                  setError(
+                    attempt(() =>
+                      store.setTheme(
+                        workspace.theme === "light" ? "dark" : "light",
+                      ),
+                    ),
+                  )
                 }
               />
               <Button
@@ -391,7 +473,12 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
               }}
             >
               <text
-                style={{ color: color.destructive, fontFamily: "Inter", fontSize: 12, flexGrow: 1 }}
+                style={{
+                  color: color.destructive,
+                  fontFamily: "Inter",
+                  fontSize: 12,
+                  flexGrow: 1,
+                }}
               >{`${error}${Object.keys(drafts).length ? " Your edits remain in this window. Retry before closing." : ""}`}</text>
               {Object.keys(drafts).length > 0 && (
                 <Button color={color} onClick={retry}>
@@ -424,8 +511,13 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
               <text
                 testId="notice"
                 // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
-      role="status"
-                style={{ color: color.foreground, fontFamily: "Inter", fontSize: 12, flexGrow: 1 }}
+                role="status"
+                style={{
+                  color: color.foreground,
+                  fontFamily: "Inter",
+                  fontSize: 12,
+                  flexGrow: 1,
+                }}
               >
                 {notice}
               </text>
@@ -458,10 +550,12 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                 title={title}
                 query={query}
                 onSelect={(id) =>
-                  setError(attempt(() => {
-                    store.selectNote(id);
-                    setMobileEditor(true);
-                  }))
+                  setError(
+                    attempt(() => {
+                      store.selectNote(id)
+                      setMobileEditor(true)
+                    }),
+                  )
                 }
                 onNew={newNote}
                 trash={view.kind === "trash"}
@@ -479,25 +573,31 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                 onChange={changeNote}
                 onPin={() => setError(attempt(() => store.togglePin(note.id)))}
                 onTrash={() =>
-                  setError(attempt(() => {
-                    store.trashNote(note.id);
-                    setMobileEditor(false);
-                  }))
+                  setError(
+                    attempt(() => {
+                      store.trashNote(note.id)
+                      setMobileEditor(false)
+                    }),
+                  )
                 }
                 onRestore={() =>
-                  setError(attempt(() => {
-                    store.restoreNote(note.id);
-                    setView({ kind: "all" });
-                  }))
+                  setError(
+                    attempt(() => {
+                      store.restoreNote(note.id)
+                      setView({ kind: "all" })
+                    }),
+                  )
                 }
-                onDelete={() => setDialog({ kind: "delete", id: note.id, title: note.title })}
+                onDelete={() =>
+                  setDialog({ kind: "delete", id: note.id, title: note.title })
+                }
                 onExport={() => setDialog({ kind: "export", id: note.id })}
                 onMove={() => setDialog({ kind: "move", id: note.id })}
                 onLink={openLink}
                 focusMode={focusMode}
                 onFocusMode={() => {
-                  setFocusMode(!focusMode);
-                  setNavigationOpen(false);
+                  setFocusMode(!focusMode)
+                  setNavigationOpen(false)
                 }}
                 dirty={Boolean(drafts[note.id])}
                 narrow={narrow}
@@ -530,7 +630,12 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                       : "Select a note, or put your first thought on a page."}
                   </Label>
                   {view.kind !== "trash" && (
-                    <Button color={color} icon="plus" variant="primary" onClick={newNote}>
+                    <Button
+                      color={color}
+                      icon="plus"
+                      variant="primary"
+                      onClick={newNote}
+                    >
                       Write a note
                     </Button>
                   )}
@@ -552,5 +657,5 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
         />
       )}
     </div>
-  );
+  )
 }

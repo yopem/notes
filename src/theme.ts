@@ -1,22 +1,22 @@
-import type { GpuixTheme, StyleDesc } from "@gpuix/react";
+import type { GpuixTheme, StyleDesc } from "@gpuix/react"
 
 export interface Palette {
-  appearance: "light" | "dark";
-  background: string;
-  foreground: string;
-  sidebar: string;
-  primary: string;
-  primaryForeground: string;
-  primaryHover: string;
-  secondary: string;
-  muted: string;
-  mutedForeground: string;
-  accent: string;
-  border: string;
-  input: string;
-  ring: string;
-  destructive: string;
-  selection: string;
+  appearance: "light" | "dark"
+  background: string
+  foreground: string
+  sidebar: string
+  primary: string
+  primaryForeground: string
+  primaryHover: string
+  secondary: string
+  muted: string
+  mutedForeground: string
+  accent: string
+  border: string
+  input: string
+  ring: string
+  destructive: string
+  selection: string
 }
 
 // Yopem UI base registry, commit 9b8a61b. Alpha tokens stay translucent.
@@ -57,7 +57,7 @@ export const palettes: Record<"light" | "dark", Palette> = {
     destructive: "#ff6467",
     selection: "#ffffff26",
   },
-};
+}
 
 export function inputStyle(color: Palette): StyleDesc {
   return {
@@ -72,8 +72,12 @@ export function inputStyle(color: Palette): StyleDesc {
     borderWidth: 1,
     borderColor: color.input,
     borderRadius: 12,
-    focusVisible: { outlineColor: color.ring, outlineWidth: 2, outlineOffset: 1 },
-  };
+    focusVisible: {
+      outlineColor: color.ring,
+      outlineWidth: 2,
+      outlineOffset: 1,
+    },
+  }
 }
 
 export function nativeTheme(color: Palette): GpuixTheme {
@@ -90,5 +94,5 @@ export function nativeTheme(color: Palette): GpuixTheme {
     fontSans: "Inter",
     fontMono: "IBM Plex Mono",
     metrics: { mdHeadingSizes: [28, 24, 20, 18] },
-  };
+  }
 }

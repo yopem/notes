@@ -1,11 +1,12 @@
-import type { Notebook, Note } from "@/store";
-import type { Palette } from "@/theme";
-import { Button, Label, NavItem } from "@/components/ui/controls";
-import { Icon } from "@/components/ui/icons";
+import type { Notebook, Note } from "@/store"
+import type { Palette } from "@/theme"
+
+import { Button, Label, NavItem } from "@/components/ui/controls"
+import { Icon } from "@/components/ui/icons"
 
 export type View =
   | { kind: "all" | "pinned" | "trash" }
-  | { kind: "notebook"; notebookId: string };
+  | { kind: "notebook"; notebookId: string }
 
 export function Sidebar({
   color,
@@ -17,14 +18,14 @@ export function Sidebar({
   onRename,
   onImport,
 }: {
-  color: Palette;
-  notebooks: Notebook[];
-  notes: Note[];
-  view: View;
-  onView: (view: View) => void;
-  onNewNotebook: () => void;
-  onRename: (notebook: Notebook) => void;
-  onImport: () => void;
+  color: Palette
+  notebooks: Notebook[]
+  notes: Note[]
+  view: View
+  onView: (view: View) => void
+  onNewNotebook: () => void
+  onRename: (notebook: Notebook) => void
+  onImport: () => void
 }) {
   return (
     <div
@@ -122,14 +123,22 @@ export function Sidebar({
         {notebooks.map((notebook) => (
           <div
             key={notebook.id}
-            style={{ display: "flex", flexDirection: "row", alignItems: "center" }}
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+            }}
           >
             <div style={{ flexGrow: 1, minWidth: 0 }}>
               <NavItem
                 color={color}
                 icon="book"
-                selected={view.kind === "notebook" && view.notebookId === notebook.id}
-                onClick={() => onView({ kind: "notebook", notebookId: notebook.id })}
+                selected={
+                  view.kind === "notebook" && view.notebookId === notebook.id
+                }
+                onClick={() =>
+                  onView({ kind: "notebook", notebookId: notebook.id })
+                }
               >
                 {notebook.name}
               </NavItem>
@@ -148,8 +157,23 @@ export function Sidebar({
       <Button color={color} icon="upload" testId="import" onClick={onImport}>
         Import Markdown
       </Button>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 12, marginTop: 12 }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          padding: 12,
+          marginTop: 12,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <Icon name="check" color={color.mutedForeground} size={14} />
           <Label color={color} size={12}>
             On this device
@@ -162,5 +186,5 @@ export function Sidebar({
         >{`${notes.filter((note) => !note.trashedAt).length} notes · No account needed`}</Label>
       </div>
     </div>
-  );
+  )
 }

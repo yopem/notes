@@ -1,8 +1,10 @@
-import { Button as NativeButton } from "@gpuix/react/button";
-import type { Note } from "@/store";
-import type { Palette } from "@/theme";
-import { Button, Label } from "@/components/ui/controls";
-import { Icon } from "@/components/ui/icons";
+import { Button as NativeButton } from "@gpuix/react/button"
+
+import type { Note } from "@/store"
+import type { Palette } from "@/theme"
+
+import { Button, Label } from "@/components/ui/controls"
+import { Icon } from "@/components/ui/icons"
 
 export function NoteList({
   color,
@@ -16,16 +18,16 @@ export function NoteList({
   oldestFirst,
   onSort,
 }: {
-  color: Palette;
-  notes: Note[];
-  selectedId?: string;
-  title: string;
-  query: string;
-  onSelect: (id: string) => void;
-  onNew: () => void;
-  trash: boolean;
-  oldestFirst: boolean;
-  onSort: () => void;
+  color: Palette
+  notes: Note[]
+  selectedId?: string
+  title: string
+  query: string
+  onSelect: (id: string) => void
+  onNew: () => void
+  trash: boolean
+  oldestFirst: boolean
+  onSort: () => void
 }) {
   return (
     <div
@@ -43,7 +45,13 @@ export function NoteList({
       }}
     >
       <div
-        style={{ padding: 20, paddingBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}
+        style={{
+          padding: 20,
+          paddingBottom: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
       >
         <div
           style={{
@@ -56,7 +64,7 @@ export function NoteList({
         >
           <text
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
-      role="heading"
+            role="heading"
             aria-level={1}
             style={{
               color: color.foreground,
@@ -89,7 +97,11 @@ export function NoteList({
         >
           <text
             testId="note-count"
-            style={{ color: color.mutedForeground, fontFamily: "Inter", fontSize: 12 }}
+            style={{
+              color: color.mutedForeground,
+              fontFamily: "Inter",
+              fontSize: 12,
+            }}
           >{`${notes.length} ${notes.length === 1 ? "note" : "notes"}`}</text>
           <Button color={color} label="Change sort order" onClick={onSort}>
             {oldestFirst ? "Oldest first" : "Last edited"}
@@ -98,7 +110,12 @@ export function NoteList({
       </div>
       <virtual-list
         estimatedItemHeight={116}
-        style={{ flexGrow: 1, minHeight: 0, padding: 8, scrollbarColor: color.border }}
+        style={{
+          flexGrow: 1,
+          minHeight: 0,
+          padding: 8,
+          scrollbarColor: color.border,
+        }}
       >
         {notes.map((note) => (
           <NativeButton
@@ -115,13 +132,25 @@ export function NoteList({
               marginBottom: 4,
               minHeight: 112,
               borderRadius: 12,
-              backgroundColor: selectedId === note.id ? color.accent : "transparent",
+              backgroundColor:
+                selectedId === note.id ? color.accent : "transparent",
               cursor: "pointer",
               hover: { backgroundColor: color.muted },
-              focusVisible: { outlineWidth: 2, outlineColor: color.ring, outlineOffset: -2 },
+              focusVisible: {
+                outlineWidth: 2,
+                outlineColor: color.ring,
+                outlineOffset: -2,
+              },
             }}
           >
-            <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
               <text
                 style={{
                   color: color.foreground,
@@ -135,7 +164,9 @@ export function NoteList({
               >
                 {note.title || "Untitled"}
               </text>
-              {note.pinned && <Icon name="pin" size={13} color={color.mutedForeground} />}
+              {note.pinned && (
+                <Icon name="pin" size={13} color={color.mutedForeground} />
+              )}
             </div>
             <text
               style={{
@@ -162,9 +193,20 @@ export function NoteList({
         ))}
       </virtual-list>
       {notes.length === 0 && (
-        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div
+          style={{
+            padding: 24,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
           <Label color={color} weight={500}>
-            {query ? "No matching notes" : trash ? "Trash is empty" : "A fresh page awaits"}
+            {query
+              ? "No matching notes"
+              : trash
+                ? "Trash is empty"
+                : "A fresh page awaits"}
           </Label>
           <Label color={color} size={12} muted>
             {query
@@ -181,5 +223,5 @@ export function NoteList({
         </div>
       )}
     </div>
-  );
+  )
 }

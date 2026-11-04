@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
-import * as Dialog from "@gpuix/react/dialog";
-import { useGpuixRequired, type PublicInstance } from "@gpuix/react";
-import { Button, Label } from "@/components/ui/controls";
-import { inputStyle, type Palette } from "@/theme";
+import { useGpuixRequired, type PublicInstance } from "@gpuix/react"
+import * as Dialog from "@gpuix/react/dialog"
+import { useRef, useState } from "react"
+
+import { Button, Label } from "@/components/ui/controls"
+import { inputStyle, type Palette } from "@/theme"
 
 export type DialogState =
   | { kind: "notebook" }
@@ -11,7 +12,7 @@ export type DialogState =
   | { kind: "import" }
   | { kind: "export"; id: string }
   | { kind: "delete"; id: string; title: string }
-  | { kind: "help" };
+  | { kind: "help" }
 
 export function AppDialog({
   state,
@@ -21,20 +22,24 @@ export function AppDialog({
   notebooks,
   dataDirectory,
 }: {
-  state: DialogState;
-  color: Palette;
-  onClose: () => void;
-  onConfirm: (value: string) => void;
-  notebooks: { id: string; name: string }[];
-  dataDirectory: string;
+  state: DialogState
+  color: Palette
+  onClose: () => void
+  onConfirm: (value: string) => void
+  notebooks: { id: string; name: string }[]
+  dataDirectory: string
 }) {
   const [value, setValue] = useState(
-    state.kind === "rename" ? state.name : state.kind === "export" ? dataDirectory : "",
-  );
+    state.kind === "rename"
+      ? state.name
+      : state.kind === "export"
+        ? dataDirectory
+        : "",
+  )
 
-  const [error, setError] = useState("");
-  const inputRef = useRef<PublicInstance>(null);
-  const renderer = useGpuixRequired();
+  const [error, setError] = useState("")
+  const inputRef = useRef<PublicInstance>(null)
+  const renderer = useGpuixRequired()
 
   const title =
     state.kind === "notebook"
@@ -49,13 +54,13 @@ export function AppDialog({
               ? "Export Markdown"
               : state.kind === "delete"
                 ? "Delete note permanently?"
-                : "Make room for your thoughts";
+                : "Make room for your thoughts"
 
   function confirm() {
     try {
-      onConfirm(value);
+      onConfirm(value)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -66,11 +71,11 @@ export function AppDialog({
         directories: state.kind === "export",
         multiple: false,
         prompt: state.kind === "import" ? "Import" : "Export here",
-      });
+      })
 
-      if (paths?.[0]) setValue(paths[0]);
+      if (paths?.[0]) setValue(paths[0])
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -78,14 +83,16 @@ export function AppDialog({
     <Dialog.Root
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) onClose()
       }}
     >
       <Dialog.Portal>
         <Dialog.Backdrop style={{ backgroundColor: "#00000066" }} />
         <Dialog.Popup
           initialFocus={
-            state.kind === "help" || state.kind === "delete" || state.kind === "move"
+            state.kind === "help" ||
+            state.kind === "delete" ||
+            state.kind === "move"
               ? true
               : inputRef
           }
@@ -134,7 +141,9 @@ export function AppDialog({
                   Native Markdown notebooks. Your words stay on this device.
                 </Label>
               </Dialog.Description>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
                 {[
                   ["New note", "N"],
                   ["Search notes", "P / K"],
@@ -158,13 +167,17 @@ export function AppDialog({
                 ))}
               </div>
               <Label color={color} size={12} muted>
-                Markdown supports headings, lists, tasks, tables, links and code. Drag .md files
-                into the window to import them.
+                Markdown supports headings, lists, tasks, tables, links and
+                code. Drag .md files into the window to import them.
               </Label>
-              <Label color={color} size={12} muted>{`Data location: ${dataDirectory}`}</Label>
+              <Label
+                color={color}
+                size={12}
+                muted
+              >{`Data location: ${dataDirectory}`}</Label>
               <Label color={color} size={12} muted>
-                Still Notes · GPUix + Bun · Yopem UI design values. Independent implementation
-                inspired by ZenNotes.
+                Still Notes · GPUix + Bun · Yopem UI design values. Independent
+                implementation inspired by ZenNotes.
               </Label>
             </div>
           ) : state.kind === "move" ? (
@@ -212,7 +225,12 @@ export function AppDialog({
                 style={inputStyle(color)}
               />
               {(state.kind === "import" || state.kind === "export") && (
-                <Button color={color} icon="folder" variant="outline" onClick={browse}>
+                <Button
+                  color={color}
+                  icon="folder"
+                  variant="outline"
+                  onClick={browse}
+                >
                   Browse…
                 </Button>
               )}
@@ -230,13 +248,24 @@ export function AppDialog({
           {error && (
             <text
               role="alert"
-              style={{ color: color.destructive, fontSize: 13, fontFamily: "Inter" }}
+              style={{
+                color: color.destructive,
+                fontSize: 13,
+                fontFamily: "Inter",
+              }}
             >
               {error}
             </text>
           )}
           {state.kind !== "help" && state.kind !== "move" && (
-            <div style={{ display: "flex", flexDirection: "row", justifyContent: "end", gap: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                justifyContent: "end",
+                gap: 8,
+              }}
+            >
               <Button color={color} onClick={onClose}>
                 Cancel
               </Button>
@@ -259,5 +288,5 @@ export function AppDialog({
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
-  );
+  )
 }

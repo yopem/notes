@@ -1,10 +1,11 @@
-import type { Note } from "@/store";
-import type { Palette } from "@/theme";
-import { nativeTheme } from "@/theme";
-import { Button, Label } from "@/components/ui/controls";
-import { Icon } from "@/components/ui/icons";
+import type { Note } from "@/store"
+import type { Palette } from "@/theme"
 
-export type EditorMode = "edit" | "preview" | "split";
+import { Button, Label } from "@/components/ui/controls"
+import { Icon } from "@/components/ui/icons"
+import { nativeTheme } from "@/theme"
+
+export type EditorMode = "edit" | "preview" | "split"
 
 export function Editor({
   color,
@@ -26,35 +27,41 @@ export function Editor({
   narrow,
   onBack,
 }: {
-  color: Palette;
-  note: Note;
-  notebookName: string;
-  mode: EditorMode;
-  onMode: (mode: EditorMode) => void;
-  onChange: (patch: { title?: string; body?: string }) => void;
-  onPin: () => void;
-  onTrash: () => void;
-  onRestore: () => void;
-  onDelete: () => void;
-  onExport: () => void;
-  onMove: () => void;
-  onLink: (url: string) => void;
-  focusMode: boolean;
-  onFocusMode: () => void;
-  dirty: boolean;
-  narrow: boolean;
-  onBack: () => void;
+  color: Palette
+  note: Note
+  notebookName: string
+  mode: EditorMode
+  onMode: (mode: EditorMode) => void
+  onChange: (patch: { title?: string; body?: string }) => void
+  onPin: () => void
+  onTrash: () => void
+  onRestore: () => void
+  onDelete: () => void
+  onExport: () => void
+  onMove: () => void
+  onLink: (url: string) => void
+  focusMode: boolean
+  onFocusMode: () => void
+  dirty: boolean
+  narrow: boolean
+  onBack: () => void
 }) {
-  const theme = nativeTheme(color);
-  const words = note.body.trim() ? note.body.trim().split(/\s+/u).length : 0;
-  const split = mode === "split" && !narrow;
+  const theme = nativeTheme(color)
+  const words = note.body.trim() ? note.body.trim().split(/\s+/u).length : 0
+  const split = mode === "split" && !narrow
 
   return (
     <div
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
       role="main"
       aria-label="Note editor"
-      style={{ display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0, minHeight: 0 }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flexGrow: 1,
+        minWidth: 0,
+        minHeight: 0,
+      }}
     >
       <div
         style={{
@@ -77,7 +84,14 @@ export function Editor({
             minWidth: 0,
           }}
         >
-          {narrow && <Button color={color} icon="chevron" label="Back to notes" onClick={onBack} />}
+          {narrow && (
+            <Button
+              color={color}
+              icon="chevron"
+              label="Back to notes"
+              onClick={onBack}
+            />
+          )}
           <Icon name="book" color={color.mutedForeground} size={15} />
           <text
             style={{
@@ -90,7 +104,14 @@ export function Editor({
             {notebookName}
           </text>
         </div>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
           <Button
             color={color}
             icon={mode === "preview" ? "edit" : "eye"}
@@ -132,7 +153,12 @@ export function Editor({
           <Label color={color} size={12}>
             This note is in Trash.
           </Label>
-          <Button color={color} icon="restore" testId="restore-note" onClick={onRestore}>
+          <Button
+            color={color}
+            icon="restore"
+            testId="restore-note"
+            onClick={onRestore}
+          >
             Restore
           </Button>
           <Button color={color} variant="danger" onClick={onDelete}>
@@ -257,9 +283,14 @@ export function Editor({
               source={note.body || "*Nothing here yet.*"}
               theme={theme}
               onLinkClick={(event) => {
-                if (event.value) onLink(event.value);
+                if (event.value) onLink(event.value)
               }}
-              style={{ color: color.foreground, fontFamily: "Inter", fontSize: 16, lineHeight: 27 }}
+              style={{
+                color: color.foreground,
+                fontFamily: "Inter",
+                fontSize: 16,
+                lineHeight: 27,
+              }}
             />
           </div>
         )}
@@ -278,7 +309,14 @@ export function Editor({
           gap: 8,
         }}
       >
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
           <Icon
             name={dirty ? "edit" : "check"}
             color={dirty ? color.destructive : color.mutedForeground}
@@ -295,7 +333,14 @@ export function Editor({
             {dirty ? "Not saved · Retry before closing" : "Saved locally"}
           </text>
         </div>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 2,
+          }}
+        >
           {!note.trashedAt && (
             <Button
               color={color}
@@ -306,7 +351,12 @@ export function Editor({
             />
           )}
           {!note.trashedAt && !narrow && (
-            <Button color={color} icon="book" label="Move note to notebook" onClick={onMove} />
+            <Button
+              color={color}
+              icon="book"
+              label="Move note to notebook"
+              onClick={onMove}
+            />
           )}
           <Button
             color={color}
@@ -327,5 +377,5 @@ export function Editor({
         </div>
       </div>
     </div>
-  );
+  )
 }

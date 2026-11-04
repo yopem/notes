@@ -1,7 +1,10 @@
-import type { ReactNode } from "react";
-import { Button as NativeButton } from "@gpuix/react/button";
-import { Icon, type IconName } from "@/components/ui/icons";
-import type { Palette } from "@/theme";
+import type { ReactNode } from "react"
+
+import { Button as NativeButton } from "@gpuix/react/button"
+
+import type { Palette } from "@/theme"
+
+import { Icon, type IconName } from "@/components/ui/icons"
 
 export function Label({
   children,
@@ -10,11 +13,11 @@ export function Label({
   weight = 400,
   muted = false,
 }: {
-  children: ReactNode;
-  color: Palette;
-  size?: number;
-  weight?: number;
-  muted?: boolean;
+  children: ReactNode
+  color: Palette
+  size?: number
+  weight?: number
+  muted?: boolean
 }) {
   return (
     <text
@@ -28,7 +31,7 @@ export function Label({
     >
       {children}
     </text>
-  );
+  )
 }
 
 export function Button({
@@ -41,21 +44,21 @@ export function Button({
   variant = "ghost",
   disabled = false,
 }: {
-  children?: ReactNode;
-  color: Palette;
-  icon?: IconName;
-  onClick: () => void;
-  testId?: string;
-  label?: string;
-  variant?: "ghost" | "primary" | "outline" | "danger";
-  disabled?: boolean;
+  children?: ReactNode
+  color: Palette
+  icon?: IconName
+  onClick: () => void
+  testId?: string
+  label?: string
+  variant?: "ghost" | "primary" | "outline" | "danger"
+  disabled?: boolean
 }) {
   const ink =
     variant === "primary"
       ? color.primaryForeground
       : variant === "danger"
         ? color.destructive
-        : color.foreground;
+        : color.foreground
 
   return (
     <NativeButton
@@ -80,19 +83,36 @@ export function Button({
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
         flexShrink: 0,
-        hover: { backgroundColor: variant === "primary" ? color.primaryHover : color.accent },
-        active: { backgroundColor: variant === "primary" ? color.primary : color.secondary },
-        focusVisible: { outlineWidth: 2, outlineColor: color.ring, outlineOffset: 2 },
+        hover: {
+          backgroundColor:
+            variant === "primary" ? color.primaryHover : color.accent,
+        },
+        active: {
+          backgroundColor:
+            variant === "primary" ? color.primary : color.secondary,
+        },
+        focusVisible: {
+          outlineWidth: 2,
+          outlineColor: color.ring,
+          outlineOffset: 2,
+        },
       }}
     >
       {icon && <Icon name={icon} color={ink} size={16} />}
       {children && (
-        <text style={{ color: ink, fontFamily: "Inter", fontSize: 13, fontWeight: 500 }}>
+        <text
+          style={{
+            color: ink,
+            fontFamily: "Inter",
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+        >
           {children}
         </text>
       )}
     </NativeButton>
-  );
+  )
 }
 
 export function NavItem({
@@ -104,13 +124,13 @@ export function NavItem({
   testId,
   count,
 }: {
-  children: string;
-  color: Palette;
-  icon: IconName;
-  selected: boolean;
-  onClick: () => void;
-  testId?: string;
-  count?: number;
+  children: string
+  color: Palette
+  icon: IconName
+  selected: boolean
+  onClick: () => void
+  testId?: string
+  count?: number
 }) {
   return (
     <NativeButton
@@ -130,10 +150,18 @@ export function NavItem({
         backgroundColor: selected ? color.accent : "transparent",
         cursor: "pointer",
         hover: { backgroundColor: color.accent },
-        focusVisible: { outlineWidth: 2, outlineColor: color.ring, outlineOffset: -2 },
+        focusVisible: {
+          outlineWidth: 2,
+          outlineColor: color.ring,
+          outlineOffset: -2,
+        },
       }}
     >
-      <Icon name={icon} color={selected ? color.foreground : color.mutedForeground} size={17} />
+      <Icon
+        name={icon}
+        color={selected ? color.foreground : color.mutedForeground}
+        size={17}
+      />
       <div style={{ flexGrow: 1, minWidth: 0 }}>
         <text
           style={{
@@ -154,5 +182,5 @@ export function NavItem({
         </Label>
       )}
     </NativeButton>
-  );
+  )
 }

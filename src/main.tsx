@@ -1,17 +1,17 @@
-import { render } from "@gpuix/react";
-import { App } from "@/components/app";
-import { NotesStore, defaultDataDirectory } from "@/store";
-import { RecoveryScreen } from "@/components/recovery-screen";
-import { readEnvironment } from "@/env";
+import { render } from "@gpuix/react"
+
+import { App } from "@/components/app"
+import { RecoveryScreen } from "@/components/recovery-screen"
+import { readEnvironment } from "@/env"
+import { NotesStore, defaultDataDirectory } from "@/store"
 
 declare global {
-  var stillNotesStore: NotesStore | undefined;
+  var stillNotesStore: NotesStore | undefined
 }
 
+const directory = defaultDataDirectory()
 
-const directory = defaultDataDirectory();
-
-const environment = readEnvironment();
+const environment = readEnvironment()
 
 const options = {
   title: "Still Notes",
@@ -20,19 +20,22 @@ const options = {
   height: environment.height,
   focus: !environment.background,
   windowBackground: "opaque" as const,
-};
+}
 
 try {
   if (!globalThis.stillNotesStore) {
-    globalThis.stillNotesStore = new NotesStore(directory);
-    process.once("exit", () => globalThis.stillNotesStore?.close());
-    process.once("SIGTERM", () => process.exit(0));
-    process.once("SIGINT", () => process.exit(0));
+    globalThis.stillNotesStore = new NotesStore(directory)
+    process.once("exit", () => globalThis.stillNotesStore?.close())
+    process.once("SIGTERM", () => process.exit(0))
+    process.once("SIGINT", () => process.exit(0))
   }
 
-  render(<App store={globalThis.stillNotesStore} dataDirectory={directory} />, options);
+  render(
+    <App store={globalThis.stillNotesStore} dataDirectory={directory} />,
+    options,
+  )
 } catch (cause) {
-  const error = cause instanceof Error ? cause.message : String(cause);
-  console.error(error);
-  render(<RecoveryScreen error={error} directory={directory} />, options);
+  const error = cause instanceof Error ? cause.message : String(cause)
+  console.error(error)
+  render(<RecoveryScreen error={error} directory={directory} />, options)
 }

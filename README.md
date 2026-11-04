@@ -1,8 +1,8 @@
 # Still Notes
 
 A local-first native desktop notebook, built with GPUix and Bun. Inspired by
-ZenNotes. Uses Yopem UI design values, translated to native renderer styles.
-No Electron, web view, CSS, or StyleX.
+ZenNotes. Uses Yopem UI design values, translated to native renderer styles. No
+Electron, web view, CSS, or StyleX.
 
 ## Setup
 
