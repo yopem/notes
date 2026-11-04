@@ -334,6 +334,26 @@ describe("recurrence and forwarding", () => {
     expect(body.endsWith("end\r\n")).toBe(true)
   })
 
+  test("forwarding nested and quoted tasks keeps destination work parseable", () => {
+    for (const body of [
+      "- [ ] parent\n\t- [ ] move\n\t  - [ ] child\n",
+      "> [!NOTE]\n> - [ ] move\n>   - [ ] child\n",
+    ]) {
+      const source = note(body)
+      const task = parseTasks(source).find((item) => item.content === "move")
+
+      if (!task) throw new Error("Missing nested fixture")
+      const target = note("# Target\n", "inbox/target.md")
+      const moved = forwardTask(source, task, target)
+      expect(
+        parseTasks(moved.target).map((item) => item.content.split(" ←")[0]),
+      ).toEqual(["move", "child"])
+      expect(parseTasks(moved.target)[1]?.parentId).toBe(
+        parseTasks(moved.target)[0]?.id,
+      )
+    }
+  })
+
   test("invalid recurrence completes once; forwarding is guarded and keeps subtree", () => {
     const { source, task } = first(
       "- [/] Plan due:2024-01-01 @repeat:nope\n  - [ ] child\n",

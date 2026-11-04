@@ -1219,6 +1219,37 @@ export function completeNoteTask(
   return { record, next }
 }
 
+function forwardBlock(block: string) {
+  const quotePrefix = /^(?:[ \t]*>[ \t]?)+/.exec(block)?.[0] ?? ""
+  const depth = (quotePrefix.match(/>/g) ?? []).length
+
+  const indent = columns(
+    /^[ \t]*/.exec(block.slice(quotePrefix.length))?.[0] ?? "",
+  )
+
+  return block
+    .split(/\r?\n/)
+    .map(function unnest(line) {
+      let rest = line
+
+      for (let quote = 0; quote < depth; quote += 1)
+        rest = rest.replace(/^[ \t]*>[ \t]?/, "")
+      let removed = 0
+      let position = 0
+
+      while (
+        removed < indent &&
+        (rest[position] === " " || rest[position] === "\t")
+      ) {
+        removed += rest[position] === "\t" ? 4 - (removed % 4) : 1
+        position += 1
+      }
+
+      return " ".repeat(Math.max(0, removed - indent)) + rest.slice(position)
+    })
+    .join("\n")
+}
+
 export function forwardTask(source: TaskNote, task: Task, target: TaskNote) {
   checkedSource(source, task)
   noteSchema.parse(target)
@@ -1253,24 +1284,37 @@ export function forwardTask(source: TaskNote, task: Task, target: TaskNote) {
     originLine +
     blockWithEdits(source, task, false).slice(task.end - task.start)
 
-  const copy = copyLine + source.body.slice(task.end, task.subtreeEnd)
+  const copy = forwardBlock(
+    copyLine + source.body.slice(task.end, task.subtreeEnd),
+  )
 
   if (!record.endsWith("\n") && source.body.slice(task.subtreeEnd))
     record += source.body.includes("\r\n") ? "\r\n" : "\n"
+
+  const insertion =
+    target.body + (target.body && !target.body.endsWith("\n") ? eol : "")
+
+  const destination = {
+    ...target,
+    body:
+      insertion +
+      copy.replace(/\r?\n/g, eol) +
+      (copy.endsWith("\n") ? "" : eol),
+  }
+
+  if (
+    !parseTasks(destination).some(function inserted(value) {
+      return value.start === insertion.length && value.kind === "checkbox"
+    })
+  )
+    throw new Error("Destination does not accept tasks")
 
   return {
     source: {
       ...source,
       body: replaceRange(source.body, task.start, task.subtreeEnd, record),
     },
-    target: {
-      ...target,
-      body:
-        target.body +
-        (target.body && !target.body.endsWith("\n") ? eol : "") +
-        copy.replace(/\r?\n/g, eol) +
-        (copy.endsWith("\n") ? "" : eol),
-    },
+    target: destination,
   }
 }
 
