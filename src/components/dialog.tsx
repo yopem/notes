@@ -56,9 +56,9 @@ export function AppDialog({
                 ? "Delete note permanently?"
                 : "Make room for your thoughts"
 
-  function confirm() {
+  function confirm(nextValue = value) {
     try {
-      onConfirm(value)
+      onConfirm(nextValue)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -187,7 +187,8 @@ export function AppDialog({
                   color={color}
                   icon="book"
                   variant="outline"
-                  onClick={() => onConfirm(notebook.id)}
+                  testId="move-notebook"
+                  onClick={() => confirm(notebook.id)}
                 >
                   {notebook.name}
                 </Button>
@@ -220,7 +221,7 @@ export function AppDialog({
                 }
                 value={value}
                 onChange={(event) => setValue(event.value ?? "")}
-                onSubmit={confirm}
+                onSubmit={() => confirm()}
                 style={inputStyle(color)}
               />
               {(state.kind === "import" || state.kind === "export") && (
@@ -246,6 +247,7 @@ export function AppDialog({
           )}
           {error && (
             <text
+              testId="dialog-error"
               role="alert"
               style={{
                 color: color.destructive,
@@ -272,7 +274,7 @@ export function AppDialog({
                 color={color}
                 testId="dialog-confirm"
                 variant={state.kind === "delete" ? "danger" : "primary"}
-                onClick={confirm}
+                onClick={() => confirm()}
               >
                 {state.kind === "delete"
                   ? "Delete permanently"

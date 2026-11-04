@@ -355,6 +355,7 @@ export function Editor({
               color={color}
               icon="book"
               label="Move note to notebook"
+              testId="move-note"
               onClick={onMove}
             />
           )}
