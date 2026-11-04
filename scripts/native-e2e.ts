@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { readEnvironment } from "@/env"
+import { readEnvironment } from "@/utils/env"
 
 import { captureScreenshot } from "./capture"
 

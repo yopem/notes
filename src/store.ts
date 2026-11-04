@@ -18,7 +18,7 @@ import { homedir } from "node:os"
 import { basename, extname, isAbsolute, join, resolve } from "node:path"
 import { z } from "zod"
 
-import { readEnvironment } from "@/env"
+import { readEnvironment } from "@/utils/env"
 
 export interface Notebook {
   id: string

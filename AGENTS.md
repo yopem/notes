@@ -15,7 +15,7 @@
 - Put reusable native controls in `src/components/ui/`.
 - Keep storage and runtime code outside the components folder.
 - Put shared utility files in `src/utils/`. Keep domain storage in `src/store.ts`.
-- Read raw environment values only in `src/env.ts`. Validate them with Zod.
+- Read raw environment values only in `src/utils/env.ts`. Validate them with Zod.
 - Validate external and stored data with named Zod schemas.
 - Use named `export function` declarations for components and hooks.
 - Do not use `useEffect`, `useMemo`, or `useCallback`.
