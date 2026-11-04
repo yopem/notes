@@ -37,6 +37,24 @@ async function savedEditorPreferences(
   return saved
 }
 
+// Native trees can update before the next frame paints control bounds.
+async function settledControl(app: App, testId: string) {
+  const control = app.getByTestId(testId)
+  await control.waitFor()
+  let bounds = await control.bounds()
+  let stableFrames = 0
+  const deadline = Date.now() + 5000
+  while (stableFrames < 2 && Date.now() < deadline) {
+    await Bun.sleep(16)
+    const next = await control.bounds()
+    stableFrames =
+      JSON.stringify(bounds) === JSON.stringify(next) ? stableFrames + 1 : 0
+    bounds = next
+  }
+  assert.equal(stableFrames, 2, `Control did not settle: ${testId}`)
+  return control
+}
+
 export async function verifySettings(app: App, dataDirectory: string) {
   await app.getByTestId("settings-open").click()
   await app.getByTestId("settings-panel").waitFor()
@@ -60,8 +78,16 @@ export async function verifySettings(app: App, dataDirectory: string) {
   assert.equal(saved.preferences.wordWrap, true)
   await app.getByTestId("setting-editorFontSize").fill("18")
   await app.getByTestId("setting-save-editorFontSize").click()
+  await savedEditorPreferences(dataDirectory, 18, true)
+  const errorDeadline = Date.now() + 5000
+  while (
+    (await app.getByTestId("settings-error").count()) &&
+    Date.now() < errorDeadline
+  )
+    await Bun.sleep(16)
+  assert.equal(await app.getByTestId("settings-error").count(), 0)
   console.info("Settings: appearance")
-  await app.getByTestId("settings-tab-appearance").click()
+  await (await settledControl(app, "settings-tab-appearance")).click()
   await app.getByTestId("setting-themeMode-dark").waitFor()
   await app.getByTestId("setting-themeMode-dark").click()
   console.info("Settings: Escape and reopen")
