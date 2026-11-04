@@ -40,6 +40,7 @@ async function savedEditorPreferences(
 export async function verifySettings(app: App, dataDirectory: string) {
   await app.getByTestId("settings-open").click()
   await app.getByTestId("settings-panel").waitFor()
+  console.info("Settings: font and wrap")
   await app.getByTestId("settings-tab-editor").click()
   await app.getByTestId("setting-editorFontSize").fill("22")
   await app.getByTestId("setting-save-editorFontSize").click()
@@ -50,6 +51,7 @@ export async function verifySettings(app: App, dataDirectory: string) {
   assert.equal(saved.preferences.editorFontSize, 22)
   assert.equal(saved.preferences.wordWrap, false)
   await app.getByTestId("setting-wordWrap").click()
+  console.info("Settings: invalid font")
   await app.getByTestId("setting-editorFontSize").fill("-1")
   await app.getByTestId("setting-save-editorFontSize").click()
   await app.getByTestId("settings-error").waitFor()
@@ -58,9 +60,11 @@ export async function verifySettings(app: App, dataDirectory: string) {
   assert.equal(saved.preferences.wordWrap, true)
   await app.getByTestId("setting-editorFontSize").fill("18")
   await app.getByTestId("setting-save-editorFontSize").click()
+  console.info("Settings: appearance")
   await app.getByTestId("settings-tab-appearance").click()
   await app.getByTestId("setting-themeMode-dark").waitFor()
   await app.getByTestId("setting-themeMode-dark").click()
+  console.info("Settings: Escape and reopen")
   await app.getByTestId("settings-close").press("escape")
   const closedDeadline = Date.now() + 5000
   while (
@@ -85,6 +89,7 @@ export async function verifySettings(app: App, dataDirectory: string) {
     await app.getByTestId("setting-current-editorFontSize").textContent(),
     "18",
   )
+  console.info("Settings: final close")
   await app.getByTestId("settings-close").click()
   const finalDeadline = Date.now() + 5000
   while (
