@@ -5,7 +5,7 @@ import {
   applyMarkdownEdit,
   classifyLink,
   toggleMarkdownTask,
-} from "@/markdown"
+} from "@/utils/markdown"
 
 // Source positions are a data-safety boundary for native preview edits.
 // Define Unicode, CRLF, escaped/code syntax, duplicate headings, malformed

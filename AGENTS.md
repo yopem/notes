@@ -32,6 +32,7 @@
 - Run `bun run check`, `bun run lint`, and `bun run format:check`.
 - Run only the affected test files. Never run the whole test suite.
 - Storage checks: `bun run test:store`.
+- Markdown checks: `bun test tests/markdown.test.ts`.
 - Native workflow checks: `bun run test:native`.
 - Release compile: `bun run build`.
 - Native checks save reports and screenshots in `docs/artifacts/`.
@@ -47,12 +48,16 @@
 - Export validated drafts without requiring a workspace save. Do not mark
   exported drafts as saved.
 - Never use the user's real data directory for automated tests.
+- Keep Markdown source positions in UTF-16. Reject stale source edits.
+- Do not execute note HTML or code.
 
 ## Change tracking
 
 - Commit each focused change as soon as it is ready. Do not collect changes
   for a large final commit.
 - Use Conventional Commits. Keep titles below 50 characters.
+- Use `git commit --only` with owned paths when agents share this repo.
+  Do not amend commits while another agent can change the index.
 - Update this guide when code changes alter structure, commands, contracts,
   or project rules. Keep this guide current throughout the task.
 - Keep detailed progress and validation results in ignored `docs/` notes.
