@@ -28,6 +28,7 @@ export function Sidebar({
 }) {
   return (
     <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
       role="navigation"
       aria-label="Notebooks"
       style={{

@@ -29,6 +29,7 @@ export function NoteList({
 }) {
   return (
     <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
       role="region"
       aria-label={title}
       style={{
@@ -54,7 +55,8 @@ export function NoteList({
           }}
         >
           <text
-            role="heading"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
+      role="heading"
             aria-level={1}
             style={{
               color: color.foreground,

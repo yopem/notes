@@ -51,6 +51,7 @@ export function Editor({
 
   return (
     <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
       role="main"
       aria-label="Note editor"
       style={{ display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0, minHeight: 0 }}

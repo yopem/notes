@@ -226,6 +226,8 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
         if (instance) registerFonts(renderer);
       }}
       testId="app"
+      role="application"
+      aria-label="Still Notes workspace"
       onKeyDown={onKeyDown}
       onFileDrop={(event) => importFiles(event.paths ?? [])}
       style={{
@@ -418,7 +420,8 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
             >
               <text
                 testId="notice"
-                role="status"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
+      role="status"
                 style={{ color: color.foreground, fontFamily: "Inter", fontSize: 12, flexGrow: 1 }}
               >
                 {notice}

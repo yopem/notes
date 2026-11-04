@@ -24,7 +24,8 @@ export function RecoveryScreen({ error, directory }: { error: string; directory:
       }}
     >
       <text
-        role="heading"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
+      role="heading"
         aria-level={1}
         style={{ color: color.foreground, fontSize: 28, fontWeight: 600 }}
       >
