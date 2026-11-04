@@ -51,8 +51,8 @@ Inter and IBM Plex Mono use the SIL Open Font License 1.1. Full notices ship in
 
 ## Icon notice
 
-Outline icons use Lucide path geometry. Some paths come from Feather.
-Source: https://github.com/lucide-icons/lucide/blob/main/LICENSE.
+Outline icons use Lucide path geometry. Some paths come from Feather. Source:
+https://github.com/lucide-icons/lucide/blob/main/LICENSE.
 
 ```text
 ISC License
