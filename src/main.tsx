@@ -10,6 +10,7 @@ declare global {
 
 export function RecoveryScreen({ error, directory }: { error: string; directory: string }) {
   const color = palettes.light;
+
   return (
     <div
       style={{
@@ -43,7 +44,9 @@ export function RecoveryScreen({ error, directory }: { error: string; directory:
 }
 
 const directory = defaultDataDirectory();
+
 const environment = readEnvironment();
+
 const options = {
   title: "Still Notes",
   appName: "Still Notes",
@@ -60,6 +63,7 @@ try {
     process.once("SIGTERM", () => process.exit(0));
     process.once("SIGINT", () => process.exit(0));
   }
+
   render(<App store={globalThis.stillNotesStore} dataDirectory={directory} />, options);
 } catch (cause) {
   const error = cause instanceof Error ? cause.message : String(cause);

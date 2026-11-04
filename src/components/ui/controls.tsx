@@ -56,6 +56,7 @@ export function Button({
       : variant === "danger"
         ? color.destructive
         : color.foreground;
+
   return (
     <NativeButton
       testId={testId}

@@ -31,9 +31,11 @@ export function AppDialog({
   const [value, setValue] = useState(
     state.kind === "rename" ? state.name : state.kind === "export" ? dataDirectory : "",
   );
+
   const [error, setError] = useState("");
   const inputRef = useRef<PublicInstance>(null);
   const renderer = useGpuixRequired();
+
   const title =
     state.kind === "notebook"
       ? "New notebook"
@@ -65,6 +67,7 @@ export function AppDialog({
         multiple: false,
         prompt: state.kind === "import" ? "Import" : "Export here",
       });
+
       if (paths?.[0]) setValue(paths[0]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

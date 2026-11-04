@@ -48,6 +48,7 @@ export function Editor({
   const theme = nativeTheme(color);
   const words = note.body.trim() ? note.body.trim().split(/\s+/u).length : 0;
   const split = mode === "split" && !narrow;
+
   return (
     <div
       role="main"
