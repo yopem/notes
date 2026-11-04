@@ -2,8 +2,8 @@ import { render } from "@gpuix/react"
 
 import { App } from "@/components/app"
 import { RecoveryScreen } from "@/components/recovery-screen"
-import { readEnvironment } from "@/utils/env"
 import { NotesStore, defaultDataDirectory } from "@/store"
+import { readEnvironment } from "@/utils/env"
 
 declare global {
   var stillNotesStore: NotesStore | undefined

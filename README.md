@@ -16,8 +16,8 @@ styles. No Electron, web view, CSS, or StyleX.
 - Switch between light and dark themes. Hide navigation in focus mode.
 - Save each edit locally. Display write errors and keep failed edits in memory.
 
-The first workspace contains one clearly labeled example note. Remove or edit it.
-No account, network service, or API key is required.
+The first workspace contains one clearly labeled example note. Remove or edit
+it. No account, network service, or API key is required.
 
 ## Setup
 
@@ -30,24 +30,25 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Use `bun start` without hot reload. GPUix React and native are pinned to the same
-version. Upgrade them together. Inter and IBM Plex Mono fonts ship with the app.
+Use `bun start` without hot reload. GPUix React and native are pinned to the
+same version. Upgrade them together. Inter and IBM Plex Mono fonts ship with the
+app.
 
 ## Keyboard commands
 
 Use Cmd on macOS or Ctrl on Linux and Windows.
 
-| Command | Keys |
-| --- | --- |
-| New note | Mod + N |
-| Search current view | Mod + P or Mod + K |
-| Toggle preview | Mod + Shift + P |
-| Edit / split / preview | Mod + 4 / 5 / 6 |
-| Toggle focus mode | Mod + Shift + F |
-| Import Markdown | Mod + O |
-| Retry pending saves | Mod + S |
-| Close dialog | Escape |
-| Move between controls | Tab / Shift + Tab |
+| Command                | Keys               |
+| ---------------------- | ------------------ |
+| New note               | Mod + N            |
+| Search current view    | Mod + P or Mod + K |
+| Toggle preview         | Mod + Shift + P    |
+| Edit / split / preview | Mod + 4 / 5 / 6    |
+| Toggle focus mode      | Mod + Shift + F    |
+| Import Markdown        | Mod + O            |
+| Retry pending saves    | Mod + S            |
+| Close dialog           | Escape             |
+| Move between controls  | Tab / Shift + Tab  |
 
 ## Local data and recovery
 
@@ -69,8 +70,8 @@ Export important notes and back up the data folder.
 The app refuses to overwrite malformed or externally changed data. Close the
 app, copy the whole folder, inspect the backup, and restore a valid copy to
 `workspace.json`. Never remove your only copy. If a save fails, keep the window
-open and use **Retry save** before closing. Unsaved in-memory edits do not survive
-a process exit.
+open and use **Retry save** before closing. Unsaved in-memory edits do not
+survive a process exit.
 
 Limits: 2 MB of UTF-8 content per note; 32 MB for the workspace. Import accepts
 `.md` and `.markdown` regular files, not symlinks or binary data.
@@ -87,20 +88,20 @@ bun run build
 ```
 
 Uses shared Yopem TypeScript, Oxlint **React**, and Oxfmt configurations. Source
-imports use `@/`. Native components live in `src/components/`; common controls in
-`src/components/ui/`; shared functions in `src/utils/`.
+imports use `@/`. Native components live in `src/components/`; common controls
+in `src/components/ui/`; shared functions in `src/utils/`.
 
 Storage checks use only `tests/store.test.ts` with real temporary directories.
-Native E2E checks launch real windows with temporary data, then exercise editing,
-search, lifecycle actions, import/export, keyboard input, themes, and restart.
-Reports and screenshots are saved in ignored `docs/artifacts/`.
+Native E2E checks launch real windows with temporary data, then exercise
+editing, search, lifecycle actions, import/export, keyboard input, themes, and
+restart. Reports and screenshots are saved in ignored `docs/artifacts/`.
 
 GPUix's current Linux release has neither headless tests nor native screenshot
 capture. Linux screenshots require Hyprland and `grim`; the test captures only
 the verified Still Notes window. Linux also ignores the background-focus option.
 Other desktops can run the app, but this screenshot test needs another capture
-adapter. macOS/Windows native capture depends on GPUix test-support availability.
-Browser checks cannot validate this native renderer.
+adapter. macOS/Windows native capture depends on GPUix test-support
+availability. Browser checks cannot validate this native renderer.
 
 ## Build and run
 
@@ -110,12 +111,13 @@ bun run build
 ```
 
 Bun compiles the app and renderer into a host-platform executable. Build on each
-target OS. This repository does not claim signed installers or automatic updates.
+target OS. This repository does not claim signed installers or automatic
+updates.
 
 ## Scope
 
-Yopem UI colors, 4px spacing, 12px control radii, fonts, and state behavior guide
-the native interface. Web components are not included.
+Yopem UI colors, 4px spacing, 12px control radii, fonts, and state behavior
+guide the native interface. Web components are not included.
 
 Notes use a private JSON workspace. Markdown import/export transfers note
 content, not workspace metadata. Cloud sync, an AI backend, Vim mode, rich live

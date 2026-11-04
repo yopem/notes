@@ -90,7 +90,9 @@ export function App({
 
   const selected =
     notes.find((note) => note.id === workspace.selectedNoteId) ?? notes[0]
+
   const note = selected ? { ...selected, ...drafts[selected.id] } : undefined
+
   const notebook = workspace.notebooks.find(
     (item) => item.id === note?.notebookId,
   )
@@ -111,6 +113,7 @@ export function App({
         const created = store.createNote(
           view.kind === "notebook" ? view.notebookId : undefined,
         )
+
         store.selectNote(created.id)
 
         if (view.kind === "trash" || view.kind === "pinned")
@@ -267,6 +270,7 @@ export function App({
           detached: true,
           shell: false,
         })
+
         child.on("error", (cause) =>
           setError(`Could not open link: ${cause.message}`),
         )
