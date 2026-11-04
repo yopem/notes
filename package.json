@@ -19,10 +19,15 @@
     "@gpuix/react": "0.11.0",
     "date-fns": "4.1.0",
     "react": "19.2.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/mdast": "4.0.4",
     "@types/react": "^19.2.0",
     "@yopem/oxfmt-config": "0.0.11",
     "@yopem/oxlint-config": "0.7.1",
