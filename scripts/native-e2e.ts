@@ -212,7 +212,7 @@ try {
   await app.getByTestId("note-row").click()
   await app.getByTestId("restore-note").click()
   await app.getByTestId("nav-all").click()
-  await app.getByText("Native notebook check").waitFor()
+  await app.getByTestId("note-row").getByText("Native notebook check").waitFor()
   steps.push(
     "Pin, scoped case-insensitive full-text search, no-results, trash, restore",
   )
