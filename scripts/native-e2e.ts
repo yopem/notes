@@ -62,6 +62,7 @@ async function open(width = 1360, height = 900) {
   )
 
   let stderr = ""
+  let stdout = ""
 
   child.stderr.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString("utf8")).slice(-8192)
@@ -100,7 +101,7 @@ async function open(width = 1360, height = 900) {
       () =>
         reject(
           new Error(
-            `Native automation handshake timed out after 30000ms. Check GPUix startup and compositor access. ${stderr}`,
+            `Native automation handshake timed out after 30000ms. Check GPUix startup and compositor access. stdout: ${stdout} stderr: ${stderr}`,
           ),
         ),
       30000,
@@ -114,9 +115,11 @@ async function open(width = 1360, height = 900) {
           child.stdin.write(chunk)
         },
         feed(listener) {
-          child.stdout.on("data", (chunk: Buffer) =>
-            listener(chunk.toString("utf8")),
-          )
+          child.stdout.on("data", (chunk: Buffer) => {
+            const text = chunk.toString("utf8")
+            stdout = (stdout + text).slice(-8192)
+            listener(text)
+          })
         },
         close: stop,
       }),
