@@ -22,7 +22,8 @@
 
 - Use Bun for install, scripts, tests, and builds.
 - Use `@yopem/oxlint-config`, `@yopem/typescript-config`, and
-  `@yopem/oxfmt-config`. Preserve GPUix `jsxImportSource`.
+  `@yopem/oxfmt-config`. Use the Oxlint React preset, not React Native.
+  Preserve GPUix `jsxImportSource`. Use `@/` for source imports.
 - Fix diagnostics. Do not weaken rules or test assertions.
 - Run `bun run check`, `bun run lint`, and `bun run format:check`.
 - Run only the affected test files. Never run the whole test suite.

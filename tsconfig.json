@@ -1,16 +1,12 @@
 {
+  "extends": "@yopem/typescript-config/react",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "jsxImportSource": "@gpuix/react",
-    "strict": true,
     "noUncheckedIndexedAccess": true,
-    "noEmit": true,
-    "skipLibCheck": true,
     "types": ["bun", "react"],
-    "allowImportingTsExtensions": true
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] }
   },
-  "include": ["src", "tests", "scripts"]
+  "include": ["src", "tests", "scripts", "oxlint.config.ts"]
 }
