@@ -212,7 +212,13 @@ try {
   await app.getByTestId("note-row").click()
   await app.getByTestId("restore-note").click()
   await app.getByTestId("nav-all").click()
-  await app.getByTestId("note-row").getByText("Native notebook check").waitFor()
+  await textIs("note-count", "2 notes")
+  assert(
+    (await app
+      .getByTestId("note-row")
+      .getByText("Native notebook check")
+      .count()) > 0,
+  )
   steps.push(
     "Pin, scoped case-insensitive full-text search, no-results, trash, restore",
   )
@@ -331,6 +337,21 @@ try {
     `Native E2E passed: ${steps.length} workflows. Artifacts: ${artifacts}`,
   )
 } catch (error) {
+  if (app) {
+    try {
+      writeFileSync(
+        join(artifacts, "native-failure-tree.json"),
+        JSON.stringify(await app.call("getTree", {}), null, 2),
+      )
+      await captureScreenshot(
+        app,
+        appPid,
+        join(artifacts, "native-failure.png"),
+      )
+    } catch (captureError) {
+      console.warn("Could not save failure evidence", captureError)
+    }
+  }
   writeFileSync(
     join(artifacts, "native-e2e.json"),
     JSON.stringify(
