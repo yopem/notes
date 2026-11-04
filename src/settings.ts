@@ -198,6 +198,7 @@ const fileErrorSchema = z.object({ code: z.string() })
 export type Preferences = z.infer<typeof preferencesSchema>
 
 export const preferenceInputSchema = z.json()
+
 export type PreferenceInput = z.infer<typeof preferenceInputSchema>
 
 export const preferenceNames = preferencesSchema.unwrap().keyof().options

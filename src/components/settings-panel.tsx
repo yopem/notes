@@ -190,6 +190,7 @@ export function PreferenceControl({
   onError: (message: string) => void
 }) {
   const text = textPreferenceSchema.safeParse(value)
+
   const [input, setInput] = useState(
     text.success
       ? text.data
@@ -197,6 +198,7 @@ export function PreferenceControl({
         ? ""
         : JSON.stringify(value, null, 2),
   )
+
   const boolean = booleanPreferenceSchema.safeParse(value)
   const numeric = numberPreferenceSchema.safeParse(value)
   const options = choices[name]
@@ -334,10 +336,12 @@ export function SettingsPanel({
     (listener) => store.subscribe(listener),
     () => store.getSnapshot(),
   )
+
   const [section, setSection] = useState<Section>("editor")
   const [query, setQuery] = useState("")
   const [error, setError] = useState("")
   const grouped = new Set(Object.values(groups).flat())
+
   const names = (
     section === "advanced"
       ? preferenceNames.filter((name) => !grouped.has(name))

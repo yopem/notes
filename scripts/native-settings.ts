@@ -20,9 +20,11 @@ export async function verifySettings(app: App, dataDirectory: string) {
   await app.getByTestId("setting-editorFontSize").fill("22")
   await app.getByTestId("setting-save-editorFontSize").click()
   await app.getByTestId("setting-wordWrap").click()
+
   let saved = savedPreferencesSchema.parse(
     JSON.parse(readFileSync(join(dataDirectory, "settings.json"), "utf8")),
   )
+
   assert.equal(saved.preferences.editorFontSize, 22)
   assert.equal(saved.preferences.wordWrap, false)
   await app.getByTestId("setting-wordWrap").click()
