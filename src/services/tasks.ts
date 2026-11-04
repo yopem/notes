@@ -325,6 +325,8 @@ export function parseTasks(
       }),
   )
 
+  if (noteStatus) noteFields.status = noteStatus
+
   if (tags.includes("task"))
     result.push({
       ...base,

@@ -429,7 +429,7 @@ export function rolloverDailyTasks(
       )
     })
 
-    for (const candidate of eligible.reverse()) {
+    for (const candidate of eligible) {
       const task = parseTasks(source).find(function same(value) {
         return value.id === candidate.id
       })

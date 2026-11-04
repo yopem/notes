@@ -162,7 +162,7 @@ describe("daily task domain", () => {
     const source: TaskNote = {
       path: "Daily/2024/02/2024-02-28.md",
       title: "Yesterday",
-      body: "# Log\n- [ ] open\n  - [ ] nested\n- [x] done\n- [-] cancelled\n- [>] old\n- [ ] future due:2024-03-05\n",
+      body: "# Log\n- [ ] open\n  - [ ] nested\n- [ ] second\n- [x] done\n- [-] cancelled\n- [>] old\n- [ ] future due:2024-03-05\n",
     }
 
     const today: TaskNote = {
@@ -178,6 +178,11 @@ describe("daily task domain", () => {
     expect(updated?.body).toContain("[>] open")
     expect(target?.body).toContain("  - [ ] nested")
     expect(target?.body).not.toContain("future")
+
+    if (target)
+      expect(
+        parseTasks(target).map((task) => task.content.split(" ←")[0]),
+      ).toEqual(["open", "nested", "second"])
 
     if (updated && target)
       expect(
