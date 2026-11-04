@@ -7,6 +7,7 @@ import remarkMath from "remark-math"
 import remarkParse from "remark-parse"
 import { unified } from "unified"
 import { visit } from "unist-util-visit"
+import { visitParents } from "unist-util-visit-parents"
 import { parseDocument } from "yaml"
 import { z } from "zod"
 
@@ -137,7 +138,7 @@ export function analyzeMarkdown(input: string): MarkdownDocument {
   visit(tree, "definition", (node) => {
     definitions.set(node.identifier.toLowerCase(), node.url)
   })
-  visit(tree, (node, _index, parent) => {
+  visitParents(tree, (node, parents) => {
     if (node.type === "heading") {
       const title = toString(node, { includeHtml: false })
       const base =
@@ -207,8 +208,7 @@ export function analyzeMarkdown(input: string): MarkdownDocument {
       }
     } else if (
       node.type === "text" &&
-      parent?.type !== "link" &&
-      parent?.type !== "linkReference"
+      !parents.some((parent) => parent.type === "link" || parent.type === "linkReference")
     ) {
       const span = range(node)
       const raw = source.slice(span.start, span.end)
