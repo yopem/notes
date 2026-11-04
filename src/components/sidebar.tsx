@@ -1,7 +1,7 @@
-import type { Notebook, Note } from "./store";
-import type { Palette } from "./theme";
-import { Button, Label, NavItem } from "./ui";
-import { Icon } from "./icons";
+import type { Notebook, Note } from "@/store";
+import type { Palette } from "@/theme";
+import { Button, Label, NavItem } from "@/components/ui/controls";
+import { Icon } from "@/components/ui/icons";
 
 export type View = "all" | "pinned" | "trash" | { notebookId: string };
 

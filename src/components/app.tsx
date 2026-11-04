@@ -2,15 +2,15 @@ import { useRef, useState, useSyncExternalStore } from "react";
 import { useGpuixRequired, useWindowSize, type KeyEvent, type PublicInstance } from "@gpuix/react";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import type { NotesStore } from "./store";
-import { palettes, inputStyle } from "./theme";
-import { registerFonts } from "./fonts";
-import { Sidebar, type View } from "./sidebar";
-import { NoteList } from "./note-list";
-import { Editor, type EditorMode } from "./editor";
-import { AppDialog, type DialogState } from "./dialog";
-import { Button, Label } from "./ui";
-import { Icon } from "./icons";
+import type { NotesStore } from "@/store";
+import { palettes, inputStyle } from "@/theme";
+import { registerFonts } from "@/fonts";
+import { Sidebar, type View } from "@/components/sidebar";
+import { NoteList } from "@/components/note-list";
+import { Editor, type EditorMode } from "@/components/editor";
+import { AppDialog, type DialogState } from "@/components/dialog";
+import { Button, Label } from "@/components/ui/controls";
+import { Icon } from "@/components/ui/icons";
 
 type Draft = { title?: string; body?: string };
 

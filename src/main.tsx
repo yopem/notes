@@ -1,7 +1,7 @@
 import { render } from "@gpuix/react";
-import { App } from "./app";
-import { NotesStore, defaultDataDirectory } from "./store";
-import { palettes } from "./theme";
+import { App } from "@/components/app";
+import { NotesStore, defaultDataDirectory } from "@/store";
+import { palettes } from "@/theme";
 
 declare global {
   var stillNotesStore: NotesStore | undefined;

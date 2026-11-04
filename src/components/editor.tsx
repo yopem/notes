@@ -1,8 +1,8 @@
-import type { Note } from "./store";
-import type { Palette } from "./theme";
-import { nativeTheme } from "./theme";
-import { Button, Label } from "./ui";
-import { Icon } from "./icons";
+import type { Note } from "@/store";
+import type { Palette } from "@/theme";
+import { nativeTheme } from "@/theme";
+import { Button, Label } from "@/components/ui/controls";
+import { Icon } from "@/components/ui/icons";
 
 export type EditorMode = "edit" | "preview" | "split";
 

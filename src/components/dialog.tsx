@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import * as Dialog from "@gpuix/react/dialog";
 import { useGpuixRequired, type PublicInstance } from "@gpuix/react";
-import { Button, Label } from "./ui";
-import { inputStyle, type Palette } from "./theme";
+import { Button, Label } from "@/components/ui/controls";
+import { inputStyle, type Palette } from "@/theme";
 
 export type DialogState =
   | { kind: "notebook" }

@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { defaultDataDirectory, NotesStore } from "../src/store";
+import { defaultDataDirectory, NotesStore } from "@/store";
 
 /*
  * Storage isolation is required: fault tests must not touch user notes.
