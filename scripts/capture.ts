@@ -15,6 +15,10 @@ const clientSchema = z.object({
   size: z.tuple([z.number().int().positive(), z.number().int().positive()]),
   mapped: z.boolean(),
   hidden: z.boolean(),
+  stableId: z
+    .string()
+    .regex(/^[\da-f]+$/i)
+    .optional(),
 })
 
 function run(command: string, args: string[]) {
@@ -29,7 +33,7 @@ function run(command: string, args: string[]) {
   return result.stdout
 }
 
-function currentWindow(pid: number) {
+function currentWindow(pid: number, requireActive = false) {
   const clients = z
     .array(clientSchema)
     .parse(JSON.parse(run("hyprctl", ["-j", "clients"])))
@@ -51,6 +55,8 @@ function currentWindow(pid: number) {
     "Still Notes window does not belong to the test process.",
   )
   assert(client.mapped && !client.hidden, "Still Notes window must be visible.")
+
+  if (!requireActive) return client
 
   const active = clientSchema.parse(
     JSON.parse(run("hyprctl", ["-j", "activewindow"])),
@@ -141,10 +147,16 @@ export async function captureScreenshot(
   try {
     if (process.platform === "linux") {
       const client = currentWindow(pid)
-      const [x, y] = client.at
-      const [width, height] = client.size
 
-      run("grim", ["-g", `${x},${y} ${width}x${height}`, path])
+      if (client.stableId) {
+        // Hyprland uses stableId as its foreign-toplevel identifier.
+        run("grim", ["-T", client.stableId, path])
+      } else {
+        currentWindow(pid, true)
+        const [x, y] = client.at
+        const [width, height] = client.size
+        run("grim", ["-g", `${x},${y} ${width}x${height}`, path])
+      }
       assert.deepEqual(
         currentWindow(pid),
         client,
@@ -171,7 +183,7 @@ export async function captureScreenshot(
 
     throw new Error(
       process.platform === "linux"
-        ? "Native screenshot failed. Use a Hyprland session with hyprctl and grim installed. Keep only the test Still Notes window open, active, visible, and still. No focus change or full-desktop capture was attempted."
+        ? "Native screenshot failed. Use Hyprland and grim with foreign-toplevel capture support. Keep only the test Still Notes window open and still. Older compositors need the test window active and visible. No focus change or full-desktop capture was attempted."
         : "Native screenshot failed. GPUix requires a test-support build on macOS or Windows.",
       { cause },
     )
