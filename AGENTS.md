@@ -60,7 +60,7 @@
 
 - Notebooks, Markdown text, preview, split view, search, pins, trash,
   restore, import/export, keyboard commands, and light/dark themes.
-- Private JSON workspace with Markdown import/export. Not a ZenNotes vault
-  reader or a full ZenNotes port.
+- Private JSON workspace with Markdown content import/export.
 - No cloud sync, AI backend, Vim mode, diagrams, PDF/Word export, or account.
-- Source evidence: ZenNotes commit `c05a8650`; Yopem UI commit `9b8a61b6`.
+- Keep app copy and documentation focused on Still Notes. Do not add unrelated
+  product links or comparison text.

@@ -14,9 +14,6 @@ specific language governing permissions and limitations under the License.
 
 - GPUix: https://github.com/remorses/gpuix — Apache-2.0. Native renderer
   dependency.
-- ZenNotes: https://github.com/ZenNotes/zennotes. Source research informs
-  feature selection. This project is a separate implementation, not an official
-  port.
 - Yopem UI: https://ui.yopem.com. Semantic design values inform native styling.
   No React DOM, Base UI, or StyleX components are included.
 

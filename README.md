@@ -1,7 +1,6 @@
 # Still Notes
 
-A local-first native desktop notebook built with GPUix and Bun. Inspired by
-[ZenNotes](https://github.com/ZenNotes/zennotes). Uses
+A local-first native desktop notebook built with GPUix and Bun. Uses
 [Yopem UI](https://ui.yopem.com) design values translated to native renderer
 styles. No Electron, web view, CSS, or StyleX.
 
@@ -113,18 +112,15 @@ bun run build
 Bun compiles the app and renderer into a host-platform executable. Build on each
 target OS. This repository does not claim signed installers or automatic updates.
 
-## Scope and sources
+## Scope
 
-This is an independent native implementation, not an official ZenNotes release
-or complete port. Research used ZenNotes commit `c05a8650` and Yopem UI registry
-source at `9b8a61b6`. Yopem colors, 4px spacing, 12px control radii, fonts, and
-state behavior guide the native interface; web components are not included.
+Yopem UI colors, 4px spacing, 12px control radii, fonts, and state behavior guide
+the native interface. Web components are not included.
 
-Unlike ZenNotes, this version uses a private JSON workspace, not a Markdown vault
-as its source of truth. Import/export moves Markdown content, not complete
-ZenNotes metadata. There is no automatic ZenNotes vault migration, cloud sync,
-AI backend, Vim mode, rich live preview, math/diagram engine, attachments,
-databases, PDF/Word export, or account service.
+Notes use a private JSON workspace. Markdown import/export transfers note
+content, not workspace metadata. Cloud sync, an AI backend, Vim mode, rich live
+preview, math/diagram engines, attachments, databases, PDF/Word export, and
+account services are not included.
 
 ## License
 

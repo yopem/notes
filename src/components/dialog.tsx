@@ -176,8 +176,7 @@ export function AppDialog({
                 muted
               >{`Data location: ${dataDirectory}`}</Label>
               <Label color={color} size={12} muted>
-                Still Notes · GPUix + Bun · Yopem UI design values. Independent
-                implementation inspired by ZenNotes.
+                Still Notes · GPUix + Bun · Yopem UI design values.
               </Label>
             </div>
           ) : state.kind === "move" ? (
