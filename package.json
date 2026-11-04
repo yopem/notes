@@ -22,6 +22,9 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/react": "^19.2.0",
+    "@yopem/oxfmt-config": "0.0.11",
+    "@yopem/oxlint-config": "0.7.1",
+    "@yopem/typescript-config": "0.2.5",
     "oxfmt": "latest",
     "oxlint": "latest",
     "typescript": "^5.9.3"
