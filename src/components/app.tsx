@@ -53,6 +53,7 @@ export function App({
   const [navigationOpen, setNavigationOpen] = useState(false)
   const [mobileEditor, setMobileEditor] = useState(false)
   const [oldestFirst, setOldestFirst] = useState(false)
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
@@ -90,7 +91,13 @@ export function App({
     )
 
   const selected =
-    notes.find((note) => note.id === workspace.selectedNoteId) ?? notes[0]
+    workspace.notes.find(
+      (item) =>
+        item.id === activeNoteId &&
+        Boolean(item.trashedAt) === (view.kind === "trash"),
+    ) ??
+    notes.find((item) => item.id === workspace.selectedNoteId) ??
+    notes[0]
 
   const note = selected ? { ...selected, ...drafts[selected.id] } : undefined
 
@@ -116,6 +123,7 @@ export function App({
         )
 
         store.selectNote(created.id)
+        setActiveNoteId(created.id)
 
         if (view.kind === "trash" || view.kind === "pinned")
           setView({ kind: "all" })
@@ -131,6 +139,7 @@ export function App({
     if (!note || note.trashedAt) return
     const id = note.id
     const pending = { ...drafts[id], ...patch }
+    setActiveNoteId(id)
     setDrafts((current) => ({ ...current, [id]: pending }))
     setError(
       attempt(() => {
@@ -143,6 +152,12 @@ export function App({
         })
       }),
     )
+  }
+
+  function selectNextNote(id: string) {
+    const index = notes.findIndex((item) => item.id === id)
+    setActiveNoteId(notes[index + 1]?.id ?? notes[index - 1]?.id ?? null)
+    setMobileEditor(false)
   }
 
   function retry() {
@@ -199,6 +214,7 @@ export function App({
         )
 
         if (imported[0]) store.selectNote(imported[0].id)
+        setActiveNoteId(imported[0]?.id ?? null)
         setView({ kind: "all" })
         setQuery("")
         setMode("edit")
@@ -215,17 +231,23 @@ export function App({
     if (dialog.kind === "notebook") {
       const created = store.createNotebook(value)
       setView({ kind: "notebook", notebookId: created.id })
+      setActiveNoteId(null)
+      setMobileEditor(false)
       setQuery("")
     } else if (dialog.kind === "rename") store.renameNotebook(dialog.id, value)
-    else if (dialog.kind === "move")
+    else if (dialog.kind === "move") {
       store.updateNote(dialog.id, { notebookId: value })
-    else if (dialog.kind === "import") {
+
+      if (view.kind === "notebook" && view.notebookId !== value)
+        selectNextNote(dialog.id)
+    } else if (dialog.kind === "import") {
       const imported = store.importMarkdown(
         [value],
         view.kind === "notebook" ? view.notebookId : undefined,
       )
 
       if (imported[0]) store.selectNote(imported[0].id)
+      setActiveNoteId(imported[0]?.id ?? null)
       setView({ kind: "all" })
       setQuery("")
       setMode("edit")
@@ -238,7 +260,17 @@ export function App({
       )
 
       setNotice(`Exported to ${destination}`)
-    } else if (dialog.kind === "delete") store.deleteNote(dialog.id)
+    } else if (dialog.kind === "delete") {
+      store.deleteNote(dialog.id)
+      selectNextNote(dialog.id)
+      setDrafts((current) => {
+        const next = { ...current }
+        delete next[dialog.id]
+
+        return next
+      })
+    }
+
     setDialog(null)
   }
 
@@ -322,6 +354,7 @@ export function App({
             view={view}
             onView={(next) => {
               setView(next)
+              setActiveNoteId(null)
               setQuery("")
               setNavigationOpen(false)
               setMobileEditor(false)
@@ -370,6 +403,7 @@ export function App({
                   color={color}
                   icon="menu"
                   label="Show notebooks"
+                  testId="show-notebooks"
                   onClick={() => {
                     setFocusMode(false)
                     setNavigationOpen(true)
@@ -407,6 +441,7 @@ export function App({
                 placeholder="Search your notes…"
                 onChange={(event) => {
                   setQuery(event.value ?? "")
+                  setActiveNoteId(null)
                   setMobileEditor(false)
                   setFocusMode(false)
                 }}
@@ -550,21 +585,18 @@ export function App({
               overflow: "hidden",
             }}
           >
-            {!focusMode && (!narrow || !mobileEditor) && (
+            {(!focusMode || !note) && (!narrow || !mobileEditor || !note) && (
               <NoteList
                 color={color}
                 notes={notes}
                 selectedId={note?.id}
                 title={title}
                 query={query}
-                onSelect={(id) =>
-                  setError(
-                    attempt(() => {
-                      store.selectNote(id)
-                      setMobileEditor(true)
-                    }),
-                  )
-                }
+                onSelect={(id) => {
+                  setActiveNoteId(id)
+                  setMobileEditor(true)
+                  setError(attempt(() => store.selectNote(id)))
+                }}
                 onNew={newNote}
                 trash={view.kind === "trash"}
                 oldestFirst={oldestFirst}
@@ -584,7 +616,7 @@ export function App({
                   setError(
                     attempt(() => {
                       store.trashNote(note.id)
-                      setMobileEditor(false)
+                      selectNextNote(note.id)
                     }),
                   )
                 }
@@ -592,6 +624,7 @@ export function App({
                   setError(
                     attempt(() => {
                       store.restoreNote(note.id)
+                      setActiveNoteId(note.id)
                       setView({ kind: "all" })
                     }),
                   )

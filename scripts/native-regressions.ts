@@ -69,6 +69,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await createNote(app, "Regression oldest", "selection-token oldest")
   await Bun.sleep(20)
   await createNote(app, "Regression second", "selection-token second")
+  await Bun.sleep(20)
   await createNote(app, "Regression outside", "Outside filter")
   await app.getByTestId("search").fill("selection-token")
   await textIs(app, "note-count", "2 notes")
@@ -131,6 +132,23 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   steps.push(
     "Search edits keep editor identity; explicit search navigation and empty results update it",
   )
+
+  await app.getByTestId("note-row").getByText("Regression outside").click()
+  await app.getByTestId("trash-note").click()
+  await app.getByTestId("note-body").fill("Next visible note after trash")
+
+  const afterTrash = regressionWorkspaceSchema.parse(
+    JSON.parse(readFileSync(workspacePath, "utf8")),
+  )
+
+  assert.equal(
+    afterTrash.notes.find((note) => note.title === "Regression second")?.body,
+    "Next visible note after trash",
+  )
+  await app.getByTestId("nav-trash").click()
+  await app.getByTestId("note-row").click()
+  await app.getByTestId("restore-note").click()
+  steps.push("Trash selects the next visible note, not the first sorted note")
 
   await createNote(app, "Regression rescue", "Saved rescue body")
   const original = readFileSync(workspacePath, "utf8")
@@ -222,6 +240,10 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
 }
 
 export async function verifyCompactRegression(app: App, dataDirectory: string) {
+  assert(
+    resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
+    "Regression checks require a disposable native E2E data directory.",
+  )
   assert((await app.getByTestId("app").bounds()).width < 780)
   await app.getByTestId("new-note").waitFor()
   await createNote(app, "Regression compact delete", "Final trash note")
