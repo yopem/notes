@@ -13,7 +13,8 @@ import { join, resolve } from "node:path"
 
 import { readEnvironment } from "@/utils/env"
 
-import { captureScreenshot } from "./capture"
+import { captureScreenshot, sizeTestWindow } from "./capture"
+import { verifyCompactRegression, verifyRegressions } from "./native-regressions"
 
 const artifacts = resolve("docs/artifacts")
 
@@ -162,6 +163,7 @@ async function textIs(testId: string, expected: string) {
 try {
   app = await open()
   await app.getByTestId("new-note").waitFor({ timeoutMs: 30000 })
+  await sizeTestWindow(app, appPid, 1360, 900)
   await captureScreenshot(app, appPid, join(artifacts, "01-first-run.png"))
   steps.push("First-run native window and welcome note")
 
@@ -278,10 +280,12 @@ try {
   )
   await textIs("notice", `Exported to ${join(dataDirectory, exportedName)}`)
   steps.push("Import Markdown from real disk, export without overwrite")
+  steps.push(...await verifyRegressions(app, dataDirectory))
 
   await app.close()
   app = await open(1000, 760)
   await app.getByTestId("new-note").waitFor({ timeoutMs: 30000 })
+  await sizeTestWindow(app, appPid, 1000, 760)
   await app.getByTestId("search").fill("Native notebook check")
   await textIs("note-count", "1 note")
   await app.getByTestId("note-row").click()
@@ -300,6 +304,10 @@ try {
   steps.push(
     "Restart real process, restore persisted content, compact window layout",
   )
+  await app.getByTestId("search").fill("")
+  await sizeTestWindow(app, appPid, 700, 760)
+  steps.push(...await verifyCompactRegression(app, dataDirectory))
+  await captureScreenshot(app, appPid, join(artifacts, "05-compact-empty.png"))
   await app.close()
   app = undefined
 

@@ -59,11 +59,18 @@
 - Commit Markdown files only when named `AGENTS.md`, `README.md`, or
   `LICENSE.md`. Do not commit progress notes.
 
-## Current scope
+## Product scope
 
-- Notebooks, Markdown text, preview, split view, search, pins, trash,
-  restore, import/export, keyboard commands, and light/dark themes.
-- Private JSON workspace with Markdown content import/export.
-- No cloud sync, AI backend, Vim mode, diagrams, PDF/Word export, or account.
+- Implement the complete verified reference feature set, not only core notes.
+- Keep a source-backed feature ledger in ignored docs/ notes. Mark incomplete,
+  blocked, implemented, and verified features separately.
+- Include vault workflows, editor tools, search and navigation, imports/exports,
+  integrations, settings, and native platform features.
+- Implement integrations with real services and explicit user configuration.
+  Do not fabricate responses or claim credential-dependent checks passed.
+- Preserve existing private workspace data during storage changes. Define
+  migration and recovery tests before implementation.
+- Keep per-feature native checks and source evidence. Do not claim full parity
+  until each verified feature works or a concrete blocker is disclosed.
 - Keep app copy and documentation focused on Still Notes. Do not add unrelated
   product links or comparison text.

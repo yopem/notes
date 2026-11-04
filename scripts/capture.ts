@@ -83,6 +83,30 @@ function currentWindow(pid: number) {
   return client
 }
 
+export async function sizeTestWindow(
+  app: App,
+  pid: number,
+  width: number,
+  height: number,
+) {
+  if (process.platform === "linux") {
+    const client = currentWindow(pid)
+    run("hyprctl", ["dispatch", "setfloating", `address:${client.address}`])
+    run("hyprctl", ["dispatch", "resizewindowpixel", `exact ${width} ${height},address:${client.address}`])
+  }
+
+  const deadline = Date.now() + 5000
+  let bounds = await app.getByTestId("app").bounds()
+
+  while ((bounds.width !== width || bounds.height !== height) && Date.now() < deadline) {
+    await Bun.sleep(16)
+    bounds = await app.getByTestId("app").bounds()
+  }
+
+  assert.equal(bounds.width, width, "Test window width")
+  assert.equal(bounds.height, height, "Test window height")
+}
+
 export async function captureScreenshot(
   app: Pick<App, "screenshot">,
   pid: number,
