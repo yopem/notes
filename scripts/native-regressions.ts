@@ -1,0 +1,249 @@
+import type { App } from "@gpuix/react/automation"
+
+import assert from "node:assert/strict"
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
+import { z } from "zod"
+
+const regressionWorkspaceSchema = z.object({
+  notes: z.array(
+    z.object({ id: z.string(), title: z.string(), body: z.string() }),
+  ),
+})
+
+async function textIs(app: App, testId: string, expected: string) {
+  const locator = app.getByTestId(testId)
+  await locator.waitFor()
+  const deadline = Date.now() + 5000
+  let actual = await locator.textContent()
+
+  while (actual !== expected && Date.now() < deadline) {
+    await Bun.sleep(16)
+    actual = await locator.textContent()
+  }
+
+  assert.equal(actual, expected, testId)
+}
+
+async function absent(app: App, testId: string) {
+  const deadline = Date.now() + 5000
+
+  while ((await app.getByTestId(testId).count()) && Date.now() < deadline)
+    await Bun.sleep(16)
+  assert.equal(await app.getByTestId(testId).count(), 0, testId)
+}
+
+async function createNote(app: App, title: string, body: string) {
+  await app.getByTestId("new-note").click()
+  await app.getByTestId("note-title").waitFor()
+  await app.getByTestId("note-title").fill(title)
+  await app.getByTestId("note-body").fill(body)
+  await textIs(app, "save-status", "Saved locally")
+}
+
+function saveReport(name: string, dataDirectory: string, steps: string[]) {
+  const artifacts = resolve("docs/artifacts")
+  mkdirSync(artifacts, { recursive: true })
+  const path = join(artifacts, name)
+  const report = { result: "passed", dataDirectory, steps }
+  writeFileSync(path, JSON.stringify(report, null, 2))
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), report)
+}
+
+export async function verifyRegressions(app: App, dataDirectory: string) {
+  assert(
+    resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
+    "Regression checks require a disposable native E2E data directory.",
+  )
+  assert((await app.getByTestId("app").bounds()).width >= 1120)
+  const steps: string[] = []
+  const workspacePath = join(dataDirectory, "workspace.json")
+
+  await app.getByTestId("nav-all").click()
+  await app.getByTestId("new-notebook").click()
+  await app.getByTestId("dialog-input").waitFor()
+  await app.getByTestId("dialog-input").fill("Regression selection")
+  await app.getByTestId("dialog-confirm").click()
+  await textIs(app, "note-count", "0 notes")
+  await createNote(app, "Regression oldest", "selection-token oldest")
+  await Bun.sleep(20)
+  await createNote(app, "Regression second", "selection-token second")
+  await createNote(app, "Regression outside", "Outside filter")
+  await app.getByTestId("search").fill("selection-token")
+  await textIs(app, "note-count", "2 notes")
+  await app.getByText("Last edited").click()
+  await app.getByText("Oldest first").waitFor()
+  const oldestEditor = await app.getByTestId("note-body").element()
+  await app.getByTestId("note-body").fill("selection-token edited oldest")
+  assert.equal(
+    (await app.getByTestId("note-body").element()).id,
+    oldestEditor.id,
+  )
+
+  const saved = regressionWorkspaceSchema.parse(
+    JSON.parse(readFileSync(workspacePath, "utf8")),
+  )
+
+  assert.equal(
+    saved.notes.find((note) => note.title === "Regression oldest")?.body,
+    "selection-token edited oldest",
+  )
+  steps.push(
+    "Oldest-order fallback stays active after its sort position changes",
+  )
+
+  await app.getByTestId("note-body").fill("No filter phrase remains")
+  await textIs(app, "note-count", "1 note")
+  assert.equal(
+    (await app.getByTestId("note-body").element()).id,
+    oldestEditor.id,
+  )
+  await app.getByTestId("note-body").fill("Continue editing outside search")
+  assert.equal(
+    (await app.getByTestId("note-body").element()).id,
+    oldestEditor.id,
+  )
+
+  const edited = regressionWorkspaceSchema.parse(
+    JSON.parse(readFileSync(workspacePath, "utf8")),
+  )
+
+  assert.equal(
+    edited.notes.find((note) => note.title === "Regression oldest")?.body,
+    "Continue editing outside search",
+  )
+  assert.equal(
+    edited.notes.find((note) => note.title === "Regression second")?.body,
+    "selection-token second",
+  )
+  await app.getByTestId("search").fill("Regression second")
+  await textIs(app, "note-count", "1 note")
+  assert.notEqual(
+    (await app.getByTestId("note-body").element()).id,
+    oldestEditor.id,
+  )
+  await app.getByTestId("search").fill("no-regression-note-matches")
+  await textIs(app, "note-count", "0 notes")
+  await absent(app, "note-title")
+  await app.getByTestId("search").fill("")
+  await app.getByText("Oldest first").click()
+  steps.push(
+    "Search edits keep editor identity; explicit search navigation and empty results update it",
+  )
+
+  await createNote(app, "Regression rescue", "Saved rescue body")
+  const original = readFileSync(workspacePath, "utf8")
+  const conflict = original + "\n"
+  const draftTitle = "Regression unsaved rescue"
+
+  const draftBody =
+    "# Exact unsaved draft\n\nUnicode: café 日本語 🌿\nNo final newline"
+
+  const exportDirectory = join(dataDirectory, "draft-rescue")
+
+  try {
+    writeFileSync(workspacePath, conflict)
+    await app.getByTestId("note-title").fill(draftTitle)
+    await app.getByTestId("note-body").fill(draftBody)
+    await app.getByTestId("pending-drafts").waitFor()
+    await app.getByTestId("search").fill("Regression second")
+    await app.getByTestId("note-row").click()
+    await textIs(app, "save-status", "Not saved · Retry before closing")
+    await app.getByTestId("search").fill("Regression rescue")
+    await app.getByTestId("note-row").click()
+    await app.getByTestId("pending-drafts").waitFor()
+    await app.getByTestId("retry-save").waitFor()
+    await textIs(app, "save-status", "Not saved · Retry before closing")
+    assert.equal(
+      await app.getByText("Cannot save").count(),
+      0,
+      "Successful selection clears command error, not draft warning",
+    )
+    assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    await app.getByTestId("export").click()
+    await app.getByTestId("dialog-input").waitFor()
+    await app.getByTestId("dialog-input").fill(exportDirectory)
+    await app.getByTestId("dialog-confirm").click()
+    await absent(app, "dialog-confirm")
+    assert.deepEqual(readdirSync(exportDirectory), [`${draftTitle}.md`])
+    assert.equal(
+      readFileSync(join(exportDirectory, `${draftTitle}.md`), "utf8"),
+      draftBody,
+    )
+    assert.equal(
+      readFileSync(workspacePath, "utf8"),
+      conflict,
+      "Export must not save the workspace",
+    )
+    await app.getByTestId("pending-drafts").waitFor()
+    await textIs(app, "save-status", "Not saved · Retry before closing")
+    steps.push(
+      "Draft warning and retry survive navigation; export rescues exact title/body without a workspace write or draft clear",
+    )
+
+    await app.getByTestId("move-note").click()
+    await app
+      .getByTestId("move-notebook")
+      .getByText("Regression selection")
+      .click()
+    await app.getByTestId("dialog-error").waitFor()
+    assert.match(
+      await app.getByTestId("dialog-error").textContent(),
+      /Workspace changed outside this instance/,
+    )
+    await app.getByTestId("dialog-close").press("escape")
+    await absent(app, "dialog-close")
+    assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    steps.push(
+      "Move save failure stays in dialog; Escape closes it without a write",
+    )
+  } finally {
+    writeFileSync(workspacePath, original)
+  }
+
+  await app.getByTestId("retry-save").click()
+  await absent(app, "pending-drafts")
+  await textIs(app, "save-status", "Saved locally")
+
+  const retried = regressionWorkspaceSchema.parse(
+    JSON.parse(readFileSync(workspacePath, "utf8")),
+  )
+
+  assert.equal(
+    retried.notes.find((note) => note.title === draftTitle)?.body,
+    draftBody,
+  )
+  await app.getByTestId("search").fill("")
+  await app.getByTestId("nav-all").click()
+  saveReport("native-regressions.json", dataDirectory, steps)
+
+  return steps
+}
+
+export async function verifyCompactRegression(app: App, dataDirectory: string) {
+  assert((await app.getByTestId("app").bounds()).width < 780)
+  await app.getByTestId("new-note").waitFor()
+  await createNote(app, "Regression compact delete", "Final trash note")
+  await app.getByTestId("trash-note").click()
+  await app.getByTestId("new-note").waitFor()
+
+  if (!(await app.getByTestId("nav-trash").count())) {
+    await app.getByTestId("show-notebooks").click()
+    await app.getByTestId("nav-trash").waitFor()
+  }
+
+  await app.getByTestId("nav-trash").click()
+  await textIs(app, "note-count", "1 note")
+  await app.getByTestId("note-row").click()
+  await app.getByText("Delete forever").click()
+  await app.getByTestId("dialog-confirm").waitFor()
+  await app.getByTestId("dialog-confirm").click()
+  await textIs(app, "note-count", "0 notes")
+  await app.getByText("Trash is empty").waitFor()
+  await absent(app, "note-title")
+  const steps = ["Compact final trash deletion returns to the empty note list"]
+  saveReport("native-regressions-compact.json", dataDirectory, steps)
+
+  return steps
+}
