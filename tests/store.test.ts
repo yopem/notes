@@ -359,7 +359,11 @@ describe("NotesStore real disk integration", () => {
     const note = store.createNote()
     const output = directory()
 
-    expect(() => store.exportMarkdown(note.id, output, { body: "x".repeat(bodyLimit + 1) })).toThrow(Error)
+    expect(() =>
+      store.exportMarkdown(note.id, output, {
+        body: "x".repeat(bodyLimit + 1),
+      }),
+    ).toThrow(Error)
     expect(readdirSync(output)).toEqual([])
   })
 

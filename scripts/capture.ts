@@ -92,13 +92,20 @@ export async function sizeTestWindow(
   if (process.platform === "linux") {
     const client = currentWindow(pid)
     run("hyprctl", ["dispatch", "setfloating", `address:${client.address}`])
-    run("hyprctl", ["dispatch", "resizewindowpixel", `exact ${width} ${height},address:${client.address}`])
+    run("hyprctl", [
+      "dispatch",
+      "resizewindowpixel",
+      `exact ${width} ${height},address:${client.address}`,
+    ])
   }
 
   const deadline = Date.now() + 5000
   let bounds = await app.getByTestId("app").bounds()
 
-  while ((bounds.width !== width || bounds.height !== height) && Date.now() < deadline) {
+  while (
+    (bounds.width !== width || bounds.height !== height) &&
+    Date.now() < deadline
+  ) {
     await Bun.sleep(16)
     bounds = await app.getByTestId("app").bounds()
   }

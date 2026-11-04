@@ -14,7 +14,10 @@ import { join, resolve } from "node:path"
 import { readEnvironment } from "@/utils/env"
 
 import { captureScreenshot, sizeTestWindow } from "./capture"
-import { verifyCompactRegression, verifyRegressions } from "./native-regressions"
+import {
+  verifyCompactRegression,
+  verifyRegressions,
+} from "./native-regressions"
 
 const artifacts = resolve("docs/artifacts")
 
@@ -280,7 +283,7 @@ try {
   )
   await textIs("notice", `Exported to ${join(dataDirectory, exportedName)}`)
   steps.push("Import Markdown from real disk, export without overwrite")
-  steps.push(...await verifyRegressions(app, dataDirectory))
+  steps.push(...(await verifyRegressions(app, dataDirectory)))
 
   await app.close()
   app = await open(1000, 760)
@@ -306,7 +309,7 @@ try {
   )
   await app.getByTestId("search").fill("")
   await sizeTestWindow(app, appPid, 700, 760)
-  steps.push(...await verifyCompactRegression(app, dataDirectory))
+  steps.push(...(await verifyCompactRegression(app, dataDirectory)))
   await captureScreenshot(app, appPid, join(artifacts, "05-compact-empty.png"))
   await app.close()
   app = undefined
