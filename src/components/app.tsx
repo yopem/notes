@@ -15,7 +15,9 @@ import { Icon } from "@/components/ui/icons";
 interface Draft { title?: string; body?: string }
 
 function attempt(action: () => void) {
-  try { action(); return ""; }
+  try { action();
+
+    return ""; }
   catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
 }
 
@@ -221,6 +223,7 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
   }
 
   return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Native root receives bubbled keyboard commands and file drops.
     <div
       ref={(instance) => {
         if (instance) registerFonts(renderer);
