@@ -9,7 +9,6 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -19,6 +18,7 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path"
 import { z } from "zod"
 
 import { readEnvironment } from "@/utils/env"
+import { atomicWrite, syncDirectory } from "@/utils/files"
 
 export interface Notebook {
   id: string
@@ -234,37 +234,6 @@ function readText(path: string, limit: number) {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
   } catch (error) {
     throw new Error(`${path} must use UTF-8 encoding`, { cause: error })
-  }
-}
-
-function syncDirectory(directory: string) {
-  // Windows does not support opening a directory for fsync through node:fs.
-  if (process.platform === "win32") return
-  const fd = openSync(directory, constants.O_RDONLY)
-
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function atomicWrite(path: string, bytes: string, directory: string) {
-  const temporary = join(directory, `.${basename(path)}.${randomUUID()}.tmp`)
-  const fd = openSync(temporary, "wx", 0o600)
-
-  try {
-    try {
-      writeFileSync(fd, bytes, "utf8")
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
-
-    renameSync(temporary, path)
-    syncDirectory(directory)
-  } finally {
-    rmSync(temporary, { force: true })
   }
 }
 
