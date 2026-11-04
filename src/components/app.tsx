@@ -8,11 +8,13 @@ import { spawn } from "node:child_process"
 import { homedir } from "node:os"
 import { useRef, useState, useSyncExternalStore } from "react"
 
+import type { SettingsStore } from "@/settings"
 import type { NotesStore } from "@/store"
 
 import { AppDialog, type DialogState } from "@/components/dialog"
 import { Editor, type EditorMode } from "@/components/editor"
 import { NoteList } from "@/components/note-list"
+import { SettingsPanel } from "@/components/settings-panel"
 import { Sidebar, type View } from "@/components/sidebar"
 import { Button, Label } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
@@ -37,8 +39,10 @@ function attempt(action: () => void) {
 export function App({
   store,
   dataDirectory,
+  settings,
 }: {
   store: NotesStore
+  settings: SettingsStore
   dataDirectory: string
 }) {
   const workspace = useSyncExternalStore(
@@ -46,9 +50,14 @@ export function App({
     () => store.getSnapshot(),
   )
 
+  const preferences = useSyncExternalStore(
+    (listener) => settings.subscribe(listener),
+    () => settings.getSnapshot(),
+  )
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [view, setView] = useState<View>({ kind: "all" })
   const [query, setQuery] = useState("")
-  const [mode, setMode] = useState<EditorMode>("edit")
+  const [mode, setMode] = useState<EditorMode>(preferences.defaultPaneMode)
   const [focusMode, setFocusMode] = useState(false)
   const [navigationOpen, setNavigationOpen] = useState(false)
   const [mobileEditor, setMobileEditor] = useState(false)
@@ -64,7 +73,9 @@ export function App({
   const { width } = useWindowSize()
   const narrow = width < 780
   const showSidebar = !focusMode && (width >= 1120 || navigationOpen)
-  const color = palettes[workspace.theme]
+  const theme =
+    preferences.themeMode === "system" ? workspace.theme : preferences.themeMode
+  const color = palettes[theme]
   const search = query.trim().toLocaleLowerCase()
 
   const notes = workspace.notes
@@ -178,10 +189,18 @@ export function App({
   }
 
   function onKeyDown(event: KeyEvent) {
-    if (dialog || !(event.modifiers?.cmd || event.modifiers?.ctrl)) return
+    if (
+      dialog ||
+      settingsOpen ||
+      !(event.modifiers?.cmd || event.modifiers?.ctrl)
+    )
+      return
     const key = event.key?.toLowerCase()
 
-    if (key === "n") {
+    if (key === ",") {
+      event.preventDefault()
+      setSettingsOpen(true)
+    } else if (key === "n") {
       event.preventDefault()
       newNote()
     } else if ((key === "p" && !event.modifiers?.shift) || key === "k") {
@@ -472,22 +491,25 @@ export function App({
               )}
               <Button
                 color={color}
-                icon={workspace.theme === "light" ? "moon" : "sun"}
-                label={
-                  workspace.theme === "light"
-                    ? "Use dark theme"
-                    : "Use light theme"
-                }
+                icon={theme === "light" ? "moon" : "sun"}
+                label={theme === "light" ? "Use dark theme" : "Use light theme"}
                 testId="theme-toggle"
                 onClick={() =>
                   setError(
                     attempt(() =>
-                      store.setTheme(
-                        workspace.theme === "light" ? "dark" : "light",
-                      ),
+                      settings.update({
+                        themeMode: theme === "light" ? "dark" : "light",
+                      }),
                     ),
                   )
                 }
+              />
+              <Button
+                color={color}
+                icon="settings"
+                label="Settings"
+                testId="settings-open"
+                onClick={() => setSettingsOpen(true)}
               />
               <Button
                 color={color}
@@ -606,6 +628,7 @@ export function App({
             {note && (!narrow || mobileEditor || focusMode) ? (
               <Editor
                 color={color}
+                preferences={preferences}
                 note={note}
                 notebookName={notebook?.name ?? "Notebook"}
                 mode={mode}
@@ -686,6 +709,13 @@ export function App({
           </div>
         </div>
       </div>
+      {settingsOpen && (
+        <SettingsPanel
+          store={settings}
+          color={color}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {dialog && (
         <AppDialog
           key={JSON.stringify(dialog)}

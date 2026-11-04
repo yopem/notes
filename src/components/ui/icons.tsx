@@ -23,6 +23,8 @@ const paths = {
     '<path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z"/>',
   close: '<path d="m6 6 12 12M6 18 18 6"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  settings:
+    '<path d="M4 6h4M12 6h8M4 12h10M18 12h2M4 18h2M10 18h10"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/>',
 } as const
 
 export type IconName = keyof typeof paths

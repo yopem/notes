@@ -197,6 +197,11 @@ const fileErrorSchema = z.object({ code: z.string() })
 
 export type Preferences = z.infer<typeof preferencesSchema>
 
+export const preferenceInputSchema = z.json()
+export type PreferenceInput = z.infer<typeof preferenceInputSchema>
+
+export const preferenceNames = preferencesSchema.unwrap().keyof().options
+
 function readSettings(path: string) {
   let fd: number
 
@@ -268,8 +273,13 @@ export class SettingsStore {
     return () => this.listeners.delete(listener)
   }
 
+  setField(name: keyof Preferences, input: PreferenceInput) {
+    this.update(preferencesSchema.parse({ ...this.snapshot, [name]: input }))
+  }
+
   update(patch: Partial<Preferences>) {
     const next = preferencesSchema.parse({ ...this.snapshot, ...patch })
+
     const bytes =
       JSON.stringify({ version: 1, preferences: next }, null, 2) + "\n"
 

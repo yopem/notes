@@ -1,3 +1,4 @@
+import type { Preferences } from "@/settings"
 import type { Note } from "@/store"
 import type { Palette } from "@/utils/theme"
 
@@ -9,6 +10,7 @@ export type EditorMode = "edit" | "preview" | "split"
 
 export function Editor({
   color,
+  preferences,
   note,
   notebookName,
   mode,
@@ -28,6 +30,7 @@ export function Editor({
   onBack,
 }: {
   color: Palette
+  preferences: Preferences
   note: Note
   notebookName: string
   mode: EditorMode
@@ -256,9 +259,11 @@ export function Editor({
               minWidth: 0,
               height: "100%",
               color: color.foreground,
-              fontFamily: "IBM Plex Mono",
-              fontSize: 14,
-              lineHeight: 26,
+              fontFamily: preferences.monoFont ?? "IBM Plex Mono",
+              fontSize: preferences.editorFontSize,
+              lineHeight:
+                preferences.editorFontSize * preferences.editorLineHeight,
+              whiteSpace: preferences.wordWrap ? "normal" : "nowrap",
               backgroundColor: "transparent",
               selectionColor: color.selection,
             }}
@@ -287,9 +292,10 @@ export function Editor({
               }}
               style={{
                 color: color.foreground,
-                fontFamily: "Inter",
-                fontSize: 16,
-                lineHeight: 27,
+                fontFamily: preferences.textFont ?? "Inter",
+                fontSize: preferences.editorFontSize,
+                lineHeight:
+                  preferences.editorFontSize * preferences.editorLineHeight,
               }}
             />
           </div>

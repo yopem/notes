@@ -2,11 +2,13 @@ import { render } from "@gpuix/react"
 
 import { App } from "@/components/app"
 import { RecoveryScreen } from "@/components/recovery-screen"
+import { SettingsStore } from "@/settings"
 import { NotesStore, defaultDataDirectory } from "@/store"
 import { readEnvironment } from "@/utils/env"
 
 declare global {
   var stillNotesStore: NotesStore | undefined
+  var stillNotesSettings: SettingsStore | undefined
 }
 
 const directory = defaultDataDirectory()
@@ -30,8 +32,13 @@ try {
     process.once("SIGINT", () => process.exit(0))
   }
 
+  globalThis.stillNotesSettings ??= new SettingsStore(directory)
   render(
-    <App store={globalThis.stillNotesStore} dataDirectory={directory} />,
+    <App
+      store={globalThis.stillNotesStore}
+      dataDirectory={directory}
+      settings={globalThis.stillNotesSettings}
+    />,
     options,
   )
 } catch (cause) {
