@@ -5,6 +5,8 @@ import { spawnSync } from "node:child_process"
 import { readFileSync, rmSync } from "node:fs"
 import { z } from "zod"
 
+const compositorVersionSchema = z.string().regex(/Hyprland \d+\.\d+\./)
+
 const clientSchema = z.object({
   address: z.string().regex(/^0x[\da-f]+$/i),
   title: z.string(),
@@ -20,7 +22,7 @@ function run(command: string, args: string[]) {
 
   if (result.error || result.status !== 0) {
     throw new Error(
-      `${command} failed: ${result.error?.message ?? result.stderr.trim()}`,
+      `${command} failed: ${result.error?.message ?? (result.stderr.trim() || result.stdout.trim())}`,
     )
   }
 
@@ -91,12 +93,27 @@ export async function sizeTestWindow(
 ) {
   if (process.platform === "linux") {
     const client = currentWindow(pid)
-    run("hyprctl", ["dispatch", "setfloating", `address:${client.address}`])
-    run("hyprctl", [
-      "dispatch",
-      "resizewindowpixel",
-      `exact ${width} ${height},address:${client.address}`,
-    ])
+    const version = compositorVersionSchema.parse(run("hyprctl", ["version"]))
+    const parts = version.match(/Hyprland (\d+)\.(\d+)\./)
+    const luaDispatchers = Number(parts?.[1]) > 0 || Number(parts?.[2]) >= 57
+
+    if (luaDispatchers) {
+      run("hyprctl", [
+        "dispatch",
+        `hl.dsp.window.float({action="on",window="address:${client.address}"})`,
+      ])
+      run("hyprctl", [
+        "dispatch",
+        `hl.dsp.window.resize({x=${width},y=${height},relative=false,window="address:${client.address}"})`,
+      ])
+    } else {
+      run("hyprctl", ["dispatch", "setfloating", `address:${client.address}`])
+      run("hyprctl", [
+        "dispatch",
+        "resizewindowpixel",
+        `exact ${width} ${height},address:${client.address}`,
+      ])
+    }
   }
 
   const deadline = Date.now() + 5000
