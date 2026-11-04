@@ -5,7 +5,7 @@
 - Build a native local notes app with GPUix and Bun.
 - Use `@gpuix/react` and `@gpuix/native` at the same exact version.
 - Do not add Electron, a web view, React DOM, CSS, or StyleX.
-- Use Yopem UI design values. Keep light and dark colors in `src/theme.ts`.
+- Use Yopem UI design values. Keep light and dark colors in `src/utils/theme.ts`.
 - Bundle Inter and IBM Plex Mono. Keep their license files.
 - Keep native window controls. Set `focus: false` for agent runs.
 
@@ -14,6 +14,7 @@
 - Put React components in `src/components/`.
 - Put reusable native controls in `src/components/ui/`.
 - Keep storage and runtime code outside the components folder.
+- Put shared utility files in `src/utils/`. Keep domain storage in `src/store.ts`.
 - Read raw environment values only in `src/env.ts`. Validate them with Zod.
 - Validate external and stored data with named Zod schemas.
 - Use named `export function` declarations for components and hooks.

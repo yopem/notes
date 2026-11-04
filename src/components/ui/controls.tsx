@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 
 import { Button as NativeButton } from "@gpuix/react/button"
 
-import type { Palette } from "@/theme"
+import type { Palette } from "@/utils/theme"
 
 import { Icon, type IconName } from "@/components/ui/icons"
 

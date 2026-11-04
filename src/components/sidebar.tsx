@@ -1,5 +1,5 @@
 import type { Notebook, Note } from "@/store"
-import type { Palette } from "@/theme"
+import type { Palette } from "@/utils/theme"
 
 import { Button, Label, NavItem } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"

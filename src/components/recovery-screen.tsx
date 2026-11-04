@@ -1,4 +1,4 @@
-import { palettes } from "@/theme"
+import { palettes } from "@/utils/theme"
 
 export function RecoveryScreen({
   error,

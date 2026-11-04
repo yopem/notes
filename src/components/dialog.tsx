@@ -3,7 +3,7 @@ import * as Dialog from "@gpuix/react/dialog"
 import { useRef, useState } from "react"
 
 import { Button, Label } from "@/components/ui/controls"
-import { inputStyle, type Palette } from "@/theme"
+import { inputStyle, type Palette } from "@/utils/theme"
 
 export type DialogState =
   | { kind: "notebook" }

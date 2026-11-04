@@ -16,8 +16,8 @@ import { NoteList } from "@/components/note-list"
 import { Sidebar, type View } from "@/components/sidebar"
 import { Button, Label } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
-import { registerFonts } from "@/fonts"
-import { palettes, inputStyle } from "@/theme"
+import { registerFonts } from "@/utils/fonts"
+import { palettes, inputStyle } from "@/utils/theme"
 
 interface Draft {
   title?: string

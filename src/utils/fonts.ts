@@ -2,8 +2,8 @@ import type { NativeRenderer } from "@gpuix/react"
 
 import { readFileSync } from "node:fs"
 
-import monoPath from "./assets/IBMPlexMono-Regular.ttf" with { type: "file" }
-import interPath from "./assets/Inter.ttf" with { type: "file" }
+import monoPath from "@/assets/IBMPlexMono-Regular.ttf" with { type: "file" }
+import interPath from "@/assets/Inter.ttf" with { type: "file" }
 
 const registered = new WeakSet<NativeRenderer>()
 

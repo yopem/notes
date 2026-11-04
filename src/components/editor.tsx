@@ -1,9 +1,9 @@
 import type { Note } from "@/store"
-import type { Palette } from "@/theme"
+import type { Palette } from "@/utils/theme"
 
 import { Button, Label } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
-import { nativeTheme } from "@/theme"
+import { nativeTheme } from "@/utils/theme"
 
 export type EditorMode = "edit" | "preview" | "split"
 
