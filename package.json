@@ -1,0 +1,29 @@
+{
+  "name": "still-notes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/main.tsx",
+    "start": "bun src/main.tsx",
+    "check": "tsc --noEmit",
+    "lint": "oxlint src tests scripts",
+    "format": "oxfmt package.json tsconfig.json src tests scripts README.md LICENSE.md",
+    "format:check": "oxfmt --check package.json tsconfig.json src tests scripts README.md LICENSE.md",
+    "test:store": "bun test tests/store.test.ts",
+    "test:native": "bun scripts/native-e2e.ts",
+    "build": "bun build --compile src/main.tsx --outfile dist/still-notes"
+  },
+  "dependencies": {
+    "@gpuix/native": "0.11.0",
+    "@gpuix/react": "0.11.0",
+    "react": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "oxlint": "latest",
+    "oxfmt": "latest",
+    "typescript": "^5.9.3"
+  }
+}
