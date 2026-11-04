@@ -12,14 +12,20 @@ import { AppDialog, type DialogState } from "@/components/dialog";
 import { Button, Label } from "@/components/ui/controls";
 import { Icon } from "@/components/ui/icons";
 
-type Draft = { title?: string; body?: string };
+interface Draft { title?: string; body?: string }
+
+function attempt(action: () => void) {
+  try { action(); return ""; }
+  catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
+}
 
 export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory: string }) {
   const workspace = useSyncExternalStore(
     (listener) => store.subscribe(listener),
     () => store.getSnapshot(),
   );
-  const [view, setView] = useState<View>("all");
+
+  const [view, setView] = useState<View>({ kind: "all" });
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<EditorMode>("edit");
   const [focusMode, setFocusMode] = useState(false);
@@ -37,11 +43,15 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
   const showSidebar = !focusMode && (width >= 1120 || navigationOpen);
   const color = palettes[workspace.theme];
   const search = query.trim().toLocaleLowerCase();
+
   const notes = workspace.notes
     .filter((note) => {
-      if (view === "trash" ? !note.trashedAt : note.trashedAt) return false;
-      if (view === "pinned" && !note.pinned) return false;
-      if (typeof view === "object" && note.notebookId !== view.notebookId) return false;
+      if (view.kind === "trash" ? !note.trashedAt : note.trashedAt) return false;
+
+      if (view.kind === "pinned" && !note.pinned) return false;
+
+      if (view.kind === "notebook" && note.notebookId !== view.notebookId) return false;
+
       return !search || `${note.title}\n${note.body}`.toLocaleLowerCase().includes(search);
     })
     .sort(
@@ -52,37 +62,31 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
           : b.updatedAt.localeCompare(a.updatedAt)) ||
         a.id.localeCompare(b.id),
     );
+
   const selected = notes.find((note) => note.id === workspace.selectedNoteId) ?? notes[0];
   const note = selected ? { ...selected, ...drafts[selected.id] } : undefined;
   const notebook = workspace.notebooks.find((item) => item.id === note?.notebookId);
+
   const title =
-    typeof view === "object"
+    view.kind === "notebook"
       ? (workspace.notebooks.find((item) => item.id === view.notebookId)?.name ?? "Notebook")
-      : view === "pinned"
+      : view.kind === "pinned"
         ? "Pinned notes"
-        : view === "trash"
+        : view.kind === "trash"
           ? "Trash"
           : "All notes";
 
-  function run(action: () => void) {
-    try {
-      action();
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
   function newNote() {
-    run(() => {
-      const created = store.createNote(typeof view === "object" ? view.notebookId : undefined);
+    setError(attempt(() => {
+      const created = store.createNote(view.kind === "notebook" ? view.notebookId : undefined);
       store.selectNote(created.id);
-      if (view === "trash" || view === "pinned") setView("all");
+
+      if (view.kind === "trash" || view.kind === "pinned") setView({ kind: "all" });
       setQuery("");
       setMode("edit");
       setMobileEditor(true);
       setNavigationOpen(false);
-    });
+    }));
   }
 
   function changeNote(patch: Draft) {
@@ -90,32 +94,35 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
     const id = note.id;
     const pending = { ...drafts[id], ...patch };
     setDrafts((current) => ({ ...current, [id]: pending }));
-    run(() => {
+    setError(attempt(() => {
       store.updateNote(id, pending);
       setDrafts((current) => {
         const next = { ...current };
         delete next[id];
+
         return next;
       });
-    });
+    }));
   }
 
   function retry() {
-    run(() => {
+    setError(attempt(() => {
       for (const [id, draft] of Object.entries(drafts)) store.updateNote(id, draft);
       setDrafts({});
-    });
+    }));
   }
 
   function openSearch() {
     setFocusMode(false);
     setMobileEditor(false);
+
     if (searchRef.current) renderer.focusElement?.(searchRef.current.id);
   }
 
   function onKeyDown(event: KeyEvent) {
     if (dialog || !(event.modifiers?.cmd || event.modifiers?.ctrl)) return;
     const key = event.key?.toLowerCase();
+
     if (key === "n") {
       event.preventDefault();
       newNote();
@@ -141,41 +148,45 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
   }
 
   function importFiles(paths: string[]) {
-    run(() => {
+    setError(attempt(() => {
       const imported = store.importMarkdown(
         paths,
-        typeof view === "object" ? view.notebookId : undefined,
+        view.kind === "notebook" ? view.notebookId : undefined,
       );
+
       if (imported[0]) store.selectNote(imported[0].id);
-      setView("all");
+      setView({ kind: "all" });
       setQuery("");
       setMode("edit");
       setNotice(
         `Imported ${imported.length} ${imported.length === 1 ? "note" : "notes"}. Original files unchanged.`,
       );
-    });
+    }));
   }
 
   function confirmDialog(value: string) {
     if (!dialog) return;
+
     if (dialog.kind === "notebook") {
       const created = store.createNotebook(value);
-      setView({ notebookId: created.id });
+      setView({ kind: "notebook", notebookId: created.id });
       setQuery("");
     } else if (dialog.kind === "rename") store.renameNotebook(dialog.id, value);
     else if (dialog.kind === "move") store.updateNote(dialog.id, { notebookId: value });
     else if (dialog.kind === "import") {
       const imported = store.importMarkdown(
         [value],
-        typeof view === "object" ? view.notebookId : undefined,
+        view.kind === "notebook" ? view.notebookId : undefined,
       );
+
       if (imported[0]) store.selectNote(imported[0].id);
-      setView("all");
+      setView({ kind: "all" });
       setQuery("");
       setMode("edit");
       setNotice("Markdown imported. Original file unchanged.");
     } else if (dialog.kind === "export") {
       const draft = drafts[dialog.id];
+
       if (draft) store.updateNote(dialog.id, draft);
       const destination = store.exportMarkdown(dialog.id, value || homedir());
       setNotice(`Exported to ${destination}`);
@@ -184,25 +195,29 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
   }
 
   function openLink(value: string) {
-    run(() => {
+    setError(attempt(() => {
       const url = new URL(value);
+
       if (url.protocol !== "https:" && url.protocol !== "http:" && url.protocol !== "mailto:")
         throw new Error("Only http, https and mailto links can open outside Still Notes.");
+
       const command =
         process.platform === "darwin"
           ? "open"
           : process.platform === "win32"
             ? "rundll32"
             : "xdg-open";
+
       const args =
         process.platform === "win32" ? ["url.dll,FileProtocolHandler", url.href] : [url.href];
+
       const child = spawn(command, args, { stdio: "ignore", detached: true, shell: false });
       child.on("error", (cause) => setError(`Could not open link: ${cause.message}`));
       child.on("exit", (code) => {
         if (code) setError(`Link opener exited with code ${code}.`);
       });
       child.unref();
-    });
+    }));
   }
 
   return (
@@ -342,7 +357,7 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                 label={workspace.theme === "light" ? "Use dark theme" : "Use light theme"}
                 testId="theme-toggle"
                 onClick={() =>
-                  run(() => store.setTheme(workspace.theme === "light" ? "dark" : "light"))
+                  setError(attempt(() => store.setTheme(workspace.theme === "light" ? "dark" : "light")))
                 }
               />
               <Button
@@ -437,13 +452,13 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                 title={title}
                 query={query}
                 onSelect={(id) =>
-                  run(() => {
+                  setError(attempt(() => {
                     store.selectNote(id);
                     setMobileEditor(true);
-                  })
+                  }))
                 }
                 onNew={newNote}
-                trash={view === "trash"}
+                trash={view.kind === "trash"}
                 oldestFirst={oldestFirst}
                 onSort={() => setOldestFirst(!oldestFirst)}
               />
@@ -456,18 +471,18 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                 mode={mode}
                 onMode={setMode}
                 onChange={changeNote}
-                onPin={() => run(() => store.togglePin(note.id))}
+                onPin={() => setError(attempt(() => store.togglePin(note.id)))}
                 onTrash={() =>
-                  run(() => {
+                  setError(attempt(() => {
                     store.trashNote(note.id);
                     setMobileEditor(false);
-                  })
+                  }))
                 }
                 onRestore={() =>
-                  run(() => {
+                  setError(attempt(() => {
                     store.restoreNote(note.id);
-                    setView("all");
-                  })
+                    setView({ kind: "all" });
+                  }))
                 }
                 onDelete={() => setDialog({ kind: "delete", id: note.id, title: note.title })}
                 onExport={() => setDialog({ kind: "export", id: note.id })}
@@ -499,7 +514,7 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                   <Label color={color} size={20} weight={500}>
                     {query
                       ? "Nothing found. Something next?"
-                      : view === "trash"
+                      : view.kind === "trash"
                         ? "Nothing to let go of."
                         : "A quiet place to begin."}
                   </Label>
@@ -508,7 +523,7 @@ export function App({ store, dataDirectory }: { store: NotesStore; dataDirectory
                       ? "Search another thought, or start a new one."
                       : "Select a note, or put your first thought on a page."}
                   </Label>
-                  {view !== "trash" && (
+                  {view.kind !== "trash" && (
                     <Button color={color} icon="plus" variant="primary" onClick={newNote}>
                       Write a note
                     </Button>

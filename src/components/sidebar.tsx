@@ -3,7 +3,9 @@ import type { Palette } from "@/theme";
 import { Button, Label, NavItem } from "@/components/ui/controls";
 import { Icon } from "@/components/ui/icons";
 
-export type View = "all" | "pinned" | "trash" | { notebookId: string };
+export type View =
+  | { kind: "all" | "pinned" | "trash" }
+  | { kind: "notebook"; notebookId: string };
 
 export function Sidebar({
   color,
@@ -60,27 +62,27 @@ export function Sidebar({
       <NavItem
         color={color}
         icon="notes"
-        selected={view === "all"}
+        selected={view.kind === "all"}
         testId="nav-all"
-        onClick={() => onView("all")}
+        onClick={() => onView({ kind: "all" })}
       >
         All notes
       </NavItem>
       <NavItem
         color={color}
         icon="pin"
-        selected={view === "pinned"}
+        selected={view.kind === "pinned"}
         testId="nav-pinned"
-        onClick={() => onView("pinned")}
+        onClick={() => onView({ kind: "pinned" })}
       >
         Pinned
       </NavItem>
       <NavItem
         color={color}
         icon="trash"
-        selected={view === "trash"}
+        selected={view.kind === "trash"}
         testId="nav-trash"
-        onClick={() => onView("trash")}
+        onClick={() => onView({ kind: "trash" })}
       >
         Trash
       </NavItem>
@@ -125,13 +127,13 @@ export function Sidebar({
               <NavItem
                 color={color}
                 icon="book"
-                selected={typeof view === "object" && view.notebookId === notebook.id}
-                onClick={() => onView({ notebookId: notebook.id })}
+                selected={view.kind === "notebook" && view.notebookId === notebook.id}
+                onClick={() => onView({ kind: "notebook", notebookId: notebook.id })}
               >
                 {notebook.name}
               </NavItem>
             </div>
-            {typeof view === "object" && view.notebookId === notebook.id && (
+            {view.kind === "notebook" && view.notebookId === notebook.id && (
               <Button
                 color={color}
                 icon="edit"

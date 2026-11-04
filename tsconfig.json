@@ -5,8 +5,7 @@
     "jsxImportSource": "@gpuix/react",
     "noUncheckedIndexedAccess": true,
     "types": ["bun", "react"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "tests", "scripts", "oxlint.config.ts"]
 }
