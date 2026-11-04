@@ -332,6 +332,37 @@ describe("NotesStore real disk integration", () => {
     expect(store.exportMarkdown(note.id, output)).not.toEndWith("/CON.md")
   })
 
+  test("exports an unsaved draft without committing a blocked workspace", () => {
+    const root = directory()
+    const store = open(root)
+    const note = store.createNote()
+    const snapshot = store.getSnapshot()
+    const changedBytes = readFileSync(primary(root), "utf8") + " "
+    writeFileSync(primary(root), changedBytes)
+    const draft = { title: "Recovery copy", body: "Unsaved café 日本語\n" }
+
+    expect(() => store.updateNote(note.id, draft)).toThrow(Error)
+
+    const output = directory()
+    const first = store.exportMarkdown(note.id, output, draft)
+    const second = store.exportMarkdown(note.id, output, draft)
+
+    expect(readFileSync(first, "utf8")).toBe(draft.body)
+    expect(second).not.toBe(first)
+    expect(readFileSync(second, "utf8")).toBe(draft.body)
+    expect(store.getSnapshot()).toBe(snapshot)
+    expect(readFileSync(primary(root), "utf8")).toBe(changedBytes)
+  })
+
+  test("rejects an oversized recovery draft before creating export files", () => {
+    const store = open()
+    const note = store.createNote()
+    const output = directory()
+
+    expect(() => store.exportMarkdown(note.id, output, { body: "x".repeat(bodyLimit + 1) })).toThrow(Error)
+    expect(readdirSync(output)).toEqual([])
+  })
+
   test("batch import failure leaves disk, snapshot, selection, and notifications unchanged", () => {
     const root = directory()
     const store = open(root)
