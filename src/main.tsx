@@ -2,6 +2,7 @@ import { render } from "@gpuix/react";
 import { App } from "@/components/app";
 import { NotesStore, defaultDataDirectory } from "@/store";
 import { palettes } from "@/theme";
+import { readEnvironment } from "@/env";
 
 declare global {
   var stillNotesStore: NotesStore | undefined;
@@ -42,12 +43,13 @@ export function RecoveryScreen({ error, directory }: { error: string; directory:
 }
 
 const directory = defaultDataDirectory();
+const environment = readEnvironment();
 const options = {
   title: "Still Notes",
   appName: "Still Notes",
-  width: Number(process.env.STILL_NOTES_WIDTH) || 1360,
-  height: Number(process.env.STILL_NOTES_HEIGHT) || 900,
-  focus: process.env.GPUIX_BACKGROUND !== "1",
+  width: environment.width,
+  height: environment.height,
+  focus: !environment.background,
   windowBackground: "opaque" as const,
 };
 

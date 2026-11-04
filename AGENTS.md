@@ -14,6 +14,8 @@
 - Put React components in `src/components/`.
 - Put reusable native controls in `src/components/ui/`.
 - Keep storage and runtime code outside the components folder.
+- Read raw environment values only in `src/env.ts`. Validate them with Zod.
+- Validate external and stored data with named Zod schemas.
 - Use named `export function` declarations for components and hooks.
 - Do not use `useEffect`, `useMemo`, or `useCallback`.
 - Do not use `any` or unsafe type assertions.
