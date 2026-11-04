@@ -178,6 +178,19 @@ describe("MCP client config integration", () => {
     expect(() => manager.uninstall("codex")).toThrow(/changed/i)
     expect(readFileSync(toml, "utf8")).toBe(changed)
   })
+  test("preserves valid non-JSON TOML values outside the owned entry", () => {
+    const manager = clients(directory())
+    const path = manager.status("codex").configPath
+    mkdirSync(resolve(path, ".."), { recursive: true })
+
+    const original =
+      '# retain exact values\nratio = inf\nunknown = nan\nwhen = 2025-01-01T00:00:00Z\n[mcp_servers.other]\ncommand = "other"\ncustom = -inf\n'
+
+    writeFileSync(path, original)
+    expect(manager.install("codex").owned).toBe(true)
+    manager.uninstall("codex")
+    expect(readFileSync(path, "utf8")).toBe(original)
+  })
   test("instructions are atomic, independent defaults, and restart-safe", () => {
     const root = directory()
     const store = new McpInstructions(root)

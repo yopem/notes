@@ -41,6 +41,10 @@ const jsonValueSchema = z.json()
 
 const objectSchema = z.record(z.string(), jsonValueSchema)
 
+const tomlDocumentSchema = z
+  .object({ mcp_servers: z.record(z.string(), z.unknown()).optional() })
+  .passthrough()
+
 const receiptSchema = z.strictObject({
   version: z.literal(1),
   entry: z.string(),
@@ -219,12 +223,15 @@ function jsonConfig(raw: string, container: string) {
 }
 
 function tomlConfig(raw: string) {
-  const object = objectSchema.parse(Bun.TOML.parse(raw))
+  const object = tomlDocumentSchema.parse(Bun.TOML.parse(raw))
+  const configured = object.mcp_servers ?? {}
+  const entry = configured[serverKey]
 
-  const servers =
-    object.mcp_servers === undefined
-      ? {}
-      : objectSchema.parse(object.mcp_servers)
+  const servers = {
+    [serverKey]: entry === undefined ? undefined : jsonValueSchema.parse(entry),
+  }
+
+  const serverCount = Object.keys(configured).length
 
   const starts = raw.split(startMarker).length - 1
   const ends = raw.split(endMarker).length - 1
@@ -242,7 +249,7 @@ function tomlConfig(raw: string) {
   )
     throw new Error("Malformed managed markers")
 
-  return { servers, start, end: end + endMarker.length }
+  return { servers, serverCount, start, end: end + endMarker.length }
 }
 
 export interface McpClientStatus {
@@ -407,7 +414,7 @@ export class McpClients {
           const parsed = tomlConfig(block)
 
           if (
-            Object.keys(parsed.servers).length !== 1 ||
+            parsed.serverCount !== 1 ||
             fingerprint(parsed.servers[serverKey]) !== receipt.entry ||
             fingerprint(block) !== receipt.block
           )
