@@ -7,6 +7,7 @@
 - Do not add Electron, a web view, React DOM, CSS, or StyleX.
 - Use Yopem UI design values. Keep light and dark colors in `src/utils/theme.ts`.
 - Bundle Inter and IBM Plex Mono. Keep their license files.
+- Use native disabled controls with 0.64 opacity. Keep visible keyboard focus.
 - Keep native window controls. Set `focus: false` for agent runs.
 
 ## Structure
@@ -43,6 +44,8 @@
 - Validate stored data. Keep atomic saves, backups, and process locks.
 - Do not replace damaged data with an empty workspace.
 - Preserve failed edits in memory. Show save errors and a retry action.
+- Export validated drafts without requiring a workspace save. Do not mark
+  exported drafts as saved.
 - Never use the user's real data directory for automated tests.
 
 ## Change tracking

@@ -81,7 +81,7 @@ export function Button({
         borderColor: color.border,
         backgroundColor: variant === "primary" ? color.primary : "transparent",
         cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.5 : 1,
+        opacity: disabled ? 0.64 : 1,
         flexShrink: 0,
         hover: {
           backgroundColor:
