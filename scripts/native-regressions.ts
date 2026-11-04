@@ -34,11 +34,39 @@ async function absent(app: App, testId: string) {
   assert.equal(await app.getByTestId(testId).count(), 0, testId)
 }
 
-async function createNote(app: App, title: string, body: string) {
+async function savedNoteIs(dataDirectory: string, title: string, body: string) {
+  const path = join(dataDirectory, "workspace.json")
+  const deadline = Date.now() + 5000
+  let workspace = regressionWorkspaceSchema.parse(
+    JSON.parse(readFileSync(path, "utf8")),
+  )
+
+  while (
+    workspace.notes.find((note) => note.title === title)?.body !== body &&
+    Date.now() < deadline
+  ) {
+    await Bun.sleep(16)
+    workspace = regressionWorkspaceSchema.parse(
+      JSON.parse(readFileSync(path, "utf8")),
+    )
+  }
+
+  assert.equal(workspace.notes.find((note) => note.title === title)?.body, body)
+
+  return workspace
+}
+
+async function createNote(
+  app: App,
+  dataDirectory: string,
+  title: string,
+  body: string,
+) {
   await app.getByTestId("new-note").click()
   await app.getByTestId("note-title").waitFor()
   await app.getByTestId("note-title").fill(title)
   await app.getByTestId("note-body").fill(body)
+  await savedNoteIs(dataDirectory, title, body)
   await textIs(app, "save-status", "Saved locally")
 }
 
@@ -66,11 +94,21 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await app.getByTestId("dialog-input").fill("Regression selection")
   await app.getByTestId("dialog-confirm").click()
   await textIs(app, "note-count", "0 notes")
-  await createNote(app, "Regression oldest", "selection-token oldest")
+  await createNote(
+    app,
+    dataDirectory,
+    "Regression oldest",
+    "selection-token oldest",
+  )
   await Bun.sleep(20)
-  await createNote(app, "Regression second", "selection-token second")
+  await createNote(
+    app,
+    dataDirectory,
+    "Regression second",
+    "selection-token second",
+  )
   await Bun.sleep(20)
-  await createNote(app, "Regression outside", "Outside filter")
+  await createNote(app, dataDirectory, "Regression outside", "Outside filter")
   await app.getByTestId("search").fill("selection-token")
   await textIs(app, "note-count", "2 notes")
   await app.getByText("Last edited").click()
@@ -82,8 +120,10 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     oldestEditor.id,
   )
 
-  const saved = regressionWorkspaceSchema.parse(
-    JSON.parse(readFileSync(workspacePath, "utf8")),
+  const saved = await savedNoteIs(
+    dataDirectory,
+    "Regression oldest",
+    "selection-token edited oldest",
   )
 
   assert.equal(
@@ -106,8 +146,10 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     oldestEditor.id,
   )
 
-  const edited = regressionWorkspaceSchema.parse(
-    JSON.parse(readFileSync(workspacePath, "utf8")),
+  const edited = await savedNoteIs(
+    dataDirectory,
+    "Regression oldest",
+    "Continue editing outside search",
   )
 
   assert.equal(
@@ -135,10 +177,13 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
 
   await app.getByTestId("note-row").getByText("Regression outside").click()
   await app.getByTestId("trash-note").click()
+  await textIs(app, "note-count", "2 notes")
   await app.getByTestId("note-body").fill("Next visible note after trash")
 
-  const afterTrash = regressionWorkspaceSchema.parse(
-    JSON.parse(readFileSync(workspacePath, "utf8")),
+  const afterTrash = await savedNoteIs(
+    dataDirectory,
+    "Regression second",
+    "Next visible note after trash",
   )
 
   assert.equal(
@@ -150,7 +195,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await app.getByTestId("restore-note").click()
   steps.push("Trash selects the next visible note, not the first sorted note")
 
-  await createNote(app, "Regression rescue", "Saved rescue body")
+  await createNote(app, dataDirectory, "Regression rescue", "Saved rescue body")
   const original = readFileSync(workspacePath, "utf8")
   const conflict = original + "\n"
   const draftTitle = "Regression unsaved rescue"
@@ -246,7 +291,12 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
   )
   assert((await app.getByTestId("app").bounds()).width < 780)
   await app.getByTestId("new-note").waitFor()
-  await createNote(app, "Regression compact delete", "Final trash note")
+  await createNote(
+    app,
+    dataDirectory,
+    "Regression compact delete",
+    "Final trash note",
+  )
   await app.getByTestId("trash-note").click()
   await app.getByTestId("new-note").waitFor()
 

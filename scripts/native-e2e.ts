@@ -18,6 +18,7 @@ import {
   verifyCompactRegression,
   verifyRegressions,
 } from "./native-regressions"
+import { verifySettings } from "./native-settings"
 
 const artifacts = resolve("docs/artifacts")
 
@@ -289,6 +290,7 @@ try {
   )
   await textIs("notice", `Exported to ${join(dataDirectory, exportedName)}`)
   steps.push("Import Markdown from real disk, export without overwrite")
+  steps.push(...(await verifySettings(app, dataDirectory)))
   steps.push(...(await verifyRegressions(app, dataDirectory)))
 
   await app.close()
@@ -352,6 +354,7 @@ try {
       console.warn("Could not save failure evidence", captureError)
     }
   }
+
   writeFileSync(
     join(artifacts, "native-e2e.json"),
     JSON.stringify(
