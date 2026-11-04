@@ -143,6 +143,8 @@ const notePatchSchema = z.strictObject({
   notebookId: z.string().optional(),
 })
 
+const exportDraftSchema = notePatchSchema.pick({ title: true, body: true })
+
 const importPathsSchema = z.array(z.string().min(1))
 
 const subscriberSchema = z.function()
@@ -727,9 +729,13 @@ export class NotesStore {
     return notes.map((note) => Object.freeze(note))
   }
 
-  exportMarkdown(id: string, directory: string): string {
+  exportMarkdown(
+    id: string,
+    directory: string,
+    draft: Pick<NotePatch, "title" | "body"> = {},
+  ): string {
     this.ensureOpen()
-    const note = this.note(id)
+    const note = { ...this.note(id), ...exportDraftSchema.parse(draft) }
     const output = resolve(nonempty(directory, "Export directory"))
     mkdirSync(output, { recursive: true, mode: 0o700 })
     const name = exportName(note.title)
