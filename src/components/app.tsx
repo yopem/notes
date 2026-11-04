@@ -57,6 +57,7 @@ export function App({
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
+  const hasDrafts = Object.keys(drafts).length > 0
   const searchRef = useRef<PublicInstance>(null)
   const renderer = useGpuixRequired()
   const { width } = useWindowSize()
@@ -230,10 +231,12 @@ export function App({
       setMode("edit")
       setNotice("Markdown imported. Original file unchanged.")
     } else if (dialog.kind === "export") {
-      const draft = drafts[dialog.id]
+      const destination = store.exportMarkdown(
+        dialog.id,
+        value || homedir(),
+        drafts[dialog.id],
+      )
 
-      if (draft) store.updateNote(dialog.id, draft)
-      const destination = store.exportMarkdown(dialog.id, value || homedir())
       setNotice(`Exported to ${destination}`)
     } else if (dialog.kind === "delete") store.deleteNote(dialog.id)
     setDialog(null)
@@ -460,8 +463,9 @@ export function App({
               />
             </div>
           </div>
-          {error && (
+          {(error || hasDrafts) && (
             <div
+              testId={hasDrafts ? "pending-drafts" : "command-error"}
               role="alert"
               style={{
                 display: "flex",
@@ -483,13 +487,13 @@ export function App({
                   fontSize: 12,
                   flexGrow: 1,
                 }}
-              >{`${error}${Object.keys(drafts).length ? " Your edits remain in this window. Retry before closing." : ""}`}</text>
-              {Object.keys(drafts).length > 0 && (
-                <Button color={color} onClick={retry}>
+              >{`${error}${error && hasDrafts ? " " : ""}${hasDrafts ? "Unsaved edits remain in this window. Retry before closing." : ""}`}</text>
+              {hasDrafts && (
+                <Button color={color} testId="retry-save" onClick={retry}>
                   Retry save
                 </Button>
               )}
-              {Object.keys(drafts).length === 0 && (
+              {!hasDrafts && (
                 <Button
                   color={color}
                   icon="close"
@@ -603,7 +607,7 @@ export function App({
                   setFocusMode(!focusMode)
                   setNavigationOpen(false)
                 }}
-                dirty={Boolean(drafts[note.id])}
+                dirty={hasDrafts}
                 narrow={narrow}
                 onBack={() => setMobileEditor(false)}
               />
