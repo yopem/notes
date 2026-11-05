@@ -451,7 +451,7 @@ synchronous calculations in ordinary TypeScript.
     existing user app was not stopped or captured. Resolve client-only capture
     before rerunning the native cases.
 
-- [ ] **QA-017 — P0 — MCP stdio cancellation and ordering**
+- [x] **QA-017 — P0 — MCP stdio cancellation and ordering**
   - **Purpose:** Preserve the JSON-RPC protocol and release in-flight work when
     stdio execution moves to Effect.
   - **Prerequisites:** Shared setup and pinned Bun. Use only the in-memory
@@ -473,7 +473,12 @@ synchronous calculations in ordinary TypeScript.
     command, revision, runtime, test output and any sanitized failure details.
   - **Cleanup:** Existing cases close their streams and child processes. Remove
     only data created by those cases. No other cleanup is required.
-  - **Status:** Pending; stdio migration and test scenarios are in progress.
+  - **Status:** Passed at revision `c72cf9d` on 2026-11-05, Linux x86_64, Bun
+    `1.4.4-canary.1+b9f2ec363`. The named file passed 20 tests and 119
+    assertions. The inspected output is
+    `docs/artifacts/effect-migration/ QA-017-mcp.txt`. A Promise already started
+    by an output adapter cannot be canceled by Effect, and cancellation cannot
+    undo a completed write.
 
 ## Planned local folder workspace
 
