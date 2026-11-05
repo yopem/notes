@@ -75,8 +75,8 @@
 - Use one canonical schema for each boundary contract. Reuse it when
   boundaries have the same meaning. Define a separate schema only when
   accepted data or guarantees differ. Keep validation at required boundaries.
-- Explain non-obvious state transitions, retry rules, and idempotency
-  decisions with short comments. Do not comment obvious syntax.
+- Use clear names and structure for state transitions, retry rules, and
+  idempotency decisions. Do not add source code comments.
 - Before completion, trace one changed workflow from its entrypoint to its
   result. Remove unclear names, needless forwarding, and hidden dependencies
   on that path.
@@ -288,20 +288,15 @@ into desktop, mobile, or extension apps. Do not create a shared UI package.
   shadow the native Bun command. Use `--no-script` when native execution is
   required, especially inside Turborepo tasks. Do not create recursive scripts.
 
-### Lint suppression: last resort only
+### Lint failures
 
 - Read the exact `bun lint` diagnostic and rule requirements. Fix the cause
-  first. Try a code change or refactor that preserves behavior and satisfies
-  the rule. Do not add a disable comment as the first solution.
-- Allow a suppression only when no correct code change or refactor can satisfy
-  the rule. State which alternatives failed and why the exception is needed.
-- For `bun lint`, use `eslint-disable-next-line <rule-name>` or
-  `eslint-disable-line <rule-name>` only. Never use `oxlint-disable` comments.
-- Limit each suppression to the exact rule and one affected line. Add a nearby
-  comment that explains why the exception is necessary. Do not use file-wide,
-  block-wide, or rule-free disable comments.
-- During an approved lint run, rerun the affected lint command after the change
-  and confirm that the exception is still required and other checks pass.
+  with a code change or refactor that preserves behavior.
+- Do not add source code comments, including lint suppression comments.
+- Report a blocker when no correct code change can satisfy a required rule.
+  Do not weaken checks or use another runner to hide the failure.
+- Preserve existing exceptions unless the changed code no longer needs them.
+- During an approved lint run, rerun the affected command after each fix.
   Follow the Validation workflow for execution approval.
 
 ### Workspace tasks and cache safety
@@ -1325,13 +1320,12 @@ Add Polar only when a requested feature needs payments or subscriptions.
 
 ### Clarity and check failures
 
-- Add comments only for behavior that clear names and structure cannot explain,
-  or for a required lint safety justification.
+- Do not add source code comments. Use clear names and structure.
 - Apply the Readability contract to components and functions. Keep each
   responsible for one coherent task.
-- Fix check failures at their source. Refactor the code and try a solution
-  that satisfies the rule before considering a suppression. Do not weaken
-  types, remove assertions, or change rule settings to hide failures.
+- Fix check failures at their source. Refactor the code to satisfy the rule.
+  Do not add suppressions, weaken types, remove assertions, or change rule
+  settings to hide failures.
 
 ## Build and deployment
 
