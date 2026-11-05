@@ -58,6 +58,7 @@ data.
 | Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                                                         |
 | Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                                                 |
 | Note duplication and unsaved-draft safety                    | QA-038, QA-039                                                                         |
+| Read-only task discovery and draft safety                    | QA-043, QA-044, QA-045                                                                 |
 | Reactive system appearance                                   | QA-022                                                                                 |
 
 ## Storage and configuration
@@ -1092,3 +1093,66 @@ mark those cases passed until capture works and the evidence is inspected.
     after evidence review.
   - **Status:** Pending. The fixed recovery marker can remain after process
     termination and has no recorded owner for safe stale recovery.
+
+- [ ] **QA-043 — P1 — Browse workspace tasks without changing notes**
+  - **Purpose:** Find open and completed Markdown tasks in the JSON workspace
+    and open their source notes without mutating task state.
+  - **Prerequisites:** Shared isolated desktop setup, implemented read-only task
+    view, and a test-owned workspace. Screenshot capture must not expose any
+    other window.
+  - **Inputs:** Note `Plans` with body `- [ ] Call Ω
+- [x] Ship `and note  `Code`with a fenced code block containing`- [ ] Not a
+      task`. Move another task-bearing note to Trash.
+  - **Steps:**
+    1. Open **Tasks** and inspect the visible task labels and completion states.
+    2. Search for `Call`, then clear the search. Activate `Call Ω` by keyboard.
+    3. Inspect the opened note and compare all saved note bodies with inputs.
+  - **Expected results:** The view is clearly read-only, shows `Call Ω` as open
+    and `Ship` as complete, and excludes fenced-code and trashed tasks. Search
+    narrows the list. Activation opens `Plans` without toggling or rewriting it.
+  - **Evidence:** Save sanitized app trees, client-only screenshots and isolated
+    workspace hashes under `docs/artifacts/tasks/QA-043/`.
+  - **Cleanup:** Stop only the test app and remove its isolated data after
+    evidence review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-044 — P0 — Show pending draft tasks without saving them**
+  - **Purpose:** Task discovery must use unsaved draft content without clearing
+    the draft, writing the workspace, or opening a different note.
+  - **Prerequisites:** Shared isolated desktop setup, implemented read-only task
+    view and the existing draft-conflict regression scenario.
+  - **Inputs:** The `Regression rescue` draft with appended text `
+- [ ] Draft task 🌿`; induce the workspace-byte conflict.
+  - **Steps:**
+    1. Create the pending draft using the existing conflict scenario.
+    2. Open **Tasks**, find `Draft task 🌿`, and activate its note.
+    3. Inspect the draft warning and workspace bytes, then export the draft.
+  - **Expected results:** The draft task is visible and identifies the original
+    note. Navigation preserves the exact unsaved text and warning. The disk
+    workspace stays unchanged and export contains the exact draft bytes.
+  - **Evidence:** Save sanitized app trees, screenshots and isolated file hashes
+    under `docs/artifacts/tasks/QA-044/`.
+  - **Cleanup:** Restore only test-owned workspace bytes, close the test app and
+    remove isolated data after evidence review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-045 — P1 — Report task parsing errors and empty results**
+  - **Purpose:** Distinguish a task parse failure from a genuinely empty view.
+  - **Prerequisites:** Shared isolated desktop setup and implemented task view.
+  - **Inputs:** A valid note without tasks; a note containing the malformed
+    frontmatter `--- x: [broken
+
+---
+
+- [ ] Example`.
+  - **Steps:**
+    1. Open **Tasks** with only the valid note and inspect the empty message.
+    2. Add the malformed note, reopen **Tasks**, and inspect the error state.
+    3. Correct the malformed frontmatter and refresh the task view.
+  - **Expected results:** The valid workspace shows an empty result, not an
+    error. The malformed input produces a visible safe error, not a false empty
+    result; correcting it allows `Example` to appear without data loss.
+  - **Evidence:** Save sanitized app trees, screenshots and the tested revision
+    under `docs/artifacts/tasks/QA-045/`.
+  - **Cleanup:** Stop only the test app and remove isolated data after review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
