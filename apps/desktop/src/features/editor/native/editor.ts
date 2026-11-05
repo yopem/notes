@@ -273,7 +273,10 @@ export function createNativeCloseOwner(
       ),
     )
 
-    if (bound.eventId !== eventId || bound.owner === expectedOwner)
+    if (
+      bound.eventId !== eventId ||
+      (expectedOwner !== null && bound.owner <= expectedOwner)
+    )
       throw new Error("Invalid close binding identity")
   } catch (error) {
     if (handlers.get(eventId)?.get(eventType) === receive) {
@@ -294,8 +297,11 @@ export function createNativeCloseOwner(
     })
   }
 
-  function cancel(requestId: number) {
+  function cancel(requestId: number): typeof CloseCancelSchema.Type {
     const id = decodeCloseId(requestId)
+
+    if (!isCurrent())
+      return { protocol: 2, owner, requestId: id, outcome: "stale" }
 
     const response = decodeCloseResponse(
       CloseCancelSchema,
@@ -311,8 +317,13 @@ export function createNativeCloseOwner(
     return response
   }
 
-  async function approve(requestId: number) {
+  async function approve(
+    requestId: number,
+  ): Promise<typeof CloseApprovalSchema.Type> {
     const id = decodeCloseId(requestId)
+
+    if (!isCurrent())
+      return { protocol: 2, owner, requestId: id, outcome: "stale" }
     seen.add(id)
 
     const pending = native.approveCloseOwnerV2?.(
@@ -329,11 +340,14 @@ export function createNativeCloseOwner(
     return response
   }
 
-  function dispose() {
+  function dispose(): typeof CloseReleaseSchema.Type {
+    const canRelease = !disposed && closeOwners.get(native) === token
     disposed = true
 
     if (handlers.get(eventId)?.get(eventType) === receive)
       unregisterEventHandler(handlers, eventId, eventType)
+
+    if (!canRelease) return { protocol: 2, owner, outcome: "stale" }
 
     const response = decodeCloseResponse(
       CloseReleaseSchema,

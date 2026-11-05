@@ -718,6 +718,109 @@ describe("native close owner v2", function closeOwnerV2() {
     next.dispose()
     binding.detach()
   })
+  test("rejects stale root controls before retarget and releases its owner once", async function staleRoot() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const oldBinding = dispatcher.attach()
+
+    const old = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: unexpectedClose,
+    })
+
+    fake.request(20)
+    oldBinding.detach()
+    const binding = dispatcher.attach()
+    const before = fake.calls.length
+
+    expect(old.cancel(20)).toEqual({
+      protocol: 2,
+      owner: old.owner,
+      requestId: 20,
+      outcome: "stale",
+    })
+    expect(await old.approve(20)).toEqual({
+      protocol: 2,
+      owner: old.owner,
+      requestId: 20,
+      outcome: "stale",
+    })
+    expect(fake.calls).toHaveLength(before)
+    expect(old.dispose().outcome).toBe("released")
+    expect(old.dispose().outcome).toBe("stale")
+    expect(fake.calls).toHaveLength(before + 1)
+
+    const next = createNativeCloseOwner(fake.native, {
+      expectedOwner: old.owner,
+      onRequest: unexpectedClose,
+    })
+
+    expect(next.owner).toBeGreaterThan(old.owner)
+    next.dispose()
+    binding.detach()
+  })
+  test("does not call native for retargeted, disposed, or replaced handlers", async function staleControls() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const binding = dispatcher.attach()
+
+    const old = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: unexpectedClose,
+    })
+
+    const next = createNativeCloseOwner(fake.native, {
+      expectedOwner: old.owner,
+      onRequest: unexpectedClose,
+    })
+
+    const before = fake.calls.length
+    expect(old.cancel(1).outcome).toBe("stale")
+    expect((await old.approve(1)).outcome).toBe("stale")
+    expect(old.dispose().outcome).toBe("stale")
+    expect(fake.calls).toHaveLength(before)
+    binding.eventHandlers
+      .get(binding.windowKeyEventId)
+      ?.set("windowCloseRequested", unexpectedClose)
+    expect(next.cancel(1).outcome).toBe("stale")
+    expect((await next.approve(1)).outcome).toBe("stale")
+    expect(fake.calls).toHaveLength(before)
+    expect(next.dispose().outcome).toBe("released")
+    expect(next.cancel(1).outcome).toBe("stale")
+    expect((await next.approve(1)).outcome).toBe("stale")
+    expect(next.dispose().outcome).toBe("stale")
+    expect(fake.calls).toHaveLength(before + 1)
+    expect(
+      binding.eventHandlers
+        .get(binding.windowKeyEventId)
+        ?.get("windowCloseRequested"),
+    ).toBe(unexpectedClose)
+    binding.detach()
+  })
+  test("rejects nonincreasing owner identities", function nonincreasingOwner() {
+    for (const returnedOwner of [1, 2]) {
+      const fake = host()
+      const binding = createRendererState(fake.native).attach()
+      Object.defineProperty(fake.native, "bindCloseOwnerV2", {
+        value: () =>
+          JSON.stringify({
+            protocol: 2,
+            owner: returnedOwner,
+            eventId: binding.windowKeyEventId,
+            pendingRequest: null,
+            attached: true,
+            phase: "armed",
+          }),
+      })
+      expect(() =>
+        createNativeCloseOwner(fake.native, {
+          expectedOwner: 2,
+          onRequest: unexpectedClose,
+        }),
+      ).toThrow("Invalid close binding identity")
+      binding.detach()
+    }
+  })
   test("restores the exact previous callback on bind failure", function restoreHandler() {
     const fake = host()
     const dispatcher = createRendererState(fake.native)
