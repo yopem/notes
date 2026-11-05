@@ -41,9 +41,9 @@ const jsonValueSchema = z.json()
 
 const objectSchema = z.record(z.string(), jsonValueSchema)
 
-const tomlDocumentSchema = z
-  .object({ mcp_servers: z.record(z.string(), z.unknown()).optional() })
-  .passthrough()
+const tomlDocumentSchema = z.looseObject({
+  mcp_servers: z.record(z.string(), z.unknown()).optional(),
+})
 
 const receiptSchema = z.strictObject({
   version: z.literal(1),
