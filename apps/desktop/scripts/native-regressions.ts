@@ -99,6 +99,44 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   const workspacePath = join(dataDirectory, "workspace.json")
 
   await app.getByTestId("nav-all").click()
+  await createNote(
+    app,
+    dataDirectory,
+    "Task plans",
+    "- [ ] Call Ω\n- [x] Ship\n\n```md\n- [ ] Fenced task\n```",
+  )
+  await createNote(app, dataDirectory, "Task trash", "- [ ] Trashed task")
+  await app.getByTestId("trash-note").click()
+  await createNote(app, dataDirectory, "Task malformed", "---\nx: [broken\n---")
+  const taskBytes = readFileSync(workspacePath, "utf8")
+  await app.getByTestId("nav-tasks").click()
+  await app.getByText("Read-only task discovery").waitFor()
+  await app.getByTestId("task-row").getByText("Call Ω").waitFor()
+  await app.getByTestId("task-row").getByText("Ship").waitFor()
+  assert.match(
+    await app.getByTestId("task-row").getByText("Call Ω").textContent(),
+    /Call Ω/,
+  )
+  await app.getByText("Open").waitFor()
+  await app.getByText("Done").waitFor()
+  assert.equal(await app.getByText("Fenced task").count(), 0)
+  assert.equal(await app.getByText("Trashed task").count(), 0)
+  await app.getByTestId("task-errors").waitFor()
+  await app.getByText("Task malformed").waitFor()
+  await app.getByTestId("task-search").fill("Call Ω")
+  await app.getByTestId("task-row").getByText("Call Ω").waitFor()
+  assert.equal(await app.getByText("Ship").count(), 0)
+  await app.getByTestId("task-search").fill("no-task-matches")
+  await app.getByText("No matching tasks").waitFor()
+  await app.getByTestId("task-errors").waitFor()
+  await app.getByTestId("task-search").fill("Call Ω")
+  assert.equal(readFileSync(workspacePath, "utf8"), taskBytes)
+  await app.getByTestId("task-row").getByText("Call Ω").press("enter")
+  await textIs(app, "note-title", "Task plans")
+  assert.equal(readFileSync(workspacePath, "utf8"), taskBytes)
+  steps.push("Read-only task discovery, search, parse errors and keyboard open")
+
+  await app.getByTestId("nav-all").click()
   await app.getByTestId("new-notebook").click()
   await app.getByTestId("dialog-input").waitFor()
   await app.getByTestId("dialog-input").fill("Regression duplicates")
@@ -256,7 +294,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   const draftTitle = "Regression unsaved rescue"
 
   const draftBody =
-    "# Exact unsaved draft\n\nUnicode: café 日本語 🌿\nNo final newline"
+    "# Exact unsaved draft\n\nUnicode: café 日本語 🌿\n- [ ] Draft task 🌿\nNo final newline"
 
   const exportDirectory = join(dataDirectory, "draft-rescue")
 
@@ -265,6 +303,26 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     await app.getByTestId("note-title").fill(draftTitle)
     await app.getByTestId("note-body").fill(draftBody)
     await app.getByTestId("pending-drafts").waitFor()
+    const draftWarning = await app.getByTestId("pending-drafts").textContent()
+    await app.getByTestId("nav-tasks").click()
+    await app.getByTestId("task-search").fill("Draft task 🌿")
+    await app.getByTestId("task-row").getByText("Draft task 🌿").waitFor()
+    assert.equal(
+      await app.getByTestId("pending-drafts").textContent(),
+      draftWarning,
+    )
+    assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    await app.getByTestId("task-row").getByText("Draft task 🌿").press("enter")
+    await textIs(app, "note-title", draftTitle)
+    await textIs(app, "note-body", draftBody)
+    assert.equal(
+      await app.getByTestId("pending-drafts").textContent(),
+      draftWarning,
+    )
+    assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    steps.push(
+      "Discover and open an unsaved task without a write or draft loss",
+    )
     const draftEditor = await app.getByTestId("note-body").element()
     await app.getByTestId("note-sort").click()
     assert.equal(
