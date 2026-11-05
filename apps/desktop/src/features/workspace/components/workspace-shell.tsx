@@ -69,6 +69,8 @@ export function App({
   const navigation = useWorkspaceNavigation({
     store,
     workspace,
+    settings,
+    sortOrder: preferences.noteSortOrder,
     defaultMode: preferences.defaultPaneMode,
     onError: setError,
   })
@@ -198,7 +200,7 @@ export function App({
                   onSelect={navigation.selectNote}
                   onNew={intake.newNote}
                   trash={navigation.view.kind === "trash"}
-                  oldestFirst={navigation.oldestFirst}
+                  sortOrder={preferences.noteSortOrder}
                   onSort={navigation.toggleSort}
                 />
               )}

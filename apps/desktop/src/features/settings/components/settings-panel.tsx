@@ -1,5 +1,6 @@
 import type { InputProps } from "@gpuix/react"
 
+import { Button as NativeButton } from "@gpuix/react/button"
 import * as Dialog from "@gpuix/react/dialog"
 import { Result, Schema } from "effect"
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
@@ -7,6 +8,10 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import type { Palette } from "@/components/ui/theme"
 
 import { useDesktopEffect } from "@/components/effect-boundary"
+import {
+  getButtonStyle,
+  getButtonTextStyle,
+} from "@/components/ui/control-styles"
 import { Button, Label } from "@/components/ui/controls"
 import {
   getSettingsStyles,
@@ -251,15 +256,29 @@ export function PreferenceChoice({
       },
   )
 
+  const selected = value === option
+
   return (
-    <Button
-      color={color}
+    <NativeButton
       testId={`setting-${name}-${option}`}
-      variant={value === option ? "primary" : "outline"}
+      aria-label={`${name}: ${option}`}
+      aria-selected={selected}
       onClick={selectOption}
+      style={getButtonStyle({
+        color,
+        variant: selected ? "primary" : "outline",
+        hasChildren: true,
+        disabled: false,
+      })}
     >
-      {option}
-    </Button>
+      <text
+        style={getButtonTextStyle(
+          selected ? color.primaryForeground : color.foreground,
+        )}
+      >
+        {option}
+      </text>
+    </NativeButton>
   )
 }
 

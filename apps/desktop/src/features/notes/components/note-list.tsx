@@ -1,5 +1,6 @@
 import type { Palette } from "@/components/ui/theme"
 import type { Note } from "@/features/notes/store"
+import type { Preferences } from "@/features/settings/store"
 
 import { Button, Label } from "@/components/ui/controls"
 import { NoteListItem } from "@/features/notes/components/note-list-item"
@@ -7,6 +8,16 @@ import {
   getNoteListStyles,
   noteListStyles,
 } from "@/features/notes/components/note-list-styles"
+
+const sortLabels: Record<Preferences["noteSortOrder"], string> = {
+  none: "Workspace order",
+  "updated-desc": "Updated: newest first",
+  "updated-asc": "Updated: oldest first",
+  "created-desc": "Created: newest first",
+  "created-asc": "Created: oldest first",
+  "name-asc": "Name: ascending",
+  "name-desc": "Name: descending",
+}
 
 export function NoteList({
   color,
@@ -17,7 +28,7 @@ export function NoteList({
   onSelect,
   onNew,
   trash,
-  oldestFirst,
+  sortOrder,
   onSort,
 }: {
   color: Palette
@@ -28,7 +39,7 @@ export function NoteList({
   onSelect: (id: string) => void
   onNew: () => void
   trash: boolean
-  oldestFirst: boolean
+  sortOrder: Preferences["noteSortOrder"]
   onSort: () => void
 }) {
   const styles = getNoteListStyles(color)
@@ -56,8 +67,17 @@ export function NoteList({
             testId="note-count"
             style={styles.count}
           >{`${notes.length} ${notes.length === 1 ? "note" : "notes"}`}</text>
-          <Button color={color} label="Change sort order" onClick={onSort}>
-            {oldestFirst ? "Oldest first" : "Last edited"}
+          <Button
+            color={color}
+            testId="note-sort"
+            label={
+              sortOrder === "none"
+                ? "Sort: Workspace order. Switch to updated, newest first"
+                : `Sort: ${sortLabels[sortOrder]}. Reverse sort order`
+            }
+            onClick={onSort}
+          >
+            {sortLabels[sortOrder]}
           </Button>
         </div>
       </div>

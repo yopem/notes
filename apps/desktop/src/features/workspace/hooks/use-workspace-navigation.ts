@@ -4,20 +4,48 @@ import { useLayoutEffect, useRef, useState } from "react"
 
 import type { EditorMode } from "@/features/editor/components/editor"
 import type { Note, NotesStore, Workspace } from "@/features/notes/store"
+import type { Preferences, SettingsStore } from "@/features/settings/store"
 import type { View } from "@/features/workspace/components/sidebar"
 
 import { useDesktopEffect } from "@/components/effect-boundary"
 import { attempt } from "@/features/workspace/attempt"
 import { getWorkspaceSelection } from "@/features/workspace/selection"
 
+const naturalNames = new Intl.Collator(undefined, { numeric: true })
+
+function sortNotes(notes: Note[], order: Preferences["noteSortOrder"]) {
+  return notes.toSorted((left, right) => {
+    const pinned = Number(right.pinned) - Number(left.pinned)
+
+    if (pinned || order === "none") return pinned
+
+    const comparison = order.startsWith("name-")
+      ? naturalNames.compare(left.title, right.title)
+      : order.startsWith("created-")
+        ? left.createdAt.localeCompare(right.createdAt)
+        : left.updatedAt.localeCompare(right.updatedAt)
+
+    const direction = order.endsWith("-desc") ? -1 : 1
+
+    return (
+      direction * comparison ||
+      (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+    )
+  })
+}
+
 export function useWorkspaceNavigation({
   store,
   workspace,
+  settings,
+  sortOrder,
   defaultMode,
   onError,
 }: {
   store: NotesStore
   workspace: Workspace
+  settings: SettingsStore
+  sortOrder: Preferences["noteSortOrder"]
   defaultMode: EditorMode
   onError: (message: string) => void
 }) {
@@ -28,24 +56,63 @@ export function useWorkspaceNavigation({
   const [focusMode, setFocusMode] = useState(false)
   const [navigationOpen, setNavigationOpen] = useState(false)
   const [mobileEditor, setMobileEditor] = useState(false)
-  const [oldestFirst, setOldestFirst] = useState(false)
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
 
-  const { notes, selected, title } = getWorkspaceSelection({
+  const selection = getWorkspaceSelection({
     workspace,
     view,
     query,
-    oldestFirst,
+    oldestFirst: false,
     activeNoteId,
   })
 
-  const current = useRef({ store, onError, run })
+  const visibleIds = new Set(selection.notes.map((note) => note.id))
+  const visibleNotes = workspace.notes.filter((note) => visibleIds.has(note.id))
+
+  const listKey = JSON.stringify([
+    view,
+    query,
+    sortOrder,
+    visibleNotes.map((note) => [note.id, note.pinned]),
+  ])
+
+  const [list, setList] = useState(() => ({
+    key: listKey,
+    ids: sortNotes(visibleNotes, sortOrder).map((note) => note.id),
+  }))
+
+  let ids = list.ids
+
+  if (list.key !== listKey) {
+    ids = sortNotes(visibleNotes, sortOrder).map((note) => note.id)
+    setList({ key: listKey, ids })
+  }
+
+  const notesById = new Map(visibleNotes.map((note) => [note.id, note]))
+
+  const notes = ids.flatMap((id) => {
+    const note = notesById.get(id)
+
+    return note ? [note] : []
+  })
+
+  const selected =
+    workspace.notes.find(
+      (note) =>
+        note.id === activeNoteId &&
+        Boolean(note.trashedAt) === (view.kind === "trash"),
+    ) ??
+    notes.find((note) => note.id === workspace.selectedNoteId) ??
+    notes[0]
+
+  const title = selection.title
+  const current = useRef({ store, settings, onError, run })
 
   useLayoutEffect(
     function updateNavigationTarget() {
-      current.current = { store, onError, run }
+      current.current = { store, settings, onError, run }
     },
-    [store, onError, run],
+    [store, settings, onError, run],
   )
 
   const [handlers] = useState(function createNavigationHandlers() {
@@ -91,7 +158,17 @@ export function useWorkspaceNavigation({
     }
 
     function toggleSort() {
-      setOldestFirst((previous) => !previous)
+      const { settings, onError, run } = current.current
+      const sortOrder = settings.getSnapshot().noteSortOrder
+
+      const next =
+        sortOrder === "none"
+          ? "updated-desc"
+          : sortOrder.endsWith("-asc")
+            ? sortOrder.replace(/-asc$/, "-desc")
+            : sortOrder.replace(/-desc$/, "-asc")
+
+      onError(attempt(() => run(settings.setField("noteSortOrder", next))))
     }
 
     function toggleFocus() {
@@ -133,7 +210,6 @@ export function useWorkspaceNavigation({
     focusMode,
     navigationOpen,
     mobileEditor,
-    oldestFirst,
     notes,
     selected,
     title,
