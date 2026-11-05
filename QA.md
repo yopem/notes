@@ -43,16 +43,20 @@ data.
 
 ## Coverage map
 
-| Requirement or workflow                                      | Cases          |
-| ------------------------------------------------------------ | -------------- |
-| Preserve local notes and failed-draft recovery               | QA-001, QA-007 |
-| Workspace ownership, dependency install and exports          | QA-002, QA-003 |
-| Native tooling, exact runtime, strict policy                 | QA-004, QA-005 |
-| Environment contracts and isolation                          | QA-006, QA-012 |
-| Native app, fonts, editor bridge and packaging paths         | QA-007, QA-008 |
-| Existing service behavior and desktop integration boundaries | QA-009         |
-| Documentation and reproducible handoff                       | QA-010         |
-| Platform-neutral Markdown and exact UTF-8 byte limits        | QA-005, QA-011 |
+| Requirement or workflow                                      | Cases                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------ |
+| Preserve local notes and failed-draft recovery               | QA-001, QA-007                                         |
+| Workspace ownership, dependency install and exports          | QA-002, QA-003                                         |
+| Native tooling, exact runtime, strict policy                 | QA-004, QA-005                                         |
+| Environment contracts and isolation                          | QA-006, QA-012                                         |
+| Native app, fonts, editor bridge and packaging paths         | QA-007, QA-008                                         |
+| Existing service behavior and desktop integration boundaries | QA-009                                                 |
+| Documentation and reproducible handoff                       | QA-010                                                 |
+| Platform-neutral Markdown and exact UTF-8 byte limits        | QA-005, QA-011                                         |
+| Zero-warning lint and Effect migration                       | QA-013, QA-014, QA-015                                 |
+| Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025 |
+| Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                         |
+| Reactive system appearance                                   | QA-022                                                 |
 
 ## Storage and configuration
 
