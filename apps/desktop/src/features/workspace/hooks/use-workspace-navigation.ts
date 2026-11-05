@@ -162,6 +162,7 @@ export function useWorkspaceNavigation({
       setQuery("")
       setNavigationOpen(false)
       setMobileEditor(false)
+
       if (next.kind === "tasks") setFocusMode(false)
     }
 
@@ -176,6 +177,7 @@ export function useWorkspaceNavigation({
 
     function activateNote(id: string | null) {
       setActiveNoteId(id)
+
       if (id)
         setView((previous) =>
           previous.kind === "tasks" ? { kind: "all" } : previous,
@@ -192,10 +194,13 @@ export function useWorkspaceNavigation({
     function openTaskNote(id: string) {
       const { store, onError } = current.current
       const source = store.getSnapshot().notes.find((note) => note.id === id)
+
       if (!source || source.trashedAt) {
         onError("The task source note is no longer available.")
+
         return
       }
+
       setView({ kind: "all" })
       setQuery("")
       setActiveNoteId(id)

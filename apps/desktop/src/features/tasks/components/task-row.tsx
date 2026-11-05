@@ -23,14 +23,17 @@ export function TaskRow({
     },
     [task.noteId, onOpenNote],
   )
+
   const [openSource] = useState(function createSourceHandler() {
     return function openSource() {
       current.current.onOpenNote(current.current.noteId)
     }
   })
+
   const state = task.checked ? "Done" : "Open"
   const title = task.noteTitle || "Untitled"
   const label = task.label || "Untitled task"
+
   return (
     <NativeButton
       testId="task-row"

@@ -1,9 +1,4 @@
-import type {
-  InputProps,
-  KeyEvent,
-  PublicInstance,
-  StyleDesc,
-} from "@gpuix/react"
+import type { InputProps, KeyEvent, PublicInstance } from "@gpuix/react"
 import type { RefObject } from "react"
 
 import { useGpuixRequired } from "@gpuix/react"
@@ -14,48 +9,12 @@ import type { Note } from "@/features/notes/store"
 import type { useNoteDrafts } from "@/features/workspace/hooks/use-note-drafts"
 
 import { Button, Label } from "@/components/ui/controls"
-import { inputStyle } from "@/components/ui/theme"
 import { TaskRow } from "@/features/tasks/components/task-row"
+import {
+  getTaskStyles,
+  taskStyles,
+} from "@/features/tasks/components/task-styles"
 import { useTaskDiscovery } from "@/features/tasks/hooks/use-task-discovery"
-
-const taskStyles = {
-  frame: {
-    display: "flex",
-    flexDirection: "column",
-    flexGrow: 1,
-    minWidth: 0,
-    minHeight: 0,
-    gap: 12,
-    padding: 16,
-  },
-  toolbar: {
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  search: {
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  results: {
-    display: "flex",
-    flexDirection: "column",
-    flexGrow: 1,
-    minHeight: 0,
-    overflow: "scroll",
-    gap: 8,
-  },
-  errors: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    padding: 12,
-  },
-} satisfies Record<string, StyleDesc>
 
 export function TaskView({
   color,
@@ -77,6 +36,7 @@ export function TaskView({
   onOpenNote: (id: string) => void
 }) {
   const renderer = useGpuixRequired()
+  const styles = getTaskStyles(color)
   const { tasks, errors } = useTaskDiscovery({ notes, drafts })
   const [search, setSearch] = useState("")
   const [submitted, setSubmitted] = useState({ query: "", version: 0 })
@@ -88,26 +48,31 @@ export function TaskView({
     },
     [search],
   )
+
   const [handlers] = useState(function createSearchHandlers() {
     function changeSearch(
       event: Parameters<NonNullable<InputProps["onChange"]>>[0],
     ) {
       setSearch(event.value ?? "")
     }
+
     function submitSearch() {
       setSubmitted((previous) => ({
         query: currentSearch.current.trim(),
         version: previous.version + 1,
       }))
     }
+
     function searchKeyDown(event: KeyEvent) {
       if (event.key === "enter" && !event.isHeld) {
         event.preventDefault()
         submitSearch()
       }
     }
+
     return { changeSearch, submitSearch, searchKeyDown }
   })
+
   useLayoutEffect(
     function focusSubmittedResults() {
       if (submitted.version > 0 && summaryRef.current)
@@ -116,13 +81,16 @@ export function TaskView({
     [renderer, submitted],
   )
   const query = submitted.query.toLocaleLowerCase()
+
   const visible = tasks.filter(
     (task) =>
       !query ||
       task.label.toLocaleLowerCase().includes(query) ||
       task.noteTitle.toLocaleLowerCase().includes(query),
   )
+
   const summary = `${visible.length} ${visible.length === 1 ? "task" : "tasks"}${submitted.query ? ` matching ${submitted.query}` : ""}. ${errors.length} ${errors.length === 1 ? "note could" : "notes could"} not be read.`
+
   return (
     <div role="region" aria-label="Tasks" style={taskStyles.frame}>
       <div style={taskStyles.toolbar}>
@@ -135,11 +103,7 @@ export function TaskView({
             onClick={onShowNotebooks}
           />
         )}
-        <text
-          role="heading"
-          aria-level={1}
-          style={{ color: color.foreground, fontSize: 20, fontWeight: 600 }}
-        >
+        <text role="heading" aria-level={1} style={styles.heading}>
           Tasks
         </text>
         <Button
@@ -165,7 +129,7 @@ export function TaskView({
           value={search}
           onChange={handlers.changeSearch}
           onKeyDown={handlers.searchKeyDown}
-          style={{ ...inputStyle(color), flexGrow: 1, minWidth: 0 }}
+          style={styles.input}
         />
         <Button
           color={color}
@@ -182,14 +146,7 @@ export function TaskView({
         role="region"
         aria-label={summary}
         tabIndex={0}
-        style={{
-          padding: 8,
-          focusVisible: {
-            outlineColor: color.ring,
-            outlineWidth: 2,
-            outlineOffset: -2,
-          },
-        }}
+        style={styles.summary}
       >
         <Label color={color} size={12}>
           {summary}

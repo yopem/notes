@@ -5,19 +5,17 @@ import type { NotesStore } from "@/features/notes/store"
 import type { SettingsStore } from "@/features/settings/store"
 
 import { palettes } from "@/components/ui/theme"
-import { DuplicateNoteContext } from "@/features/editor/components/duplicate-note-context"
-import { NoteList } from "@/features/notes/components/note-list"
 import { SettingsPanel } from "@/features/settings/components/settings-panel"
 import { TaskView } from "@/features/tasks/components/task-view"
 import { AppDialog } from "@/features/workspace/components/app-dialog"
 import { Sidebar } from "@/features/workspace/components/sidebar"
-import { WorkspaceEditor } from "@/features/workspace/components/workspace-editor"
 import { WorkspaceHeader } from "@/features/workspace/components/workspace-header"
 import { WorkspaceMessages } from "@/features/workspace/components/workspace-messages"
 import {
   getWorkspaceStyles,
   workspaceStyles,
 } from "@/features/workspace/components/workspace-styles"
+import { WorkspaceViews } from "@/features/workspace/components/workspace-views"
 import { useNoteDrafts } from "@/features/workspace/hooks/use-note-drafts"
 import { useWorkspaceDialogs } from "@/features/workspace/hooks/use-workspace-dialogs"
 import { useWorkspaceEditorActions } from "@/features/workspace/hooks/use-workspace-editor-actions"
@@ -193,57 +191,30 @@ export function App({
             onDismissNotice={handlers.dismissNotice}
           />
           <div style={styles.panes}>
-            {navigation.view.kind === "tasks" ? (
-              <TaskView
-                color={color}
-                notes={workspace.notes}
-                drafts={drafts}
-                searchRef={native.searchRef}
-                showSidebar={showSidebar}
-                onShowNotebooks={navigation.showNotebooks}
-                onSettings={handlers.openSettings}
-                onOpenNote={navigation.openTaskNote}
-              />
-            ) : (
-              <>
-                {(!navigation.focusMode || !note) &&
-                  (!narrow || !navigation.mobileEditor || !note) && (
-                    <NoteList
-                      color={color}
-                      notes={navigation.notes}
-                      selectedId={note?.id}
-                      title={navigation.title}
-                      query={navigation.query}
-                      onSelect={navigation.selectNote}
-                      onNew={intake.newNote}
-                      trash={navigation.view.kind === "trash"}
-                      sortOrder={preferences.noteSortOrder}
-                      onSort={navigation.toggleSort}
-                    />
-                  )}
-                <DuplicateNoteContext value={editor.duplicateNote}>
-                  <WorkspaceEditor
-                    color={color}
-                    preferences={preferences}
-                    note={note}
-                    notebookName={notebook?.name ?? "Notebook"}
-                    mode={navigation.mode}
-                    onMode={navigation.setMode}
-                    onChange={changeNote}
-                    actions={editor}
-                    focusMode={navigation.focusMode}
-                    onFocusMode={navigation.toggleFocus}
-                    dirty={hasDrafts}
-                    narrow={narrow}
-                    mobileEditor={navigation.mobileEditor}
-                    onBack={navigation.showList}
-                    query={navigation.query}
-                    view={navigation.view}
-                    onNew={intake.newNote}
-                  />
-                </DuplicateNoteContext>
-              </>
-            )}
+            <WorkspaceViews
+              color={color}
+              preferences={preferences}
+              note={note}
+              notebookName={notebook?.name ?? "Notebook"}
+              navigation={navigation}
+              editor={editor}
+              onChange={changeNote}
+              dirty={hasDrafts}
+              narrow={narrow}
+              onNew={intake.newNote}
+              taskView={
+                <TaskView
+                  color={color}
+                  notes={workspace.notes}
+                  drafts={drafts}
+                  searchRef={native.searchRef}
+                  showSidebar={showSidebar}
+                  onShowNotebooks={navigation.showNotebooks}
+                  onSettings={handlers.openSettings}
+                  onOpenNote={navigation.openTaskNote}
+                />
+              }
+            />
           </div>
         </div>
       </div>
