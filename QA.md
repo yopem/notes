@@ -1065,3 +1065,26 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Restore only test-owned bytes; stop the test app and remove its
     isolated data after evidence review.
   - **Status:** Pending UI integration and blocked by QA-015 screenshot capture.
+
+- [ ] **QA-042 — P0 — Recover an interrupted stale-lock recovery**
+  - **Purpose:** Ensure a process crash during stale-lock recovery cannot leave
+    a vault permanently blocked or let two live processes acquire it.
+  - **Prerequisites:** Shared isolated folder setup, focused existing vault
+    tests and a reproducible test-owned child-process interruption. Never use a
+    user folder or remove a lock held by a live process.
+  - **Inputs:** An isolated vault, a dead test child owner and an interrupted
+    stale-lock recovery marker created by the focused test setup.
+  - **Steps:**
+    1. From `apps/desktop`, run the relevant existing vault test file after the
+       crash-recovery case and fix are complete.
+    2. Inspect assertions for a dead recovery owner, a live owner, simultaneous
+       recovery attempts and preserved Markdown bytes.
+  - **Expected results:** A dead recovery owner can be recovered without manual
+    deletion. A live owner remains protected. Concurrent attempts cannot both
+    acquire the vault, and notes and metadata retain their original bytes.
+  - **Evidence:** Save the tested revision, runtime, command and output in
+    `docs/artifacts/effect-migration/QA-042-lock-recovery.txt` and inspect it.
+  - **Cleanup:** Stop only test-owned children; remove only isolated test data
+    after evidence review.
+  - **Status:** Pending. The fixed recovery marker can remain after process
+    termination and has no recorded owner for safe stale recovery.
