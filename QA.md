@@ -699,3 +699,48 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Blocked. GPUix does not expose a documented close-veto callback,
     and screenshot capture is blocked by QA-015. A native bridge requires
     source, build and platform verification before this scenario can run.
+
+- [ ] **QA-026 — P0 — Keep assistant errors free of private details**
+  - **Purpose:** Prevent an adapter failure from exposing filesystem paths,
+    credentials, or free-text content through a tool response.
+  - **Prerequisites:** Shared setup and disposable streams in the existing MCP
+    test file; no real user files, credentials or external client.
+  - **Inputs:** An adapter failure with the synthetic message
+    `/home/example/private.md token=secret-test` and an invalid tool request.
+  - **Steps:**
+    1. From `apps/desktop`, run
+       `../../node_modules/.bin/bun test tests/mcp.test.ts` after the
+       error-safety cases are implemented.
+    2. Inspect the response assertions for the synthetic adapter failure and
+       invalid request, and inspect the test output for regressions.
+  - **Expected results:** The client gets a useful safe error. Neither the path
+    nor `secret-test` appears in the response. Invalid requests still fail and
+    do not invoke the adapter. Existing protocol tests continue to pass.
+  - **Evidence:** Save the tested revision, command and output to
+    `docs/artifacts/effect-migration/QA-026-mcp-errors.txt` and inspect it.
+  - **Cleanup:** Close test-owned streams and child processes. Remove only
+    disposable test data; no other cleanup is needed.
+  - **Status:** Pending. Current adapter error text is returned to the client.
+
+- [ ] **QA-027 — P1 — Enforce per-frame MCP limits**
+  - **Purpose:** Treat valid requests the same regardless of stream chunking
+    while rejecting an individually oversized frame.
+  - **Prerequisites:** Shared setup and isolated streams in the existing MCP
+    test file. No live client or vault is needed.
+  - **Inputs:** Two valid newline-delimited messages, each below the existing
+    four-MiB frame limit but above two MiB, delivered in one byte chunk; then
+    one message above the individual frame limit.
+  - **Steps:**
+    1. From `apps/desktop`, run
+       `../../node_modules/.bin/bun test tests/mcp.test.ts` after the
+       frame-boundary cases are implemented.
+    2. Inspect response and adapter-call assertions for both chunk layouts and
+       the individually oversized message.
+  - **Expected results:** Both valid messages are handled whether delivered in
+    one or separate chunks. The oversized message is rejected without invoking a
+    tool, and incomplete input is bounded. Existing protocol cases pass.
+  - **Evidence:** Save the tested revision, command and output to
+    `docs/artifacts/effect-migration/QA-027-mcp-frames.txt` and inspect it.
+  - **Cleanup:** Close test-owned streams and child processes. Remove only
+    disposable test data; no other cleanup is needed.
+  - **Status:** Pending. The current limit applies before splitting a chunk.
