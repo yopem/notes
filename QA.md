@@ -245,8 +245,16 @@ data.
     test report, binary workflow report and inspected screenshots.
   - **Cleanup:** Preserve source checkouts and user files. Remove only generated
     outputs explicitly created for this case when no longer needed.
-  - **Status:** Pending. The desktop build passed after the native binding
-    resolution fix. The addon test, binary workflow and screenshots are unrun.
+  - **Status:** Build, rebuilt-addon boundary checks and private standalone
+    native workflows pass at 84fecfe on Linux. Evidence:
+    `native-close-lifecycle/v2/standalone-build.txt`,
+    `app-run-20261105T204913Z-2942912` and `app-run-20261105T204932Z-2942912`.
+    The captured executable runs directly with no library override, exact
+    Unicode native edit/undo and settings plus 14 regressions. Source fonts and
+    SDK addons were still available in those namespaces; running from / with
+    those resource paths hidden is pending. The first portability fixture failed
+    its own device-read assertion before compositor/app launch and is not a
+    product failure. Compact restart and other-platform checks remain unrun.
 
 - [ ] **QA-009 — P1 — Moved domain service regressions**
   - **Purpose:** Preserve vault safety, tasks, recurrence, templates, assistant
@@ -930,7 +938,7 @@ mark those cases passed until capture works and the evidence is inspected.
     remove its isolated data after evidence review.
   - **Status:** Pending implementation and blocked by QA-015 screenshot capture.
 
-- [ ] **QA-035 — P0 — Keep a search fallback note selected during sorting**
+- [x] **QA-035 — P0 — Keep a search fallback note selected during sorting**
   - **Purpose:** Sorting must not replace the active editor or hide a draft when
     the current note comes from the first search result.
   - **Prerequisites:** Shared isolated desktop setup; note sorting implemented;
@@ -948,12 +956,16 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save the sanitized native app tree and client-only screenshots
     under `docs/artifacts/sorting/QA-035/` with the tested revision.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
-  - **Status:** Pending. The former initialization and capture failures no
-    longer block the private Weston setup. The latest private wide run reaches
-    QA-036, but has not reached this later fallback scenario. The source fix
-    remains unaccepted until the complete fixture and evidence pass.
+  - **Status:** Passed for the private Linux source workflow at 84fecfe on
+    2026-11-05. Run `app-run-20261105T202828Z-2647396` completes the
+    reverse-sort fallback scenario with exact editor, saved body and selection
+    assertions. The final source-wide screenshot was inspected. All 95 captured
+    source/artifact hashes match; owned app/compositor exits, store lock and
+    runtime cleanup pass. Summary:
+    `native-isolation/accepted-v2-source-milestone.json`. This does not
+    establish undelivered-input or ordinary-close safety.
 
-- [ ] **QA-036 — P1 — Re-sort when leaving an edited note**
+- [x] **QA-036 — P1 — Re-sort when leaving an edited note**
   - **Purpose:** Keep the list stable during an edit, then apply the chosen
     ordering once the user selects another note.
   - **Prerequisites:** Shared isolated desktop setup and note sorting enabled.
@@ -973,14 +985,14 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save the sanitized app tree and client-only screenshots in
     `docs/artifacts/sorting/QA-036/`, with the tested revision.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
-  - **Status:** Pending. Private run `app-run-20261105T192024Z-1685202` at
-    12c3629 reached this scenario and its immediate ordering assertion failed.
-    The subsequent failure tree showed `Sort note 10` at y=381 and
-    `Sort note 20` at y=497, with the editor and saved selection on
-    `Sort note 10`. This does not establish that the application failed to
-    re-sort; paint may follow the native click reply. A bounded observable-paint
-    wait must replace the immediate geometry read, without removing or weakening
-    the ordering or identity requirements.
+  - **Status:** Passed for the private Linux source workflow at 84fecfe on
+    2026-11-05 in `app-run-20261105T202828Z-2647396`. The fixture requires two
+    consecutive positive painted-order samples and keeps the exact ordering,
+    identity, body and persistence assertions. The complete settings plus 14
+    regression workflow passes. Earlier immediate-geometry failure evidence is
+    retained; it did not establish a product sorting defect. Source snapshots,
+    screenshot inspection and owned cleanup are recorded in
+    `native-isolation/accepted-v2-source-milestone.json`.
 
 - [ ] **QA-037 — P1 — Expose selected sort choices accessibly**
   - **Purpose:** Let keyboard and assistive-technology users identify and change
@@ -1022,7 +1034,11 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save sanitized app trees, client-only screenshots and the
     isolated workspace snapshot in `docs/artifacts/duplication/QA-038/`.
   - **Cleanup:** Stop the test app and remove only isolated data after review.
-  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+  - **Status:** Implementation is complete. The private 84fecfe source wide
+    workflow passes notebook ownership, pin reset, title-collision and selected
+    copy checks. Evidence: `app-run-20261105T202828Z-2647396`. Separate-process
+    restart acceptance and the full case remain pending; screenshot capture is
+    now available in the private compositor.
 
 - [ ] **QA-039 — P0 — Preserve a draft on duplicate failure**
   - **Purpose:** A failed duplicate must not lose, clear, or falsely save the
@@ -1045,7 +1061,13 @@ mark those cases passed until capture works and the evidence is inspected.
     under `docs/artifacts/duplication/QA-039/` with the tested revision.
   - **Cleanup:** Restore only test-owned bytes, stop the test app and remove
     isolated data after evidence review.
-  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+  - **Status:** Implementation is complete. The private 84fecfe source wide
+    workflow passes failed-duplicate, exact draft rescue, retry and
+    restored-disk duplicate checks. Evidence: `app-run-20261105T202828Z-2647396`
+    and `native-isolation/accepted-v2-source-milestone.json`. The full case
+    review remains pending. The private compositor no longer blocks capture;
+    this evidence does not establish native input handoff or general
+    external-writer atomicity.
 
 - [ ] **QA-040 — P0 — Recover an uncertain atomic write**
   - **Purpose:** Prevent duplicate writes or lost drafts if a file replacement
@@ -1099,7 +1121,11 @@ mark those cases passed until capture works and the evidence is inspected.
     contents under `docs/artifacts/duplication/QA-041/` with the revision.
   - **Cleanup:** Restore only test-owned bytes; stop the test app and remove its
     isolated data after evidence review.
-  - **Status:** Pending UI integration and blocked by QA-015 screenshot capture.
+  - **Status:** UI integration is complete. The private 84fecfe source wide
+    scenario passes its exact draft-copy and original saved-body assertions in
+    `app-run-20261105T202828Z-2647396`. Native screenshot capture works. The
+    full acceptance review is pending; delivered-draft success is not proof of
+    undelivered native input safety in QA-046/066.
 
 - [ ] **QA-042 — P0 — Recover an interrupted stale-lock recovery**
   - **Purpose:** Ensure a process crash during stale-lock recovery cannot leave
@@ -1130,33 +1156,37 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Prerequisites:** Shared isolated desktop setup, implemented read-only task
     view, and a test-owned workspace. Screenshot capture must not expose any
     other window.
-  - **Inputs:** Note `Plans` with body `- [ ] Call Ω
-- [x] Ship `and note  `Code`with a fenced code block containing`- [ ] Not a
-      task`. Move another task-bearing note to Trash.
+  - **Inputs:** Note `Task plans` with body `- [ ] Call Ω\n- [x] Ship`. Add a
+    blank line and a fenced `md` code block whose only line is
+    `- [ ] Fenced task`. Move `Task trash` with body `- [ ] Trashed task` to
+    Trash.
   - **Steps:**
     1. Open **Tasks** and inspect the visible task labels and completion states.
     2. Search for `Call`, then clear the search. Activate `Call Ω` by keyboard.
     3. Inspect the opened note and compare all saved note bodies with inputs.
   - **Expected results:** The view is clearly read-only, shows `Call Ω` as open
     and `Ship` as complete, and excludes fenced-code and trashed tasks. Search
-    narrows the list. Activation opens `Plans` without toggling or rewriting it.
+    narrows the list. Activation opens `Task plans` without toggling or
+    rewriting it.
   - **Evidence:** Save sanitized app trees, client-only screenshots and isolated
     workspace hashes under `docs/artifacts/tasks/QA-043/`.
   - **Cleanup:** Stop only the test app and remove its isolated data after
     evidence review.
-  - **Status:** Pending. A tree-only native run reached task visibility, search,
-    error feedback and source-note activation, then stopped because input text
-    is absent from the native automation tree. Evidence:
-    `docs/artifacts/tasks/native-tree/report.json`. Actual input values, focus
-    announcements, screen-reader output and screenshots remain unverified.
+  - **Status:** The private Linux source workflow at 84fecfe passes visible
+    Open/Done labels, fenced/trashed exclusion, explicit search, unchanged JSON
+    bytes and keyboard source activation with actual native input readback.
+    Evidence: `app-run-20261105T202828Z-2647396`. Current stage-specific
+    screenshot coverage is being expanded before full case review. Native focus
+    announcements and screen-reader behavior remain unrun; the old
+    missing-input-readback and capture blockers no longer apply.
 
 - [ ] **QA-044 — P0 — Show pending draft tasks without saving them**
   - **Purpose:** Task discovery must use unsaved draft content without clearing
     the draft, writing the workspace, or opening a different note.
   - **Prerequisites:** Shared isolated desktop setup, implemented read-only task
     view and the existing draft-conflict regression scenario.
-  - **Inputs:** The `Regression rescue` draft with appended text `
-- [ ] Draft task 🌿`; induce the workspace-byte conflict.
+  - **Inputs:** The `Regression rescue` draft with appended text
+    `\n- [ ] Draft task 🌿`; induce the workspace-byte conflict.
   - **Steps:**
     1. Create the pending draft using the existing conflict scenario.
     2. Open **Tasks**, find `Draft task 🌿`, and activate its note.
@@ -1168,20 +1198,19 @@ mark those cases passed until capture works and the evidence is inspected.
     under `docs/artifacts/tasks/QA-044/`.
   - **Cleanup:** Restore only test-owned workspace bytes, close the test app and
     remove isolated data after evidence review.
-  - **Status:** Pending. The read-only view is implemented with explicit search
-    submission and a focusable result summary. Native interaction, focus
-    announcements and screen-reader behavior remain unverified. Screenshot
-    capture is blocked by QA-015.
+  - **Status:** The private 84fecfe source wide workflow passes discovery and
+    source activation of the pending draft task, exact warning/text retention,
+    unchanged disk bytes and draft export checks. Evidence:
+    `app-run-20261105T202828Z-2647396`. Full case review remains pending; source
+    capture is available. This is delivered-draft evidence, not an OS IME or
+    undelivered-input guarantee.
 
 - [ ] **QA-045 — P1 — Report task parsing errors and empty results**
   - **Purpose:** Distinguish a task parse failure from a genuinely empty view.
   - **Prerequisites:** Shared isolated desktop setup and implemented task view.
   - **Inputs:** A valid note without tasks; a note containing the malformed
-    frontmatter `--- x: [broken
-
----
-
-- [ ] Example`.
+    frontmatter `---\nx: [broken\n---`. Correct its body to `- [ ] Example` for
+    the recovery step.
   - **Steps:**
     1. Open **Tasks** with only the valid note and inspect the empty message.
     2. Add the malformed note, reopen **Tasks**, and inspect the error state.
@@ -1192,10 +1221,11 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save sanitized app trees, screenshots and the tested revision
     under `docs/artifacts/tasks/QA-045/`.
   - **Cleanup:** Stop only the test app and remove isolated data after review.
-  - **Status:** Pending. The read-only view is implemented with explicit search
-    submission and a focusable result summary. Native interaction, focus
-    announcements and screen-reader behavior remain unverified. Screenshot
-    capture is blocked by QA-015.
+  - **Status:** Partial native acceptance. The 84fecfe source wide scenario
+    passes malformed-note feedback and no-match search without hiding the parse
+    error. Valid-workspace empty state and correction/recovery need the expanded
+    existing native scenario before this case passes. Screenshot capture and
+    actual input values are available; screen-reader behavior remains unrun.
 
 - [ ] **QA-046 — P0 — Duplicate immediately after typing**
   - **Purpose:** Ensure a fast duplicate action does not copy an older render
@@ -1472,11 +1502,18 @@ mark those cases passed until capture works and the evidence is inspected.
     workflow artifacts under `docs/artifacts/native-packaging/`.
   - **Cleanup:** Remove only owned probe binaries and temporary packaging copies
     after evidence review. Preserve the generated development addon.
-  - **Status:** Pending. A no-GUI probe verified that using the platform-native
-    filename embeds the custom editor bridge. Close-bridge packaging and full
-    binary workflows remain unverified.
+  - **Status:** Source verification, repaired v2 publication and the fresh
+    84fecfe standalone build pass. Current host SHA-256 is
+    `9fd08b0eac20985e686f6bc3484bb0bd778eaba17dae373c2bdd4f9d590db46e`; binary
+    SHA-256 is
+    `42b35df6d8001ead9aec704580931b0d8f2c7196c575a35eb132bf39e8e3c0f2`. Private
+    binary Unicode/undo and settings plus 14 wide regressions pass with the
+    native-library override cleared. Evidence is in
+    `app-run-20261105T204913Z-2942912` and `app-run-20261105T204932Z-2942912`.
+    Full resource-isolation and current compiled-capability probe acceptance
+    remain pending. Do not infer ordinary close protection from these workflows.
 
-- [ ] **QA-055 — P1 — Fail clearly when the required native host is missing**
+- [x] **QA-055 — P1 — Fail clearly when the required native host is missing**
   - **Purpose:** Stop unsupported native startup/builds before exposing editor
     or close controls whose methods are unavailable.
   - **Prerequisites:** QA-054 setup. Copy the verifier into a private synthetic
@@ -1495,7 +1532,14 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/native-packaging/QA-055/`.
   - **Cleanup:** Remove owned copies after inspection. No user cleanup is
     needed; existing application processes must remain untouched.
-  - **Status:** Pending implementation and execution.
+  - **Status:** Passed current no-window CLI controls at 84fecfe on 2026-11-05.
+    Missing, actual stock and older async-only copies exit 1 with clear build
+    guidance; an isolated current v2 copy exits 0. The verifier source matches
+    the launch/build entrypoints. No renderer is constructed or initialized. All
+    owned fixtures are removed and the published 9fd08b0e... host hash is
+    unchanged. Inputs, source hash, statuses and sanitized output are in
+    `native-close-lifecycle/v2/current-verifier-negative.json`. This does not
+    establish application close or input safety.
 
 - [x] **QA-056 — P1 — Verify native inputs in a private software compositor**
   - **Purpose:** Verify actual editor values, native undo and visual output
@@ -1701,9 +1745,12 @@ mark those cases passed until capture works and the evidence is inspected.
     under `docs/artifacts/native-isolation/app-run-*/`.
   - **Cleanup:** Stop only owned processes and remove private data after
     evidence inspection. Restore no user setting and change no global fonts.
-  - **Status:** Pending implementation. Existing preview requires a native
-    picker and its current scenario needs an external picker driver. Native
-    picker acceptance remains separate from this explicit-path case.
+  - **Status:** Implementation is complete. The private 84fecfe source wide
+    workflow passes the explicit absolute-path route, relative-path refusal,
+    inert browsing/refresh, pending-journal refusal, unchanged JSON and lock
+    release checks. Evidence: `app-run-20261105T202828Z-2647396`. Full
+    keyboard/focus, uncertain-write entry and native-picker acceptance remain
+    pending. No picker or platform claim is made from the typed-path route.
 
 - [ ] **QA-061 — P0 — Retarget a close guard without opening a close gap**
   - **Purpose:** Keep the native veto valid when the same window receives a new
@@ -1737,26 +1784,23 @@ mark those cases passed until capture works and the evidence is inspected.
     acceptance workflow.
   - **Cleanup:** Stop only owned build/test processes and remove owned data.
     Preserve the installed addon and all user app processes.
-  - **Status:** Native v2 source is implemented; full acceptance stays pending.
-    The implementation compares and retargets owners under one lock, preserves
-    the pending request and veto, and checks the owner, request and attempt
-    again at UI execution before removal begins. Cancel, release and retarget
-    cannot let an old queued request remove the window. QA-065 records the
-    reproduced asynchronous retry fault and its separate attempt-fence repair.
-    Legacy arming/removal cannot bypass a versioned owner. Normal macOS menu and
-    keyboard quit now use the shared guard, but platform runtime and Dock quit
-    remain unverified in QA-064. At 72477ad, 30 focused Rust close/policy cases
-    and four retained async-font cases passed on Rust 1.97.1. Evidence:
-    `docs/artifacts/native-close-lifecycle/v2/QA-065-repaired-native-tests.txt`.
-    Native dependency/source compile warnings remain; no zero-warning Rust claim
-    is made. Launch/build verification requires all four v2 methods. The first
-    isolated host build succeeded but predates the attempt repair; its
-    replacement build and compiled-host probes remain pending. The TS adapter at
-    c970029 passed 25 fake-host cases; additional stale-root guards are in
-    progress and not accepted yet. UI integration, native input quiescence,
-    actual ordinary-close and other-platform acceptance are not complete. The
-    published older host still lacks v2 and is correctly rejected by the new
-    verifier until a replacement is verified and published.
+  - **Status:** Native v2 and the stale-controller adapter are implemented;
+    product acceptance remains pending. At 72477ad, 13 native renderer/parser
+    cases, 17 state cases and four retained async-font cases pass. QA-065
+    records the reproduced old-reply fault and nonreused approval-generation
+    repair. The repaired 52823760-byte host is verified and atomically published
+    with SHA-256
+    `9fd08b0eac20985e686f6bc3484bb0bd778eaba17dae373c2bdd4f9d590db46e`. Nine
+    compiled-addon boundary cases pass, as do strict malformed/uninitialized v2
+    probes. Current CLI controls reject missing and older async-only hosts
+    without renderer initialization. Publication/probe evidence is under
+    `native-close-lifecycle/v2/`. The f556a32 adapter passes 28 fake-host cases
+    and 133 assertions with stale-root and owner-specific disposal checks. An
+    independent bounded source review found no repair defect. No product UI
+    installs this guard yet. Ordinary close, pending-root transfer, input
+    quiescence, macOS/Dock quit and other-platform acceptance remain incomplete.
+    Native dependency/compiler warnings and the unbounded request-deduplication
+    set are not resolved. Never treat a queued reply as proof of window closure.
 
 - [ ] **QA-062 — P1 — Await actual native font completion without blocking JS**
   - **Purpose:** Replace the synchronous two-second font wait with a verified
@@ -1795,31 +1839,20 @@ mark those cases passed until capture works and the evidence is inspected.
     evidence is protocol-only and which exercises the native UI thread.
   - **Cleanup:** Stop only owned children and compositor groups. Remove isolated
     data, verify store-lock release, and preserve the installed addon.
-  - **Status:** Pending native integration acceptance. The producer landed in
-    66725ba, and the typed consumer and verifier are implemented. At e45f0f0,
-    desktop typecheck passed 90 files; all six affected TypeScript files passed
-    native zero-warning lint and format checks. The existing
-    `tests/native-editor.test.ts` passed 18 cases and 62 assertions. Four
-    focused native protocol tests passed, including an actual reply delayed
-    beyond two seconds. Inspected evidence is in `consumer-checks.txt` and
-    `native-protocol-tests.txt` under this case's artifact directory. The native
-    batch has a 60-second asynchronous deadline; timeout means an unknown
-    outcome, not cancellation. The consumer retains terminal failure without
-    replay. The isolated release build passed at 7147dda after the strict
-    declaration check exposed `Promise<unknown>`; an explicit NAPI return type
-    fixed the contract without weakening the check. Nine actual-addon boundary
-    cases and 13 assertions passed without renderer initialization. The verified
-    host was atomically published with SHA-256
-    `03ff0a20e7bcf71217427e44c5f854fe2adf5da0c47e1bff53f209a95da38224`;
-    `publication.json` records the preserved previous host and matching hashes.
-    Evidence includes `release-build.log`, `addon-boundary-tests.txt`,
-    `generated-index.d.ts` and the tested patch. The first private native run
-    reached a populated app tree after an initial two-second tree-query timeout,
-    but did not reach the draft-remount scenario; inspect
-    `app-run-20261105T180753Z-680414`. The owned app and compositor exited and
-    the lock was removed. Native pending-root, event-loop, remount and
-    screenshot acceptance remain pending. This case does not establish
-    normal-font latency, root cause, OS composition or platform parity.
+  - **Status:** Producer/consumer, release and scoped protocol checks pass. The
+    async host and later v2 host are both verified; current publication is
+    recorded under `native-close-lifecycle/v2/publication.json`. The actual
+    private source wide workflow at 84fecfe completes settings plus 14 native
+    scenarios with real font readiness. Delivered-draft root replacement passed
+    twice earlier. The current controlled asynchronous rejection/remount run
+    `app-run-20261105T203111Z-2647396` has init1, fonts2, batches1, remount1,
+    unchanged exact workspace bytes and an inspected restart-only screenshot.
+    This is an injected reply rejection, not delayed physical work. See
+    `native-isolation/accepted-v2-source-milestone.json`. This checkbox remains
+    pending until actual root replacement during a real outstanding native font
+    reply and detached-root ordering are observed. No normal-system-font
+    latency, IME or other-platform claim is made. Timeout still means unknown
+    completion, never cancellation or permission to replay.
 
 - [ ] **QA-063 — P1 — Select an offscreen note in the native list**
   - **Purpose:** Keep the duplicate/draft regression valid when retained virtual
@@ -1847,21 +1880,13 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Stop only owned app/compositor groups, remove their isolated
     data/runtime, and verify the workspace lock is gone. Keep sanitized
     evidence.
-  - **Status:** Implementation complete; native acceptance pending. Commit
-    0687819 adds the stable panel ID and a bounded wheel/painted-bounds
-    selection helper. Native scoped zero-warning lint, format and desktop
-    typecheck passed. The prior private wide run
-    `app-run-20261105T182727Z-946586` passed settings and reached source
-    selection after duplicate recovery, then failed because the retained row had
-    no painted bounds. The revised fixture keeps all existing assertions; no
-    application data-loss failure is established by that earlier result. The
-    next private run `app-run-20261105T183950Z-1122444` passed settings and
-    reached sorting positions, then failed because a title matched both its list
-    row and the active editor. Commit 12c3629 scopes all 14 sort-position
-    lookups to actual note rows without changing the assertions. A later CLI
-    failure changed directory before a root-relative redirect and launched no
-    app; its error is retained in `native-isolation/sort-qa-cli-error.txt`. The
-    corrected pinned private rerun remains pending.
+  - **Status:** The revised painted-row helper and complete private 84fecfe
+    source wide workflow pass, including rescue selection, exact pending draft,
+    export and Retry assertions. Evidence: `app-run-20261105T202828Z-2647396`.
+    Actual initial unpainted state and wheel-call counts are not yet retained
+    separately, so the explicit offscreen-scroll acceptance remains pending.
+    Existing scenario instrumentation is being expanded without removing any
+    ordering, identity or draft assertions.
 
 - [ ] **QA-064 — P0 — Guard normal menu and keyboard quit**
   - **Purpose:** A normal application quit must not bypass an active close owner
