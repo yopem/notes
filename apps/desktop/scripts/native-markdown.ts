@@ -1,12 +1,14 @@
 import type { App } from "@gpuix/react/automation"
 
+import { Schema } from "effect"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { z } from "zod"
 
-const workspaceSchema = z.object({
-  notes: z.array(z.object({ title: z.string(), body: z.string() })),
+const workspaceSchema = Schema.Struct({
+  notes: Schema.Array(
+    Schema.Struct({ title: Schema.String, body: Schema.String }),
+  ),
 })
 
 const title = "Native rich document"
@@ -48,13 +50,9 @@ async function savedBody(dataDirectory: string, expected: string) {
 
   while (Date.now() < deadline) {
     actual =
-      workspaceSchema
-        .parse(
-          JSON.parse(
-            readFileSync(join(dataDirectory, "workspace.json"), "utf8"),
-          ),
-        )
-        .notes.find((note) => note.title === title)?.body ?? ""
+      Schema.decodeUnknownSync(workspaceSchema)(
+        JSON.parse(readFileSync(join(dataDirectory, "workspace.json"), "utf8")),
+      ).notes.find((note) => note.title === title)?.body ?? ""
 
     if (actual === expected) break
     await Bun.sleep(16)
