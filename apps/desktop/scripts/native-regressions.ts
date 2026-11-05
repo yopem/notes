@@ -124,6 +124,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await app.getByTestId("settings-close").click()
   await app.getByTestId("note-sort").click()
   await app.getByText("Updated: oldest first").waitFor()
+  await app.getByTestId("note-row").getByText("Regression oldest").click()
   const oldestEditor = await app.getByTestId("note-body").element()
   await app.getByTestId("note-body").fill("selection-token edited oldest")
   assert.equal(
@@ -142,7 +143,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     "selection-token edited oldest",
   )
   steps.push(
-    "Oldest-order fallback stays active after its sort position changes",
+    "Oldest-order selection stays active after its sort position changes",
   )
 
   await app.getByTestId("note-body").fill("No filter phrase remains")
