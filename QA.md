@@ -1284,3 +1284,29 @@ mark those cases passed until capture works and the evidence is inspected.
     notes, and a distinct renamed user folder is readable. Pre-existing
     conflicts fail closed on open. Case-insensitive platform validation remains
     unrun.
+
+- [ ] **QA-050 — P0 — Recover pending settings without repeating a save**
+  - **Purpose:** Keep old preferences active until an uncertain replacement is
+    explicitly synchronized, then publish the intended preferences once.
+  - **Prerequisites:** Isolated desktop data, implemented settings recovery, the
+    child-only directory-fsync fault harness from QA-040, and a working native
+    automation session. Do not fault another process or use user data.
+  - **Inputs:** Editor font size `16`, intended size `22`, and a concurrent
+    external edit to size `19` for the refusal scenario.
+  - **Steps:**
+    1. Inject one post-replacement directory-fsync error while changing size
+       from `16` to `22`. Inspect settings bytes and active preferences.
+    2. Try another preference change before recovery, then activate **Recover
+       settings write**. Record filesystem writes and notifications.
+    3. Repeat with the external edit to `19` before recovery.
+  - **Expected results:** The failure keeps size `16` active and reports
+    uncertain durability. New saves are blocked. Recovery synchronizes only
+    after the file matches the intended bytes, publishes size `22` once and does
+    not repeat the original replacement. External bytes are never overwritten;
+    their mismatch leaves recovery pending with a safe error.
+  - **Evidence:** Save syscall traces, sanitized state snapshots and native
+    trees under `docs/artifacts/storage/QA-040/settings-recovery/`.
+  - **Cleanup:** Reap only test-owned processes and remove their temporary data
+    after evidence review. Restore no user settings.
+  - **Status:** Pending implementation and native validation. The real fault
+    mechanism is verified; screenshots remain blocked by QA-015.
