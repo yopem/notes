@@ -216,6 +216,8 @@ const decodeConfirmation = Schema.decodeUnknownSync(confirmationSchema, {
 
 const decodePath = Schema.decodeUnknownSync(pathSchema)
 
+const parsePath = Schema.decodeUnknownOption(pathSchema)
+
 const decodeName = Schema.decodeUnknownSync(nameSchema)
 
 const decodeState = Schema.decodeUnknownSync(stateSchema, {
@@ -1077,6 +1079,15 @@ export class Vault {
         if (hidden) throw new Error("Folder contains a symlink")
         continue
       }
+
+      if (
+        !hidden &&
+        entry.isFile() &&
+        !child.startsWith("assets/") &&
+        !/\.md$/i.test(child) &&
+        Option.isNone(parsePath(child))
+      )
+        continue
 
       this.safe(child)
 
