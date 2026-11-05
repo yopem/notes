@@ -158,10 +158,13 @@ incompatible addon stops launch or build with a rebuild instruction. Restart the
 app after a native-host change; hot reload cannot replace a loaded native
 library.
 
-The app loads its bundled fonts before it mounts workspace or recovery text. If
+The app waits for one asynchronous native font batch before it mounts workspace
+or recovery text. Root changes share the same pending operation. The native host
+must provide `registerFontsAsyncV1`; rebuild an older host before launch. If
 font setup fails, restart the app. It does not replay a failed native font
 request in the same process because the request may still finish later. Restart
-after bundled font changes as well.
+after bundled font changes as well. Native completion and platform acceptance
+remain tracked in `QA.md`.
 
 Bun compiles the app and renderer into a host-platform executable. Build on each
 target OS. Generated native binaries stay ignored. Native platform acceptance
