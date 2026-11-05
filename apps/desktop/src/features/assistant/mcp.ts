@@ -443,6 +443,7 @@ export class McpClients {
           mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
           const lock = `${path}.still-notes-mcp.lock`
           safeFile(lock)
+
           return { path, lock, fd: openSync(lock, "wx", 0o600) }
         },
         catch: configError,
