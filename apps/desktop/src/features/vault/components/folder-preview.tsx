@@ -1,4 +1,4 @@
-import type { PublicInstance, StyleDesc } from "@gpuix/react"
+import type { InputProps, PublicInstance, StyleDesc } from "@gpuix/react"
 import type { ReactNode } from "react"
 
 import { useGpuixRequired } from "@gpuix/react"
@@ -9,6 +9,7 @@ import type { Palette } from "@/components/ui/theme"
 import type { useFolderPreview } from "@/features/vault/hooks/use-folder-preview"
 
 import { Button, Label } from "@/components/ui/controls"
+import { inputStyle } from "@/components/ui/theme"
 
 const warning =
   "Note contents are read-only, but opening is not filesystem-read-only. It can create the selected folder, .still-notes/, .still-notes/state.json (using a temporary state file), inbox (for the inbox layout), quick, archive, trash and assets directories. Each open, read and refresh acquires .still-notes/vault.lock using a temporary lock file, then releases its lock. Metadata and directories remain. Pending recovery journals are refused, not repaired. No notes are imported or migrated. Links are shown as text and do not open."
@@ -49,13 +50,25 @@ export function FolderDisclosure({
   preview: FolderPreviewState
 }) {
   const palette = getFolderStyles(color)
+  const renderer = useGpuixRequired()
+  const inputRef = useRef<PublicInstance>(null)
+  const [path, setPath] = useState("")
+
+  function changePath(event: Parameters<NonNullable<InputProps["onChange"]>>[0]) {
+    setPath(event.value ?? "")
+  }
+
+  function openPath() {
+    preview.openPath(path)
+    if (inputRef.current) renderer.focusElement?.(inputRef.current.id)
+  }
 
   return (
     <Dialog.Root open={preview.disclosure} onOpenChange={preview.openChange}>
       <Dialog.Portal>
         <Dialog.Backdrop style={styles.backdrop} />
         <Dialog.Popup
-          initialFocus
+          initialFocus={inputRef}
           aria-label="Open folder preview"
           style={palette.popup}
         >
@@ -69,6 +82,18 @@ export function FolderDisclosure({
               {warning}
             </text>
           </Dialog.Description>
+          <Label color={color} size={13} weight={500}>
+            Absolute folder path
+          </Label>
+          <input
+            ref={inputRef}
+            testId="folder-path"
+            aria-label="Absolute folder path"
+            value={path}
+            onChange={changePath}
+            onSubmit={openPath}
+            style={palette.input}
+          />
           {preview.error && (
             <text testId="folder-open-error" role="alert" style={palette.error}>
               {preview.error}
@@ -85,9 +110,18 @@ export function FolderDisclosure({
             </Button>
             <Button
               color={color}
-              testId="folder-choose"
+              testId="folder-open"
               disabled={preview.busy}
               variant="primary"
+              onClick={openPath}
+            >
+              Open folder
+            </Button>
+            <Button
+              color={color}
+              testId="folder-choose"
+              disabled={preview.busy}
+              variant="outline"
               onClick={preview.chooseFolder}
             >
               {preview.busy ? "Choosing folder…" : "Accept and choose folder"}
@@ -214,6 +248,7 @@ function createFolderStyles(color: Palette) {
       borderRadius: 12,
     },
     text: { color: color.foreground },
+    input: inputStyle(color),
     error: { color: color.destructive },
   } satisfies Record<string, StyleDesc>
 }

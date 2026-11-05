@@ -1,5 +1,6 @@
 import { useGpuixRequired } from "@gpuix/react"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
+import { isAbsolute } from "node:path"
 import { useLayoutEffect, useRef, useState } from "react"
 
 import type { NotesStore } from "@/features/notes/store"
@@ -9,6 +10,12 @@ import type { NoteRecord } from "@/features/vault/service"
 import { useDesktopEffect } from "@/components/effect-boundary"
 import { VaultResource } from "@/features/vault/service"
 import { attempt } from "@/features/workspace/attempt"
+
+const absoluteFolderPath = Schema.String.check(
+  Schema.makeFilter(function validAbsoluteFolderPath(value) {
+    return isAbsolute(value) && !value.includes("\0")
+  }),
+)
 
 interface FolderSnapshot {
   root: string
@@ -108,6 +115,25 @@ export function useFolderPreview({
       )
     }
 
+    function openFolder(root: string) {
+      if (!canEnter()) return
+      const next = readSnapshot(root)
+      setSnapshot(next)
+      setDisclosure(false)
+      setError("")
+    }
+    function openPath(path: string) {
+      if (picking.current || !canEnter()) return
+      if (!Schema.is(absoluteFolderPath)(path)) {
+        setError("Enter an absolute folder path without NUL characters.")
+        return
+      }
+      try {
+        openFolder(path)
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
+    }
     async function pickFolder() {
       if (picking.current || !canEnter()) return
 
@@ -134,10 +160,7 @@ export function useFolderPreview({
           return
         }
 
-        const next = readSnapshot(paths[0])
-        setSnapshot(next)
-        setDisclosure(false)
-        setError("")
+        openFolder(paths[0])
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
       } finally {
@@ -187,6 +210,7 @@ export function useFolderPreview({
       showDisclosure,
       cancel,
       chooseFolder,
+      openPath,
       openChange,
       refresh,
       selectNote,
