@@ -69,7 +69,9 @@ export function useWorkspaceEditorActions({
         navigation.setNavigationOpen(false)
         onError("")
       } catch {
-        onError("Could not duplicate note. Try again.")
+        onError(
+          "Could not duplicate note. Check the workspace before retrying.",
+        )
       }
     }
 
