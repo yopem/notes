@@ -69,6 +69,7 @@ export function EditorToolbar({
             color={color}
             icon="chevron"
             label="Back to notes"
+            testId="editor-back"
             onClick={onBack}
           />
         )}
