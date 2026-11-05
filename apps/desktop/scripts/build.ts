@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
-import { resolve } from "node:path"
+import { copyFileSync, mkdirSync } from "node:fs"
+import { basename, resolve } from "node:path"
+
+import { requireDesktopNativeBinding } from "./native-binding"
 
 const root = resolve(import.meta.dir, "..")
 
@@ -13,7 +16,15 @@ const nativePackage = `@gpuix/native-${process.platform}-${process.arch}${abi}`
 
 const nativeModule = Bun.resolveSync("@gpuix/native", root)
 
-const nativeBinding = Bun.resolveSync(nativePackage, nativeModule)
+const platformBinding = Bun.resolveSync(nativePackage, nativeModule)
+
+const bindingDirectory = resolve(root, "dist/native")
+
+const nativeBinding = resolve(bindingDirectory, basename(platformBinding))
+
+mkdirSync(bindingDirectory, { recursive: true })
+
+copyFileSync(requireDesktopNativeBinding(), nativeBinding)
 
 // GPUix uses createRequire, so Bun needs the native file as an explicit asset.
 const result = Bun.spawnSync({
