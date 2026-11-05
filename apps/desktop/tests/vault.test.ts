@@ -1795,18 +1795,23 @@ describe("native Markdown vault", () => {
   test("pending recovery blocks ordinary and no-op mutations before they return", () => {
     const directory = root()
     const vault = open(directory)
-    const note = Effect.runSync(
-      vault.createNote("inbox", "A", "", "original"),
-    )
+
+    const note = Effect.runSync(vault.createNote("inbox", "A", "", "original"))
+
     const asset = Effect.runSync(
       vault.createAsset("a.txt", Buffer.from("asset")),
     )
+
     Effect.runSync(vault.createFolder("root", "Books/New"))
     const metadataPath = join(directory, ".still-notes/state.json")
     const metadata = readFileSync(metadataPath)
     const journalPath = join(directory, ".still-notes/transaction.json")
     const journal = JSON.stringify({ version: 1, files: [], directories: [] })
-    const operations = [
+
+    const operations: Effect.Effect<
+      unknown,
+      VaultNoteError | VaultFolderError | VaultAssetError
+    >[] = [
       vault.createNote("inbox", "Blocked"),
       vault.writeNote(note.path, "changed", { expectedContent: "original" }),
       vault.appendToNote(note.path, "", "end", {
@@ -1820,6 +1825,7 @@ describe("native Markdown vault", () => {
       vault.moveAsset(asset.path, "assets"),
       vault.createAsset("blocked.txt", Buffer.from("blocked")),
     ]
+
     writeFileSync(journalPath, journal)
 
     for (const operation of operations) {
@@ -1827,9 +1833,7 @@ describe("native Markdown vault", () => {
       expect(failure.message).toMatch(/journal.*close.*reopen/i)
       expect(readFileSync(journalPath, "utf8")).toBe(journal)
       expect(readFileSync(metadataPath)).toEqual(metadata)
-      expect(readFileSync(join(directory, note.path), "utf8")).toBe(
-        "original",
-      )
+      expect(readFileSync(join(directory, note.path), "utf8")).toBe("original")
       expect(readFileSync(join(directory, asset.path), "utf8")).toBe("asset")
     }
 

@@ -1013,6 +1013,7 @@ export class Vault {
 
     if (Buffer.byteLength(bytes) > transactionLimit)
       throw new Error("Transaction exceeds size limit; use smaller folders")
+
     try {
       atomicWrite(this.safe(journalPath), bytes, this.safe(internal))
     } catch (error) {
@@ -1046,7 +1047,9 @@ export class Vault {
             Buffer.from(bytes),
           )
         )
-          throw new Error("Recovery journal changed; preserve journal and files")
+          throw new Error(
+            "Recovery journal changed; preserve journal and files",
+          )
         this.validateJournal(journal)
         this.apply(journal, false)
         unlinkSync(this.safe(journalPath))
