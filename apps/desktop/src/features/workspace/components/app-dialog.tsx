@@ -4,6 +4,7 @@ import { useRef, useState } from "react"
 
 import { Button, Label } from "@/components/ui/controls"
 import { inputStyle, type Palette } from "@/components/ui/theme"
+import { DialogHelp } from "@/features/workspace/components/dialog/dialog-help"
 
 export type DialogState =
   | { kind: "notebook" }
@@ -158,50 +159,7 @@ export function AppDialog({
             />
           </div>
           {state.kind === "help" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <Dialog.Description>
-                <Label color={color} muted>
-                  Native Markdown notebooks. Your words stay on this device.
-                </Label>
-              </Dialog.Description>
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 12 }}
-              >
-                {[
-                  ["New note", "N"],
-                  ["Search notes", "P / K"],
-                  ["Edit / preview", "Shift + P"],
-                  ["Focus mode", "Shift + F"],
-                  ["Import Markdown", "O"],
-                ].map(([label, keys]) => (
-                  <div
-                    key={label}
-                    style={{
-                      display: "flex",
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <Label color={color}>{label}</Label>
-                    <Label color={color} muted>
-                      {process.platform === "darwin" ? "⌘" : "Ctrl"} + {keys}
-                    </Label>
-                  </div>
-                ))}
-              </div>
-              <Label color={color} size={12} muted>
-                Markdown supports headings, lists, tasks, tables, links and
-                code. Drag .md files into the window to import them.
-              </Label>
-              <Label
-                color={color}
-                size={12}
-                muted
-              >{`Data location: ${dataDirectory}`}</Label>
-              <Label color={color} size={12} muted>
-                Still Notes · GPUix + Bun · Yopem UI design values.
-              </Label>
-            </div>
+            <DialogHelp color={color} dataDirectory={dataDirectory} />
           )}
           {state.kind === "move" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
