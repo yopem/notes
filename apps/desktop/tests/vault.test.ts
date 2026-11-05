@@ -11,6 +11,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  statSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -167,6 +168,90 @@ describe("native Markdown vault", () => {
     expect(() => new Vault(directory)).toThrow("lock")
     expect(Effect.runSync(original.listNotes())).toEqual([])
   })
+  test("a failed lock write never publishes partial bytes or alters another lock", () => {
+    if (process.platform !== "linux") return
+    const directory = root()
+    const lock = join(directory, ".still-notes/vault.lock")
+    open(directory).close()
+    const attempt = () =>
+      spawnSync(
+        "/bin/sh",
+        [
+          "-c",
+          'trap "" XFSZ; ulimit -f 0; exec "$@"',
+          "sh",
+          process.execPath,
+          "-e",
+          `import { Effect } from "effect"; import { VaultResource } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; const result = Effect.runSync(Effect.provide(VaultResource, VaultResource.layer(${JSON.stringify(directory)})).pipe(Effect.match({ onFailure: (error) => ({ tag: error._tag, code: error.cause?.code }), onSuccess: () => ({ tag: "success" }) }))); process.stdout.write(JSON.stringify(result));`,
+        ],
+        { cwd: resolve(".") },
+      )
+
+    const failed = attempt()
+    expect(failed.status).toBe(0)
+    expect(JSON.parse(failed.stdout.toString())).toEqual({
+      tag: "VaultOpenError",
+      code: "EFBIG",
+    })
+    expect(existsSync(lock)).toBe(false)
+    expect(readdirSync(join(directory, ".still-notes"))).toEqual(["state.json"])
+
+    const owner = open(directory)
+    const ownerBytes = readFileSync(lock, "utf8")
+    const competing = attempt()
+    expect(competing.status).toBe(0)
+    expect(JSON.parse(competing.stdout.toString())).toEqual({
+      tag: "VaultOpenError",
+      code: "EFBIG",
+    })
+    expect(readFileSync(lock, "utf8")).toBe(ownerBytes)
+    expect(Effect.runSync(owner.listNotes())).toEqual([])
+    owner.close()
+    expect(Effect.runSync(open(directory).listNotes())).toEqual([])
+  })
+  test("competing processes publish one complete owner and release it safely", async () => {
+    const directory = root()
+    open(directory).close()
+    const lock = join(directory, ".still-notes/vault.lock")
+    const source = `import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; process.stdin.once("data", () => { try { const vault = new Vault(${JSON.stringify(directory)}); process.stdout.write("acquired\\n"); process.stdin.once("data", () => { vault.close(); process.exit(0) }); } catch (error) { process.stdout.write("denied:" + error.message + "\\n"); process.exitCode = 1; process.stdin.pause(); } }); process.stdout.write("ready\\n");`
+    const children = [0, 1].map(() =>
+      spawn(process.execPath, ["-e", source], {
+        cwd: resolve("."),
+        stdio: ["pipe", "pipe", "pipe"],
+      }),
+    )
+    const exits = children.map((child) => once(child, "exit"))
+
+    try {
+      await Promise.all(children.map((child) => once(child.stdout, "data")))
+      const results = children.map((child) => once(child.stdout, "data"))
+      for (const child of children) child.stdin.write("start\n")
+      const messages = (await Promise.all(results)).map(([bytes]) =>
+        String(bytes).trim(),
+      )
+      const winner = messages.indexOf("acquired")
+      expect(winner).toBeGreaterThanOrEqual(0)
+      expect(messages.filter((message) => message === "acquired")).toHaveLength(1)
+      expect(messages[1 - winner]).toMatch(/^denied:.*lock/i)
+      const ownerBytes = readFileSync(lock, "utf8")
+      const owner = JSON.parse(ownerBytes)
+      expect(owner.pid).toBe(children[winner]?.pid)
+      expect(owner.token).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      )
+      if (process.platform !== "win32")
+        expect(statSync(lock).mode & 0o777).toBe(0o600)
+      expect(() => new Vault(directory)).toThrow(/lock/i)
+      expect(readFileSync(lock, "utf8")).toBe(ownerBytes)
+      children[winner]?.stdin.write("close\n")
+      await Promise.all(exits)
+      expect(existsSync(lock)).toBe(false)
+      expect(Effect.runSync(open(directory).listNotes())).toEqual([])
+    } finally {
+      for (const child of children) child.kill()
+      await Promise.all(exits)
+    }
+  }, 15000)
   test("creates layout without seeding or moving unknown existing files", () => {
     const directory = root()
     writeFileSync(join(directory, "loose.bin"), "keep")
