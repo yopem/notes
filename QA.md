@@ -405,7 +405,10 @@ synchronous calculations in ordinary TypeScript.
     screenshots. Do not include secrets or personal data.
   - **Cleanup:** Close only owned processes and scopes. Remove isolated test
     data after evidence review. Leave user data and configuration untouched.
-  - **Status:** Pending; user explicitly includes existing desktop code.
+  - **Status:** Pending. Native editor boundary tests passed (11 tests, 24
+    assertions), and Markdown tests passed (10 tests, 42 assertions). Other
+    workflows and the native regression remain pending. GPUix retains Zod as a
+    third-party transitive dependency.
 
 - [ ] **QA-015 — P0 — Effect runtime resource and write boundaries**
   - **Purpose:** Check that the desktop runtime acquires one notes lock, runs
