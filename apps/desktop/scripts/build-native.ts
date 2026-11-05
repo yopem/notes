@@ -1,8 +1,8 @@
+import { Predicate, Schema } from "effect"
 import assert from "node:assert/strict"
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { isAbsolute, resolve } from "node:path"
-import { z } from "zod"
 
 const release = "2e31b47ff6432ceebe70e7fc7b0f51a76d7d30cf"
 
@@ -131,11 +131,15 @@ const require = createRequire(import.meta.url)
 
 const binding: unknown = require(binary)
 
-const addon = z.object({ GpuixRenderer: z.instanceof(Function) }).parse(binding)
+const addon = Schema.decodeUnknownSync(
+  Schema.Struct({ GpuixRenderer: Schema.declare(Predicate.isFunction) }),
+)(binding)
 
-z.object({ editorCommand: z.instanceof(Function) }).parse(
-  addon.GpuixRenderer.prototype,
-)
+const prototype: unknown = addon.GpuixRenderer.prototype
+
+Schema.decodeUnknownSync(
+  Schema.Struct({ editorCommand: Schema.declare(Predicate.isFunction) }),
+)(prototype)
 
 mkdirSync(resolve(root, "native"), { recursive: true })
 
