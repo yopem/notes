@@ -143,11 +143,13 @@ export function createNativeEditor(
 ) {
   const id = decodeOffset(elementId)
   const native = "native" in renderer ? renderer.native : renderer
-  const command = native.editorCommand
+  const nativeCommand = native.editorCommand
 
-  if (!Predicate.isFunction(command)) {
+  if (!Predicate.isFunction(nativeCommand)) {
     throw new Error("Custom GPUix addon with editorCommand is required")
   }
+
+  const command = nativeCommand
 
   function execute<S extends Schema.ConstraintDecoder<unknown>>(
     value: NativeEditorCommand,
@@ -304,6 +306,7 @@ export function readNativeEditorKeyEvent(
     !event.value
   )
     return null
+
   const routed = Schema.decodeUnknownResult(RoutedKeySchema, {
     onExcessProperty: "error",
   })(JSON.parse(event.value))
