@@ -245,16 +245,20 @@ data.
     test report, binary workflow report and inspected screenshots.
   - **Cleanup:** Preserve source checkouts and user files. Remove only generated
     outputs explicitly created for this case when no longer needed.
-  - **Status:** Build, rebuilt-addon boundary checks and private standalone
-    native workflows pass at 84fecfe on Linux. Evidence:
-    `native-close-lifecycle/v2/standalone-build.txt`,
-    `app-run-20261105T204913Z-2942912` and `app-run-20261105T204932Z-2942912`.
-    The captured executable runs directly with no library override, exact
-    Unicode native edit/undo and settings plus 14 regressions. Source fonts and
-    SDK addons were still available in those namespaces; running from / with
-    those resource paths hidden is pending. The first portability fixture failed
-    its own device-read assertion before compositor/app launch and is not a
-    product failure. Compact restart and other-platform checks remain unrun.
+  - **Status:** Build and rebuilt-addon boundary checks pass. Private Linux
+    standalone input/undo and settings plus 14 regression groups pass at 84fecfe
+    from / with no library override and with project fonts, project custom addon
+    and installed SDK .node paths masked in the namespace. The actual executable
+    hash is `42b35df6d8001ead9aec704580931b0d8f2c7196c575a35eb132bf39e8e3c0f2`.
+    Runs `app-run-20261105T210637Z-3195020` and
+    `app-run-20261105T210647Z-3195020` have exact native input/undo, original
+    note preservation, distinct namespaces, inspected screenshots, 95 rehashed
+    immutable files each, owned zero exits and lock/runtime cleanup. Evidence:
+    `native-isolation/accepted-portable-standalone.json` and
+    `native-close-lifecycle/v2/standalone-build.txt`. The earlier failing
+    resource fixture was fixed before app launch; its error is retained. Compact
+    separate-process restart and other-platform acceptance remain unrun, so the
+    full case stays open.
 
 - [ ] **QA-009 — P1 — Moved domain service regressions**
   - **Purpose:** Preserve vault safety, tasks, recurrence, templates, assistant
@@ -1476,7 +1480,7 @@ mark those cases passed until capture works and the evidence is inspected.
     inspection in QA-052. The same platform, physical-I/O and external-writer
     limits as QA-052 remain.
 
-- [ ] **QA-054 — P1 — Use the required addon in source and binary builds**
+- [x] **QA-054 — P1 — Use the required addon in source and binary builds**
   - **Purpose:** Prevent source launch and standalone packaging from silently
     using the stock host instead of the required editor/close bridge.
   - **Prerequisites:** Shared pinned Bun setup and a verified custom addon from
@@ -1502,16 +1506,20 @@ mark those cases passed until capture works and the evidence is inspected.
     workflow artifacts under `docs/artifacts/native-packaging/`.
   - **Cleanup:** Remove only owned probe binaries and temporary packaging copies
     after evidence review. Preserve the generated development addon.
-  - **Status:** Source verification, repaired v2 publication and the fresh
-    84fecfe standalone build pass. Current host SHA-256 is
-    `9fd08b0eac20985e686f6bc3484bb0bd778eaba17dae373c2bdd4f9d590db46e`; binary
-    SHA-256 is
-    `42b35df6d8001ead9aec704580931b0d8f2c7196c575a35eb132bf39e8e3c0f2`. Private
-    binary Unicode/undo and settings plus 14 wide regressions pass with the
-    native-library override cleared. Evidence is in
-    `app-run-20261105T204913Z-2942912` and `app-run-20261105T204932Z-2942912`.
-    Full resource-isolation and current compiled-capability probe acceptance
-    remain pending. Do not infer ordinary close protection from these workflows.
+  - **Status:** Passed the scoped Linux source/standalone packaging workflow at
+    84fecfe on 2026-11-05. Source and build verifiers require all eight methods.
+    A new standalone capability probe uses the production explicit native-asset
+    flags and package entrypoint, then runs from / with its source package path
+    removed and the override cleared. All eight capabilities pass without
+    renderer construction. Stock/published host hashes are unchanged and
+    fixtures removed. Evidence:
+    `native-close-lifecycle/v2/compiled-capabilities-report.json`. Actual
+    standalone Unicode/undo and settings plus 14 regressions also pass from /
+    with source fonts, source custom host and installed SDK .node paths hidden
+    in the private namespace. Both screenshots were inspected and 95 snapshot
+    hashes per run verified. Evidence:
+    `native-isolation/accepted-portable-standalone.json`. This is not product
+    close or other-platform acceptance.
 
 - [x] **QA-055 — P1 — Fail clearly when the required native host is missing**
   - **Purpose:** Stop unsupported native startup/builds before exposing editor
