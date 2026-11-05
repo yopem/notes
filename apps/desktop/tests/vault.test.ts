@@ -615,16 +615,12 @@ describe("native Markdown vault", () => {
       if (!existsSync(alias)) {
         mkdirSync(alias)
         writeFileSync(join(alias, "Keep.md"), "user content")
-        expect(
-          Effect.runSync(vault.listNotes()).some(
-            (note) => note.path === "Trash/Keep.md",
-          ),
-        ).toBe(false)
-        expect(
-          Effect.runSync(vault.listFolders()).some(
-            (folder) => folder.path === "Trash",
-          ),
-        ).toBe(false)
+        const noteError = Effect.runSync(Effect.flip(vault.listNotes()))
+        const folderError = Effect.runSync(Effect.flip(vault.listFolders()))
+        expect(noteError).toBeInstanceOf(VaultNoteError)
+        expect(noteError.message).toContain("reserved system name")
+        expect(folderError).toBeInstanceOf(VaultFolderError)
+        expect(folderError.message).toContain("reserved system name")
         expect(
           Effect.runSync(
             Effect.flip(vault.deleteFolder("root", "Trash", { confirm: true })),
@@ -633,6 +629,12 @@ describe("native Markdown vault", () => {
         expect(readFileSync(join(alias, "Keep.md"), "utf8")).toBe(
           "user content",
         )
+        renameSync(alias, join(directory, "Recovered user notes"))
+        expect(
+          Effect.runSync(vault.listNotes()).some(
+            (note) => note.path === "Recovered user notes/Keep.md",
+          ),
+        ).toBe(true)
       }
 
       if (primary === "root") {
