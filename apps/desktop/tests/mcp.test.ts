@@ -576,6 +576,7 @@ describe("MCP real stdio child", () => {
     const ping = Promise.withResolvers<void>()
     const cancelled = Promise.withResolvers<void>()
     const retried = Promise.withResolvers<void>()
+    const queuedCancelled = Promise.withResolvers<void>()
     const output: string[] = []
     let calls = 0
     let active = 0
@@ -594,6 +595,8 @@ describe("MCP real stdio child", () => {
           const reply = Schema.decodeUnknownSync(replySchema)(JSON.parse(line))
           if (reply.id === 9) ping.resolve()
           if (reply.id === 8) retried.resolve()
+          if (reply.id === 10 && reply.error?.code === -32800)
+            queuedCancelled.resolve()
           if (reply.id === 7 && reply.error?.code === -32600)
             cancelled.resolve()
 
@@ -627,10 +630,13 @@ describe("MCP real stdio child", () => {
         { method: "notifications/cancelled", params: { requestId: 7 } },
         write,
         { ...write, id: 8 },
+        { ...write, id: 10 },
+        { method: "notifications/cancelled", params: { requestId: 10 } },
         { id: 9, method: "ping" },
       ])
       await aborted.promise
       await ping.promise
+      await queuedCancelled.promise
       expect(calls).toBe(1)
       expect(output.map((line) => JSON.parse(line)).filter((reply) => reply.id === 7)).toHaveLength(0)
       release.resolve("done")
