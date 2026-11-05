@@ -1269,6 +1269,10 @@ mark those cases passed until capture works and the evidence is inspected.
     revision under `docs/artifacts/vault/QA-049/`.
   - **Cleanup:** Close test-owned vaults and remove only the isolated trees
     after evidence review.
-  - **Status:** Pending. Source review found case-variant root folders are
-    skipped during discovery. Whether earlier valid data becomes inaccessible
-    requires a focused regression check.
+  - **Status:** Pending. At `371c499`, focused Linux checks passed 59 vault
+    tests and 978 assertions, native zero-warning lint, formatting and desktop
+    typecheck. Evidence: `docs/artifacts/vault/QA-049/checks.txt`. New
+    conflicting paths now produce explicit listing errors instead of hidden
+    notes, and a distinct renamed user folder is readable. Pre-existing
+    conflicts fail closed on open. Case-insensitive platform validation remains
+    unrun.
