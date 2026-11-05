@@ -1157,3 +1157,25 @@ mark those cases passed until capture works and the evidence is inspected.
     under `docs/artifacts/tasks/QA-045/`.
   - **Cleanup:** Stop only the test app and remove isolated data after review.
   - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-046 — P0 — Duplicate immediately after typing**
+  - **Purpose:** Ensure a fast duplicate action does not copy an older render
+    while a native editor change is still pending.
+  - **Prerequisites:** Shared isolated desktop setup, implemented duplicate
+    action, working native automation and client-only screenshot capture.
+  - **Inputs:** A test-owned note `Quick copy` with body `Before`. Append the
+    exact text ` Ω` and activate **Duplicate note** immediately afterward.
+  - **Steps:**
+    1. Focus the note body and enter the suffix with native keyboard input.
+    2. Activate **Duplicate note** immediately, without switching notes.
+    3. Inspect the original, copy and persisted workspace after both settle.
+  - **Expected results:** Both the visible original and independent copy contain
+    `Before Ω`; the copy does not contain an earlier body. No draft is silently
+    cleared or written to a different note.
+  - **Evidence:** Save the native interaction trace, sanitized app tree and
+    isolated workspace snapshot under `docs/artifacts/duplication/QA-046/`.
+  - **Cleanup:** Stop only the test app and remove isolated data after evidence
+    review.
+  - **Status:** Pending. Source review found the action reads a rendered-note
+    ref while edits first update a separate pending-draft ref; whether native
+    event timing can expose an older value is unverified. QA-015 blocks capture.
