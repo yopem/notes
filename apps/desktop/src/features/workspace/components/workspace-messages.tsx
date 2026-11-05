@@ -23,6 +23,7 @@ export function WorkspaceMessages({
   onDismissNotice: () => void
 }) {
   const styles = getWorkspaceStyles(color)
+
   const draftWarning = retryDisabled
     ? "Unsaved edits remain in this window. Recover the pending write before retrying."
     : "Unsaved edits remain in this window. Retry before closing."
