@@ -330,8 +330,9 @@ data.
 ## Existing lint findings
 
 Acceptance: all existing and new workspace lint warnings and errors must be
-resolved. Feature work is paused until QA-013 passes. Baseline at `48e0257`: 177
-desktop warnings and zero errors. The other workspaces have no findings.
+resolved. Keep native regression checks pending even when lint is clean.
+Baseline at `48e0257`: 177 desktop warnings and zero errors. The other
+workspaces had no findings.
 
 - [ ] **QA-013 — P1 — Zero workspace lint diagnostics**
   - **Purpose:** Remove all existing warnings and errors without weakening the
