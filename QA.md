@@ -1592,14 +1592,21 @@ mark those cases passed until capture works and the evidence is inspected.
     `app-run-20261105T131052Z-1562454`.
   - **Cleanup:** Stop only owned app/compositor groups, check the lock is gone
     and remove private runtimes. Keep sanitized artifacts and fault scripts.
-  - **Status:** Pending acceptance after 34aa28b, bd0af2a and 5e4c187. Native
-    fonts now precede application/recovery text; failures have a specific
-    boundary and renderer outcomes survive remounts without replay. Scoped
-    native zero-warning lint passed. The prior run failed at ba271a3 on the
-    second registration's two-second timeout; the underlying wait is unknown.
-    Bundled-font wide execution reached settings and later safety scenarios,
-    then failed an ambiguous Trash fixture target, corrected in ba1e947. Neither
-    that partial run nor the startup boundary proves normal-font reliability.
+  - **Status:** Pending normal-font and asset-failure acceptance. The controlled
+    failure/remount scope passed on 2026-11-05 at 0450ba9 in
+    `app-run-20261105T160540Z-3399397` under the evidence directory. Inspected
+    counters show one native initialization, two registration attempts and one
+    same-host remount without replay. Exact workspace bytes stayed unchanged;
+    native input was absent and the specific restart message remained visible.
+    The inspected private screenshot is 1360 by 900, SHA-256
+    `827f995976619c588dbea943e1322d99184d07bba496b789f826da883894c16f`. Snapshot
+    fixture typecheck passed 82 files. Six client credentials belong to the
+    private namespace; no physical DRM open occurred, owned processes exited
+    successfully, and the store lock and private runtime were removed. All
+    active fixtures use normal package entrypoints inside the immutable desktop
+    snapshot. Font source hashes still match current code. The initial real
+    two-second timeout's cause, normal system-font startup, unreadable or
+    invalid assets, OS composition and screen-reader output remain unverified.
 
 - [ ] **QA-059 — P0 — Preserve failed drafts across native root remounts**
   - **Purpose:** Protect pending notes when hot reload or an explicit root
