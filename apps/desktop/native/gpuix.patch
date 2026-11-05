@@ -1322,7 +1322,7 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a307
      pub fn set_live_image(
          &mut self,
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..6c498990c5ea3151a17347f86ade84ab61f64ee4 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..1d0f7373758fcb7cfb1185beb6a224a1e59be6a5 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -1675,7 +1675,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..6c498990c5ea3151a17347f86ade84ab
          Err(Error::from_reason("Unsupported operating system"))
      }
 
-+    #[napi(js_name = "registerFontsAsyncV1")]
++    #[napi(js_name = "registerFontsAsyncV1", ts_return_type = "Promise<number>")]
 +    pub fn register_fonts_async_v1(&self, data: Vec<Buffer>) -> AsyncTask<FontBatchTask> {
 +        let result = (|| {
 +            if data.is_empty() || data.len() > MAX_FONT_BATCH_COUNT {
