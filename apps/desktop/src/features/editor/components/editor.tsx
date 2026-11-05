@@ -2,9 +2,10 @@ import type { Palette } from "@/components/ui/theme"
 import type { Note } from "@/features/notes/store"
 import type { Preferences } from "@/features/settings/store"
 
-import { Label } from "@/components/ui/controls"
-import { nativeTheme } from "@/components/ui/theme"
+import { EditorContent } from "@/features/editor/components/editor-content"
 import { EditorFooter } from "@/features/editor/components/editor-footer"
+import { EditorHeading } from "@/features/editor/components/editor-heading"
+import { editorRootStyle } from "@/features/editor/components/editor-styles"
 import { EditorToolbar } from "@/features/editor/components/editor-toolbar"
 import { EditorTrashBanner } from "@/features/editor/components/editor-trash-banner"
 
@@ -51,22 +52,13 @@ export function Editor({
   narrow: boolean
   onBack: () => void
 }) {
-  const theme = nativeTheme(color)
-  const words = note.body.trim() ? note.body.trim().split(/\s+/u).length : 0
-  const split = mode === "split" && !narrow
-
   return (
     <div
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
+      // GPUix has no main host; the native div role supplies AccessKit semantics.
+      // eslint-disable-next-line react-doctor/prefer-tag-over-role
       role="main"
       aria-label="Note editor"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        flexGrow: 1,
-        minWidth: 0,
-        minHeight: 0,
-      }}
+      style={editorRootStyle}
     >
       <EditorToolbar
         color={color}
@@ -85,138 +77,21 @@ export function Editor({
           onDelete={onDelete}
         />
       )}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          paddingLeft: narrow ? 24 : 40,
-          paddingRight: narrow ? 24 : 40,
-          paddingTop: 32,
-          paddingBottom: 22,
-        }}
-      >
-        <input
-          key={`${note.id}-title`}
-          testId="note-title"
-          aria-label="Note title"
-          value={note.title}
-          placeholder="Untitled"
-          readOnly={Boolean(note.trashedAt)}
-          theme={theme}
-          onChange={(event) => onChange({ title: event.value ?? "" })}
-          style={{
-            color: color.foreground,
-            fontFamily: "Inter",
-            fontSize: 28,
-            fontWeight: 600,
-            lineHeight: 40,
-            height: 48,
-            width: "100%",
-            backgroundColor: "transparent",
-          }}
-        />
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <Label color={color} size={12} muted>
-            {new Date(note.updatedAt).toLocaleDateString(undefined, {
-              month: "long",
-              day: "numeric",
-              year: "numeric",
-            })}
-          </Label>
-          <Label color={color} size={12} muted>
-            ·
-          </Label>
-          <Label
-            color={color}
-            size={12}
-            muted
-          >{`${words} ${words === 1 ? "word" : "words"}`}</Label>
-          {note.pinned && (
-            <Label color={color} size={12} muted>
-              · Pinned
-            </Label>
-          )}
-        </div>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          flexGrow: 1,
-          minHeight: 0,
-          paddingLeft: narrow ? 24 : 40,
-          paddingRight: narrow ? 24 : 40,
-          paddingBottom: 24,
-          gap: 28,
-        }}
-      >
-        {mode !== "preview" && (
-          <textarea
-            key={`${note.id}-body`}
-            testId="note-body"
-            aria-label="Note Markdown"
-            value={note.body}
-            placeholder="Start writing. Markdown is welcome."
-            readOnly={Boolean(note.trashedAt)}
-            theme={theme}
-            onChange={(event) => onChange({ body: event.value ?? "" })}
-            style={{
-              flexGrow: 1,
-              flexBasis: 0,
-              minWidth: 0,
-              height: "100%",
-              color: color.foreground,
-              fontFamily: preferences.monoFont ?? "IBM Plex Mono",
-              fontSize: preferences.editorFontSize,
-              lineHeight:
-                preferences.editorFontSize * preferences.editorLineHeight,
-              whiteSpace: preferences.wordWrap ? "normal" : "nowrap",
-              backgroundColor: "transparent",
-              selectionColor: color.selection,
-            }}
-          />
-        )}
-        {(mode === "preview" || split) && (
-          <div
-            testId="markdown-preview"
-            style={{
-              flexGrow: 1,
-              flexBasis: 0,
-              minWidth: 0,
-              height: "100%",
-              overflow: "scroll",
-              scrollbarColor: color.border,
-              borderLeftWidth: split ? 1 : 0,
-              borderColor: color.border,
-              paddingLeft: split ? 28 : 0,
-            }}
-          >
-            <markdown
-              source={note.body || "*Nothing here yet.*"}
-              theme={theme}
-              onLinkClick={(event) => {
-                if (event.value) onLink(event.value)
-              }}
-              style={{
-                color: color.foreground,
-                fontFamily: preferences.textFont ?? "Inter",
-                fontSize: preferences.editorFontSize,
-                lineHeight:
-                  preferences.editorFontSize * preferences.editorLineHeight,
-              }}
-            />
-          </div>
-        )}
-      </div>
+      <EditorHeading
+        color={color}
+        note={note}
+        narrow={narrow}
+        onChange={onChange}
+      />
+      <EditorContent
+        color={color}
+        preferences={preferences}
+        note={note}
+        mode={mode}
+        narrow={narrow}
+        onChange={onChange}
+        onLink={onLink}
+      />
       <EditorFooter
         color={color}
         note={note}
