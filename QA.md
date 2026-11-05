@@ -1244,3 +1244,31 @@ mark those cases passed until capture works and the evidence is inspected.
     were also present in the worktree. The timeout wrapper returned 124 as
     expected after its deadline. Default system-font startup, visual output and
     exact child-process cleanup remain unverified.
+
+- [ ] **QA-049 — P0 — Preserve distinct case-sensitive vault folders**
+  - **Purpose:** Reserved-area guards must not silently hide existing user
+    content in distinct folders on a case-sensitive filesystem.
+  - **Prerequisites:** A disposable Linux case-sensitive vault, with both
+    `trash` and `Trash` confirmed as distinct directories. Repeat for both
+    primary layouts. Never use personal notes.
+  - **Inputs:** `Trash/User.md` containing `Keep this note Ω`, canonical
+    `trash/System.md` containing `System trash`, and an existing
+    `Assets/User.md` containing `User folder`. Record exact file and metadata
+    bytes.
+  - **Steps:**
+    1. Create the isolated folder trees before opening the vault service.
+    2. Open the vault and list notes. Read each existing user note by its ID.
+    3. Compare the returned area and contents with the real folder identities.
+    4. Reopen the vault and compare every source and metadata file with the
+       recorded bytes. Repeat on a case-insensitive filesystem when available.
+  - **Expected results:** Distinct user folders remain discoverable and
+    readable, or opening reports an explicit actionable conflict without hiding
+    notes. No guard maps the user folder to a system area or changes data.
+    Case-insensitive aliases still cannot mutate protected folders.
+  - **Evidence:** Save isolated listings, hashes, filesystem details and tested
+    revision under `docs/artifacts/vault/QA-049/`.
+  - **Cleanup:** Close test-owned vaults and remove only the isolated trees
+    after evidence review.
+  - **Status:** Pending. Source review found case-variant root folders are
+    skipped during discovery. Whether earlier valid data becomes inaccessible
+    requires a focused regression check.
