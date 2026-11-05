@@ -290,6 +290,7 @@ describe("NotesStore real disk integration", () => {
     const store = open(root)
     const source = store.getSnapshot().notes[0]
     expect(source).toBeDefined()
+
     if (!source) throw new Error("Missing source")
     Effect.runSync(store.togglePin(source.id))
     Effect.runSync(store.selectNote(null))
@@ -305,7 +306,9 @@ describe("NotesStore real disk integration", () => {
       trashedAt: null,
     })
     expect(copy.createdAt).toBe(copy.updatedAt)
-    expect(Date.parse(copy.createdAt)).toBeGreaterThan(Date.parse(source.createdAt))
+    expect(Date.parse(copy.createdAt)).toBeGreaterThan(
+      Date.parse(source.createdAt),
+    )
     expect(Object.isFrozen(copy)).toBe(true)
     expect(store.getSnapshot().selectedNoteId).toBe(copy.id)
     expect(store.getSnapshot().notes[0]).toEqual(original)
@@ -327,7 +330,9 @@ describe("NotesStore real disk integration", () => {
     expect(second.title).toBe("Café e\u0301 🌱 copy 2")
     const other = Effect.runSync(store.createNotebook("Other"))
     const otherSource = Effect.runSync(store.createNote(other.id))
-    Effect.runSync(store.updateNote(otherSource.id, { title: "Café e\u0301 🌱" }))
+    Effect.runSync(
+      store.updateNote(otherSource.id, { title: "Café e\u0301 🌱" }),
+    )
     expect(Effect.runSync(store.duplicateNote(otherSource.id)).title).toBe(
       "Café e\u0301 🌱 copy",
     )
@@ -348,24 +353,38 @@ describe("NotesStore real disk integration", () => {
     const root = directory()
     const store = open(root)
     const source = Effect.runSync(store.createNote())
-    Effect.runSync(store.updateNote(source.id, { title: "Saved", body: "Saved body" }))
-    const original = store.getSnapshot().notes.find((note) => note.id === source.id)
+    Effect.runSync(
+      store.updateNote(source.id, { title: "Saved", body: "Saved body" }),
+    )
+
+    const original = store
+      .getSnapshot()
+      .notes.find((note) => note.id === source.id)
+
     const draft = { title: "Draft Ω", body: "Unsaved café 日本語\n" }
     const copy = Effect.runSync(store.duplicateNote(source.id, draft))
     expect(copy.title).toBe("Draft Ω copy")
     expect(copy.body).toBe(draft.body)
     expect(draft).toEqual({ title: "Draft Ω", body: "Unsaved café 日本語\n" })
-    expect(store.getSnapshot().notes.find((note) => note.id === source.id)).toEqual(original)
-    expect(Effect.runSync(store.duplicateNote(source.id, { body: "partial" })).title).toBe(
-      "Saved copy",
-    )
+    expect(
+      store.getSnapshot().notes.find((note) => note.id === source.id),
+    ).toEqual(original)
+    expect(
+      Effect.runSync(store.duplicateNote(source.id, { body: "partial" })).title,
+    ).toBe("Saved copy")
     const exact = "é".repeat(bodyLimit / 2)
-    expect(Effect.runSync(store.duplicateNote(source.id, { body: exact })).body).toBe(exact)
+    expect(
+      Effect.runSync(store.duplicateNote(source.id, { body: exact })).body,
+    ).toBe(exact)
     const snapshot = store.getSnapshot()
     const bytes = readFileSync(primary(root))
+
     const error = Effect.runSync(
-      Effect.flip(store.duplicateNote(source.id, { body: "é".repeat(bodyLimit / 2 + 1) })),
+      Effect.flip(
+        store.duplicateNote(source.id, { body: "é".repeat(bodyLimit / 2 + 1) }),
+      ),
     )
+
     expect(error).toBeInstanceOf(NotesError)
     expect(error.operation).toBe("duplicateNote")
     expect(store.getSnapshot()).toBe(snapshot)
@@ -379,6 +398,7 @@ describe("NotesStore real disk integration", () => {
     Effect.runSync(store.trashNote(source.id))
     const snapshot = store.getSnapshot()
     const bytes = readFileSync(primary(root))
+
     for (const id of [source.id, "missing", ""]) {
       const error = Effect.runSync(Effect.flip(store.duplicateNote(id)))
       expect(error).toBeInstanceOf(NotesError)
@@ -395,18 +415,27 @@ describe("NotesStore real disk integration", () => {
     const before = store.getSnapshot()
     const bytes = readFileSync(primary(root))
     let notifications = 0
-    store.subscribe(() => { notifications += 1 })
+    store.subscribe(() => {
+      notifications += 1
+    })
+    rmSync(backup(root))
     mkdirSync(backup(root))
     writeFileSync(join(backup(root), "block"), "do not replace")
     const draft = { title: "Unsaved", body: "Draft Ω" }
-    expect(Effect.runSync(Effect.flip(store.duplicateNote(source.id, draft))).operation).toBe("duplicateNote")
+    expect(
+      Effect.runSync(Effect.flip(store.duplicateNote(source.id, draft)))
+        .operation,
+    ).toBe("duplicateNote")
     expect(store.getSnapshot()).toBe(before)
     expect(readFileSync(primary(root))).toEqual(bytes)
     expect(notifications).toBe(0)
     rmSync(backup(root), { recursive: true })
     const external = bytes.toString() + " "
     writeFileSync(primary(root), external)
-    expect(Effect.runSync(Effect.flip(store.duplicateNote(source.id, draft))).message).toMatch(/changed/i)
+    expect(
+      Effect.runSync(Effect.flip(store.duplicateNote(source.id, draft)))
+        .message,
+    ).toMatch(/changed/i)
     expect(store.getSnapshot()).toBe(before)
     expect(readFileSync(primary(root), "utf8")).toBe(external)
     expect(notifications).toBe(0)
