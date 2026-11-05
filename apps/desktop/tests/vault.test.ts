@@ -750,15 +750,18 @@ describe("native Markdown vault", () => {
     const notePath = join(directory, "inbox/A.md")
     const journalPath = join(directory, ".still-notes/transaction.json")
     const lockPath = join(directory, ".still-notes/vault.lock")
+
     const journal = JSON.stringify({
       version: 1,
       files: [{ path: "inbox/A.md", before: "b2xk", after: "bmV3" }],
       directories: [],
     })
+
     writeFileSync(notePath, "new")
 
     for (const contents of [journal, "{malformed journal\n"]) {
       writeFileSync(journalPath, contents)
+
       const failure = Effect.runSync(
         Effect.provide(
           VaultResource,
@@ -770,6 +773,7 @@ describe("native Markdown vault", () => {
           }),
         ),
       )
+
       expect(failure).toBeInstanceOf(VaultOpenError)
       expect(failure?.message).toMatch(/journal|recovery/i)
       expect(readFileSync(notePath, "utf8")).toBe("new")
@@ -787,9 +791,11 @@ describe("native Markdown vault", () => {
     const writable = open(directory)
     const note = Effect.runSync(writable.createNote("inbox", "Café", "", "new"))
     Effect.runSync(writable.createFolder("inbox", "Folder"))
+
     const asset = Effect.runSync(
       writable.createAsset("asset.txt", Buffer.from("asset")),
     )
+
     const deleted = Effect.runSync(
       writable.deleteAsset(
         Effect.runSync(
@@ -797,6 +803,7 @@ describe("native Markdown vault", () => {
         ).path,
       ),
     )
+
     writable.close()
     const metadataPath = join(directory, ".still-notes/state.json")
     const metadata = readFileSync(metadataPath)
@@ -821,6 +828,7 @@ describe("native Markdown vault", () => {
     ).toContain(deleted.undoToken)
     const guard = { expectedHash: note.hash }
     const assetGuard = { expectedHash: hash("asset") }
+
     const noteMutations: readonly Effect.Effect<unknown, VaultNoteError>[] = [
       preview.createNote("inbox", "Added"),
       preview.importNote(join(directory, note.path)),
@@ -837,6 +845,7 @@ describe("native Markdown vault", () => {
       preview.deleteNote(note.path, { confirm: true }),
       preview.emptyTrash({ confirm: true }),
     ]
+
     const folderMutations: readonly Effect.Effect<unknown, VaultFolderError>[] =
       [
         preview.createFolder("inbox", "Added"),
@@ -844,6 +853,7 @@ describe("native Markdown vault", () => {
         preview.duplicateFolder("inbox", "Folder"),
         preview.deleteFolder("inbox", "Folder", { confirm: true }),
       ]
+
     const assetMutations: readonly Effect.Effect<unknown, VaultAssetError>[] = [
       preview.createAsset("added.txt", Buffer.from("added")),
       preview.importAsset(join(directory, asset.path)),
@@ -856,37 +866,56 @@ describe("native Markdown vault", () => {
       preview.purgeDeletedAsset(deleted.undoToken, { confirm: true }),
       preview.emptyDeletedAssets({ confirm: true }),
     ]
+
     for (const mutation of noteMutations) {
       const failure = Effect.runSync(Effect.flip(mutation))
       expect(failure).toBeInstanceOf(VaultNoteError)
       expect(failure.message).toMatch(/preview|read.only/i)
     }
+
     for (const mutation of folderMutations) {
       const failure = Effect.runSync(Effect.flip(mutation))
       expect(failure).toBeInstanceOf(VaultFolderError)
       expect(failure.message).toMatch(/preview|read.only/i)
     }
+
     for (const mutation of assetMutations) {
       const failure = Effect.runSync(Effect.flip(mutation))
       expect(failure).toBeInstanceOf(VaultAssetError)
       expect(failure.message).toMatch(/preview|read.only/i)
     }
+
     expect(readFileSync(join(directory, note.path), "utf8")).toBe("new")
     expect(readFileSync(join(directory, asset.path), "utf8")).toBe("asset")
     expect(readFileSync(metadataPath)).toEqual(metadata)
+    expect(
+      readFileSync(
+        join(
+          directory,
+          ".still-notes/deleted-assets",
+          deleted.undoToken,
+          "content",
+        ),
+        "utf8",
+      ),
+    ).toBe("deleted")
     expect(existsSync(join(directory, "inbox/Added.md"))).toBe(false)
     expect(existsSync(join(directory, "inbox/Folder"))).toBe(true)
     expect(existsSync(join(directory, "assets/added.txt"))).toBe(false)
     const journalPath = join(directory, ".still-notes/transaction.json")
+
     const journal = JSON.stringify({
       version: 1,
       files: [{ path: note.path, before: "b2xk", after: "bmV3" }],
       directories: [],
     })
+
     writeFileSync(journalPath, journal)
+
     const failure = Effect.runSync(
       Effect.flip(preview.writeNote(note.path, "changed", guard)),
     )
+
     expect(failure).toBeInstanceOf(VaultNoteError)
     expect(failure.message).toMatch(/preview|read.only/i)
     expect(readFileSync(join(directory, note.path), "utf8")).toBe("new")
