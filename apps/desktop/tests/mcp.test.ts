@@ -516,6 +516,188 @@ describe("MCP real stdio child", () => {
       expect(calls).toBe(0)
     }
   })
+  test("tool failures and invalid arguments do not expose private values", async () => {
+    const privateValue = "/home/example/private.md token=secret-test"
+    const input = [
+      ...initializeMessages,
+      readNote(2),
+      {
+        id: 3,
+        method: "tools/call",
+        params: { name: "read_note", arguments: { path: privateValue } },
+      },
+    ]
+    const output: string[] = []
+    let calls = 0
+
+    await Effect.runPromise(
+      runMcpStdio({
+        input: new Blob([
+          input
+            .map((message) => JSON.stringify({ jsonrpc: "2.0", ...message }))
+            .join("\n") + "\n",
+        ]).stream(),
+        output(line) {
+          output.push(line)
+
+          return Promise.resolve()
+        },
+        adapter: {
+          execute() {
+            calls += 1
+
+            return Promise.reject(new Error(privateValue))
+          },
+        },
+      }),
+    )
+
+    const replies = output.map((line) =>
+      Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
+    )
+
+    expect(replies.find((reply) => reply.id === 2)?.result).toEqual({
+      content: [{ type: "text", text: "Tool failed" }],
+      isError: true,
+    })
+    expect(replies.find((reply) => reply.id === 3)?.result).toEqual({
+      content: [{ type: "text", text: "Invalid tool arguments" }],
+      isError: true,
+    })
+    expect(output.join("")).not.toContain(privateValue)
+    expect(output.join("")).not.toContain("/home/example")
+    expect(output.join("")).not.toContain("secret-test")
+    expect(calls).toBe(1)
+  })
+
+  test("enforces frame limits independently of chunks and preserves split UTF-8", async () => {
+    const encoder = new TextEncoder()
+    const handshake = encoder.encode(
+      initializeMessages
+        .map((message) => JSON.stringify({ jsonrpc: "2.0", ...message }))
+        .join("\n") + "\n",
+    )
+    const frames = [2, 3].map((id) =>
+      encoder.encode(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          ...readNote(id),
+          params: {
+            ...readNote(id).params,
+            _meta: { padding: "x".repeat(2_200_000), label: "café" },
+          },
+        }) + "\n",
+      ),
+    )
+    const together = new Uint8Array(frames[0].length + frames[1].length)
+    together.set(frames[0])
+    together.set(frames[1], frames[0].length)
+    const unicode = encoder.encode("é")
+    const splitAt = frames[0].findIndex(
+      (byte, index) => byte === unicode[0] && frames[0][index + 1] === unicode[1],
+    )
+    expect(splitAt).toBeGreaterThan(0)
+
+    for (const chunks of [
+      [together],
+      frames,
+      [frames[0].slice(0, splitAt + 1), frames[0].slice(splitAt + 1), frames[1]],
+    ]) {
+      const output: string[] = []
+      let calls = 0
+      const input = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(handshake)
+          for (const chunk of chunks) controller.enqueue(chunk)
+          controller.close()
+        },
+      })
+
+      await Effect.runPromise(
+        runMcpStdio({
+          input,
+          output(line) {
+            output.push(line)
+
+            return Promise.resolve()
+          },
+          adapter: {
+            execute() {
+              calls += 1
+
+              return Promise.resolve("ok")
+            },
+          },
+        }),
+      )
+
+      const replies = output.map((line) =>
+        Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
+      )
+      expect(replies.map((reply) => reply.id).sort()).toEqual([1, 2, 3])
+      expect(
+        replies.filter((reply) => reply.id === 2 || reply.id === 3),
+      ).toHaveLength(2)
+      expect(replies.filter((reply) => reply.error)).toEqual([])
+      expect(calls).toBe(2)
+    }
+  })
+
+  test("closes on an oversized frame without executing it or later frames", async () => {
+    const encoder = new TextEncoder()
+    const oversized = JSON.stringify({
+      jsonrpc: "2.0",
+      ...readNote(2),
+      params: {
+        ...readNote(2).params,
+        _meta: { padding: "x".repeat(4 * 1024 * 1024) },
+      },
+    })
+
+    for (const suffix of [
+      "",
+      "\n" + JSON.stringify({ jsonrpc: "2.0", ...readNote(3) }) + "\n",
+    ]) {
+      const output: string[] = []
+      let calls = 0
+      const input = new ReadableStream<Uint8Array>({
+        start(controller) {
+          sendMessages(controller, initializeMessages)
+          controller.enqueue(encoder.encode(oversized + suffix))
+          controller.close()
+        },
+      })
+
+      await Effect.runPromise(
+        runMcpStdio({
+          input,
+          output(line) {
+            output.push(line)
+
+            return Promise.resolve()
+          },
+          adapter: {
+            execute() {
+              calls += 1
+
+              return Promise.resolve(null)
+            },
+          },
+        }),
+      )
+
+      const replies = output.map((line) =>
+        Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
+      )
+      expect(replies.find((reply) => reply.error)?.error).toEqual({
+        code: -32600,
+        message: "Input frame too large",
+      })
+      expect(replies).toHaveLength(2)
+      expect(calls).toBe(0)
+    }
+  })
+
   test("cancels an adapter after it starts and emits one cancellation response", async () => {
     const stream = streamInput()
     const started = Promise.withResolvers<void>()
