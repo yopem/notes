@@ -224,8 +224,11 @@ const listedToolsSchema = Schema.Struct({
 })
 
 function streamInput() {
-  const ready = Promise.withResolvers<ReadableStreamDefaultController<Uint8Array>>()
+  const ready =
+    Promise.withResolvers<ReadableStreamDefaultController<Uint8Array>>()
+
   let cancelled = false
+
   const input = new ReadableStream<Uint8Array>({
     start(controller) {
       ready.resolve(controller)
@@ -244,7 +247,9 @@ function sendMessages(
 ) {
   controller.enqueue(
     new TextEncoder().encode(
-      messages.map((message) => JSON.stringify({ jsonrpc: "2.0", ...message })).join("\n") + "\n",
+      messages
+        .map((message) => JSON.stringify({ jsonrpc: "2.0", ...message }))
+        .join("\n") + "\n",
     ),
   )
 }
@@ -277,9 +282,10 @@ describe("MCP real stdio child", () => {
     writeFileSync(note, "before")
     const entry = join(root, "server.ts")
     const service = resolve(import.meta.dir, "../src/features/assistant/mcp.ts")
+    const effect = import.meta.resolve("effect")
     writeFileSync(
       entry,
-      `import { runMcpStdio } from ${JSON.stringify(service)};\nimport { readFileSync, writeFileSync } from 'node:fs';\nawait runMcpStdio({ input: Bun.stdin.stream(), output: async line => { await Bun.write(Bun.stdout, line) }, adapter: { async execute(name, args, context) { if (name === 'read_note') { await Bun.sleep(20); context.signal.throwIfAborted(); return { body: readFileSync(${JSON.stringify(note)}, 'utf8') } } if (name === 'write_note') { writeFileSync(${JSON.stringify(note)}, args.body); return { ok: true } } throw new Error('Adapter unavailable'); } } });`,
+      `import { runMcpStdio } from ${JSON.stringify(service)};\nimport { Effect } from ${JSON.stringify(effect)};\nimport { readFileSync, writeFileSync } from 'node:fs';\nawait Effect.runPromise(runMcpStdio({ input: Bun.stdin.stream(), output: async line => { await Bun.write(Bun.stdout, line) }, adapter: { async execute(name, args, context) { if (name === 'read_note') { await Bun.sleep(20); context.signal.throwIfAborted(); return { body: readFileSync(${JSON.stringify(note)}, 'utf8') } } if (name === 'write_note') { writeFileSync(${JSON.stringify(note)}, args.body); return { ok: true } } throw new Error('Adapter unavailable'); } } }));`,
     )
 
     const child = Bun.spawn([process.execPath, entry], {
@@ -439,23 +445,25 @@ describe("MCP real stdio child", () => {
 
     const output: string[] = []
     let writes = 0
-    await runMcpStdio({
-      input: new Blob([input + "\n"]).stream(),
-      output(line) {
-        output.push(line)
+    await Effect.runPromise(
+      runMcpStdio({
+        input: new Blob([input + "\n"]).stream(),
+        output(line) {
+          output.push(line)
 
-        return Promise.resolve()
-      },
-      access: "read",
-      adapter: {
-        async execute(name) {
-          if (name === "write_note") writes += 1
-          await Bun.sleep(5)
-
-          return { body: "actual" }
+          return Promise.resolve()
         },
-      },
-    })
+        access: "read",
+        adapter: {
+          async execute(name) {
+            if (name === "write_note") writes += 1
+            await Bun.sleep(5)
+
+            return { body: "actual" }
+          },
+        },
+      }),
+    )
 
     const replies = output.map((line) =>
       Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
@@ -482,21 +490,23 @@ describe("MCP real stdio child", () => {
     ] as const) {
       const output: string[] = []
       let calls = 0
-      await runMcpStdio({
-        input: new Blob([bytes]).stream(),
-        output(line) {
-          output.push(line)
+      await Effect.runPromise(
+        runMcpStdio({
+          input: new Blob([bytes]).stream(),
+          output(line) {
+            output.push(line)
 
-          return Promise.resolve()
-        },
-        adapter: {
-          execute() {
-            calls += 1
-
-            return Promise.resolve(null)
+            return Promise.resolve()
           },
-        },
-      })
+          adapter: {
+            execute() {
+              calls += 1
+
+              return Promise.resolve(null)
+            },
+          },
+        }),
+      )
       expect(
         output.map(
           (line) =>
@@ -511,26 +521,34 @@ describe("MCP real stdio child", () => {
     const started = Promise.withResolvers<void>()
     const aborted = Promise.withResolvers<void>()
     const output: string[] = []
+
     const fiber = Effect.runFork(
       runMcpStdio({
         input: stream.input,
         output(line) {
           output.push(line)
+
           return Promise.resolve()
         },
         adapter: {
           execute(_name, _args, context) {
             started.resolve()
+
             return new Promise((_resolve, reject) => {
-              context.signal.addEventListener("abort", () => {
-                aborted.resolve()
-                reject(new Error("aborted"))
-              }, { once: true })
+              context.signal.addEventListener(
+                "abort",
+                () => {
+                  aborted.resolve()
+                  reject(new Error("aborted"))
+                },
+                { once: true },
+              )
             })
           },
         },
       }),
     )
+
     const controller = await stream.ready
     sendMessages(controller, [...initializeMessages, readNote(2)])
     await started.promise
@@ -540,9 +558,11 @@ describe("MCP real stdio child", () => {
     await aborted.promise
     controller.close()
     await Effect.runPromise(Fiber.join(fiber))
+
     const replies = output.map((line) =>
       Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
     )
+
     expect(replies.filter((reply) => reply.id === 2)).toHaveLength(1)
     expect(replies.find((reply) => reply.id === 2)?.error?.code).toBe(-32800)
     expect(stream.input.locked).toBe(false)
@@ -552,6 +572,7 @@ describe("MCP real stdio child", () => {
     const stream = streamInput()
     const started = Promise.withResolvers<void>()
     const aborted = Promise.withResolvers<void>()
+
     const fiber = Effect.runFork(
       runMcpStdio({
         input: stream.input,
@@ -561,16 +582,22 @@ describe("MCP real stdio child", () => {
         adapter: {
           execute(_name, _args, context) {
             started.resolve()
+
             return new Promise((_resolve, reject) => {
-              context.signal.addEventListener("abort", () => {
-                aborted.resolve()
-                reject(new Error("aborted"))
-              }, { once: true })
+              context.signal.addEventListener(
+                "abort",
+                () => {
+                  aborted.resolve()
+                  reject(new Error("aborted"))
+                },
+                { once: true },
+              )
             })
           },
         },
       }),
     )
+
     const controller = await stream.ready
     sendMessages(controller, [...initializeMessages, readNote(2)])
     await started.promise
@@ -591,6 +618,7 @@ describe("MCP real stdio child", () => {
     let calls = 0
     let activeOutputs = 0
     let maxActiveOutputs = 0
+
     const fiber = Effect.runFork(
       runMcpStdio({
         input: stream.input,
@@ -598,21 +626,28 @@ describe("MCP real stdio child", () => {
           activeOutputs += 1
           maxActiveOutputs = Math.max(maxActiveOutputs, activeOutputs)
           output.push(line)
-          if (JSON.parse(line).id === 3) {
+
+          if (
+            Schema.decodeUnknownSync(replySchema)(JSON.parse(line)).id === 3
+          ) {
             secondOutputStarted.resolve()
             await releaseOutput.promise
           }
+
           activeOutputs -= 1
         },
         adapter: {
           execute() {
             calls += 1
+
             if (calls === 2) started.resolve()
+
             return calls === 1 ? finishFirst.promise : finishSecond.promise
           },
         },
       }),
     )
+
     const controller = await stream.ready
     sendMessages(controller, [...initializeMessages, readNote(2), readNote(3)])
     await started.promise
@@ -621,11 +656,23 @@ describe("MCP real stdio child", () => {
     finishFirst.resolve("first")
     controller.close()
     await Bun.sleep(20)
-    expect(output.map((line) => JSON.parse(line).id)).toEqual([1, 3])
+    expect(
+      output.map(
+        (line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)).id,
+      ),
+    ).toEqual([1, 3])
     releaseOutput.resolve()
     await Effect.runPromise(Fiber.join(fiber))
-    expect(output.map((line) => JSON.parse(line).id)).toEqual([1, 3, 2])
-    expect(output.every((line) => line.endsWith("\n") && line.trim().split("\n").length === 1)).toBe(true)
+    expect(
+      output.map(
+        (line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)).id,
+      ),
+    ).toEqual([1, 3, 2])
+    expect(
+      output.every(
+        (line) => line.endsWith("\n") && line.trim().split("\n").length === 1,
+      ),
+    ).toBe(true)
     expect(maxActiveOutputs).toBe(1)
   })
 

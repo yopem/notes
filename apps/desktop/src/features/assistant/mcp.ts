@@ -1,11 +1,15 @@
 import {
+  Deferred,
   Effect,
+  Fiber,
   Option,
   Predicate,
   Result,
   Schema,
   SchemaRepresentation,
   SchemaTransformation,
+  Semaphore,
+  Stream,
   Struct,
 } from "effect"
 import { createHash } from "node:crypto"
@@ -1064,293 +1068,392 @@ export interface McpStdioOptions {
   supportedTools?: readonly McpToolName[]
 }
 
-async function* inputChunks(input: McpStdioOptions["input"]) {
-  if (input instanceof ReadableStream) {
-    const reader = input.getReader()
+export class McpStdioError extends Schema.TaggedError<McpStdioError>()(
+  "McpStdioError",
+  { operation: Schema.Literals(["input", "output"]), cause: Schema.Defect() },
+) {}
 
-    try {
-      while (true) {
-        const chunk = await reader.read()
+export function runMcpStdio(options: McpStdioOptions) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const access = options.access ?? "write"
 
-        if (chunk.done) return
-        yield chunk.value
-      }
-    } finally {
-      reader.releaseLock()
-    }
-  } else yield* input
-}
+      const supported = new Set(
+        options.supportedTools ?? toolNameSchema.literals,
+      )
 
-export async function runMcpStdio(options: McpStdioOptions) {
-  const access = options.access ?? "write"
+      const offered = toolNameSchema.literals.filter(
+        (name) =>
+          supported.has(name) &&
+          (access === "write" ||
+            readTools.has(name) ||
+            (access === "comment" && commentTools.has(name))),
+      )
 
-  const supported = new Set(options.supportedTools ?? toolNameSchema.literals)
+      const outputPermit = yield* Semaphore.make(1)
+      const failed = yield* Deferred.make<never, McpStdioError>()
+      let firstFailure: McpStdioError | undefined
+      const pending = new Map<string | number, AbortController>()
+      const tasks = new Map<symbol, Fiber.Fiber<void, McpStdioError>>()
+      let initialized = false
+      let ready = false
+      let clientName = "Assistant"
+      let buffer = ""
+      const decoder = new TextDecoder("utf-8", { fatal: true })
 
-  const offered = toolNameSchema.literals.filter(
-    (name) =>
-      supported.has(name) &&
-      (access === "write" ||
-        readTools.has(name) ||
-        (access === "comment" && commentTools.has(name))),
-  )
-
-  let initialized = false
-  let ready = false
-  let clientName = "Assistant"
-  let outputQueue = Promise.resolve()
-  const pending = new Map<string | number, AbortController>()
-  const tasks = new Set<Promise<void>>()
-
-  function send<T extends object>(value: T) {
-    outputQueue = outputQueue.then(() =>
-      options.output(`${JSON.stringify(value)}\n`),
-    )
-
-    return outputQueue
-  }
-
-  function rpcError(id: string | number | null, code: number, message: string) {
-    return send({ jsonrpc: "2.0", id, error: { code, message } })
-  }
-
-  async function handle(line: string) {
-    let raw: unknown
-
-    try {
-      raw = JSON.parse(line)
-    } catch {
-      await rpcError(null, -32700, "Parse error")
-
-      return
-    }
-
-    const parsed = decodeRequest(raw)
-
-    if (Result.isFailure(parsed)) {
-      await rpcError(null, -32600, "Invalid request")
-
-      return
-    }
-
-    const request = parsed.success
-    const { id, method, params } = request
-
-    if (id === undefined) {
-      if (method === "notifications/initialized" && initialized) ready = true
-
-      if (method === "notifications/cancelled") {
-        const cancelled = decodeCancel(params)
-
-        if (Result.isSuccess(cancelled))
-          pending.get(cancelled.success.requestId)?.abort()
-      }
-
-      return
-    }
-
-    if (pending.has(id)) {
-      await rpcError(id, -32600, "Request id already active")
-
-      return
-    }
-
-    if (method === "initialize") {
-      const init = decodeInitialize(params)
-
-      if (initialized || Result.isFailure(init)) {
-        await rpcError(id, -32602, "Invalid initialization")
-
-        return
-      }
-
-      initialized = true
-      clientName = init.success.clientInfo.name
-      await send({
-        jsonrpc: "2.0",
-        id,
-        result: {
-          protocolVersion: supportedProtocols.includes(
-            init.success.protocolVersion,
-          )
-            ? init.success.protocolVersion
-            : supportedProtocols[0],
-          capabilities: { tools: {} },
-          serverInfo: { name: "still-notes", version: "0.1.0" },
-          instructions: options.instructions ?? MCP_DEFAULT_INSTRUCTIONS,
-        },
-      })
-
-      return
-    }
-
-    if (method === "ping") {
-      await send({ jsonrpc: "2.0", id, result: {} })
-
-      return
-    }
-
-    if (!ready) {
-      await rpcError(id, -32002, "Server not initialized")
-
-      return
-    }
-
-    if (method === "tools/list") {
-      if (params !== undefined && Result.isFailure(decodeEmptyParams(params))) {
-        await rpcError(id, -32602, "Invalid params")
-
-        return
-      }
-
-      await send({
-        jsonrpc: "2.0",
-        id,
-        result: {
-          tools: offered.map((name) => ({
-            name,
-            description: toolDescriptions[name],
-            inputSchema: toolInputSchema(name),
-            annotations: {
-              readOnlyHint: readTools.has(name),
-              destructiveHint: !readTools.has(name) && !commentTools.has(name),
-            },
-          })),
-        },
-      })
-
-      return
-    }
-
-    if (method !== "tools/call") {
-      await rpcError(id, -32601, "Method not found")
-
-      return
-    }
-
-    const call = decodeCall(params)
-
-    if (Result.isFailure(call)) {
-      await rpcError(id, -32602, "Invalid tool call params")
-
-      return
-    }
-
-    const controller = new AbortController()
-    pending.set(id, controller)
-
-    try {
-      const name = decodeToolName(call.success.name)
-
-      if (!offered.includes(name))
-        throw new Error("Unknown or unavailable tool")
-
-      const args = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
-        onExcessProperty: "error",
-      })(call.success.arguments ?? {})
-
-      // Yield once so a cancellation already in the same input frame can stop writes.
-      await Promise.resolve()
-      controller.signal.throwIfAborted()
-
-      const result = decodeJson(
-        await options.adapter.execute(name, args, {
-          signal: controller.signal,
-          clientName,
-          access,
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          for (const controller of pending.values()) controller.abort()
         }),
       )
 
-      controller.signal.throwIfAborted()
-      await send({
-        jsonrpc: "2.0",
-        id,
-        result: {
-          content: [
-            {
-              type: "text",
-              text: Schema.is(Schema.String)(result)
-                ? result
-                : JSON.stringify(result ?? null),
-            },
-          ],
-          isError: false,
-        },
-      })
-    } catch (error) {
-      if (controller.signal.aborted)
-        await rpcError(
-          id,
-          -32800,
-          "Request cancelled; inspect vault before retrying",
+      function send<T extends object>(value: T) {
+        return Semaphore.withPermit(outputPermit)(
+          Effect.tryPromise({
+            try: () => options.output(`${JSON.stringify(value)}\n`),
+            catch: (cause) => new McpStdioError({ operation: "output", cause }),
+          }),
         )
-      else
-        await send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: error instanceof Error ? error.message : "Tool failed",
+      }
+
+      function rpcError(
+        id: string | number | null,
+        code: number,
+        message: string,
+      ) {
+        return send({ jsonrpc: "2.0", id, error: { code, message } })
+      }
+
+      function handle(line: string) {
+        return Effect.gen(function* () {
+          let raw: unknown
+
+          try {
+            raw = JSON.parse(line)
+          } catch {
+            yield* rpcError(null, -32700, "Parse error")
+
+            return
+          }
+
+          const parsed = decodeRequest(raw)
+
+          if (Result.isFailure(parsed)) {
+            yield* rpcError(null, -32600, "Invalid request")
+
+            return
+          }
+
+          const { id, method, params } = parsed.success
+
+          if (id === undefined) {
+            if (method === "notifications/initialized" && initialized)
+              ready = true
+
+            if (method === "notifications/cancelled") {
+              const cancelled = decodeCancel(params)
+
+              if (Result.isSuccess(cancelled))
+                pending.get(cancelled.success.requestId)?.abort()
+            }
+
+            return
+          }
+
+          if (pending.has(id)) {
+            yield* rpcError(id, -32600, "Request id already active")
+
+            return
+          }
+
+          if (method === "initialize") {
+            const init = decodeInitialize(params)
+
+            if (initialized || Result.isFailure(init)) {
+              yield* rpcError(id, -32602, "Invalid initialization")
+
+              return
+            }
+
+            initialized = true
+            clientName = init.success.clientInfo.name
+            yield* send({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                protocolVersion: supportedProtocols.includes(
+                  init.success.protocolVersion,
+                )
+                  ? init.success.protocolVersion
+                  : supportedProtocols[0],
+                capabilities: { tools: {} },
+                serverInfo: { name: "still-notes", version: "0.1.0" },
+                instructions: options.instructions ?? MCP_DEFAULT_INSTRUCTIONS,
               },
-            ],
-            isError: true,
-          },
-        })
-    } finally {
-      pending.delete(id)
-    }
-  }
+            })
 
-  const decoder = new TextDecoder("utf-8", { fatal: true })
-  let buffer = ""
+            return
+          }
 
-  try {
-    for await (const chunk of inputChunks(options.input)) {
-      try {
-        buffer += decoder.decode(chunk, { stream: true })
-      } catch {
-        buffer = ""
-        await rpcError(null, -32700, "Invalid UTF-8")
-        continue
-      }
+          if (method === "ping") {
+            yield* send({ jsonrpc: "2.0", id, result: {} })
 
-      if (buffer.length > 4 * 1024 * 1024) {
-        await rpcError(null, -32600, "Input frame too large")
-        buffer = ""
-        break
-      }
+            return
+          }
 
-      let newline = buffer.indexOf("\n")
+          if (!ready) {
+            yield* rpcError(id, -32002, "Server not initialized")
 
-      while (newline >= 0) {
-        const line = buffer.slice(0, newline).replace(/\r$/, "")
-        buffer = buffer.slice(newline + 1)
+            return
+          }
 
-        if (line.trim()) {
-          const task = handle(line)
-          tasks.add(task)
-          void task.then(
-            () => tasks.delete(task),
-            () => tasks.delete(task),
+          if (method === "tools/list") {
+            if (
+              params !== undefined &&
+              Result.isFailure(decodeEmptyParams(params))
+            ) {
+              yield* rpcError(id, -32602, "Invalid params")
+
+              return
+            }
+
+            yield* send({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                tools: offered.map((name) => ({
+                  name,
+                  description: toolDescriptions[name],
+                  inputSchema: toolInputSchema(name),
+                  annotations: {
+                    readOnlyHint: readTools.has(name),
+                    destructiveHint:
+                      !readTools.has(name) && !commentTools.has(name),
+                  },
+                })),
+              },
+            })
+
+            return
+          }
+
+          if (method !== "tools/call") {
+            yield* rpcError(id, -32601, "Method not found")
+
+            return
+          }
+
+          const call = decodeCall(params)
+
+          if (Result.isFailure(call)) {
+            yield* rpcError(id, -32602, "Invalid tool call params")
+
+            return
+          }
+
+          const controller = new AbortController()
+          pending.set(id, controller)
+
+          const cancelled = Effect.callback<never, Error>((resume) => {
+            function abort() {
+              resume(Effect.fail(new Error("Request cancelled")))
+            }
+
+            if (controller.signal.aborted) abort()
+            else
+              controller.signal.addEventListener("abort", abort, { once: true })
+
+            return Effect.sync(() =>
+              controller.signal.removeEventListener("abort", abort),
+            )
+          })
+
+          const execute = Effect.gen(function* () {
+            const { name, args } = yield* Effect.try({
+              try: () => {
+                const name = decodeToolName(call.success.name)
+
+                if (!offered.includes(name))
+                  throw new Error("Unknown or unavailable tool")
+
+                const args = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
+                  onExcessProperty: "error",
+                })(call.success.arguments ?? {})
+
+                return { name, args }
+              },
+              catch: (error) => error,
+            })
+
+            yield* Effect.yieldNow
+
+            const value = yield* Effect.tryPromise({
+              try: () => {
+                controller.signal.throwIfAborted()
+
+                return options.adapter.execute(name, args, {
+                  signal: controller.signal,
+                  clientName,
+                  access,
+                })
+              },
+              catch: (error) => error,
+            })
+
+            return yield* Effect.try({
+              try: () => {
+                controller.signal.throwIfAborted()
+
+                return decodeJson(value)
+              },
+              catch: (error) => error,
+            })
+          })
+
+          yield* Effect.raceFirst(execute, cancelled).pipe(
+            Effect.matchEffect({
+              onFailure: (error) =>
+                controller.signal.aborted
+                  ? rpcError(
+                      id,
+                      -32800,
+                      "Request cancelled; inspect vault before retrying",
+                    )
+                  : send({
+                      jsonrpc: "2.0",
+                      id,
+                      result: {
+                        content: [
+                          {
+                            type: "text",
+                            text:
+                              error instanceof Error
+                                ? error.message
+                                : "Tool failed",
+                          },
+                        ],
+                        isError: true,
+                      },
+                    }),
+              onSuccess: (result) =>
+                send({
+                  jsonrpc: "2.0",
+                  id,
+                  result: {
+                    content: [
+                      {
+                        type: "text",
+                        text: Schema.is(Schema.String)(result)
+                          ? result
+                          : JSON.stringify(result ?? null),
+                      },
+                    ],
+                    isError: false,
+                  },
+                }),
+            }),
+            Effect.onInterrupt(() => Effect.sync(() => controller.abort())),
+            Effect.ensuring(
+              Effect.sync(() => {
+                pending.delete(id)
+              }),
+            ),
           )
+        })
+      }
+
+      function startLine(line: string) {
+        return Effect.gen(function* () {
+          const key = Symbol()
+          let complete = false
+
+          const task = handle(line).pipe(
+            Effect.tapError((error) =>
+              Effect.gen(function* () {
+                firstFailure ??= error
+                yield* Deferred.fail(failed, error)
+              }),
+            ),
+            Effect.ensuring(
+              Effect.sync(() => {
+                complete = true
+                tasks.delete(key)
+              }),
+            ),
+            Effect.forkChild({ startImmediately: true }),
+          )
+
+          const fiber = yield* task
+
+          if (!complete) tasks.set(key, fiber)
+        })
+      }
+
+      const source = options.input
+
+      const input =
+        source instanceof ReadableStream
+          ? Stream.fromReadableStream({
+              evaluate: () => source,
+              onError: (cause) =>
+                new McpStdioError({ operation: "input", cause }),
+            })
+          : Stream.fromAsyncIterable(
+              source,
+              (cause) => new McpStdioError({ operation: "input", cause }),
+            )
+
+      const consume = Effect.gen(function* () {
+        yield* input.pipe(
+          Stream.mapEffect((chunk) =>
+            Effect.gen(function* () {
+              try {
+                buffer += decoder.decode(chunk, { stream: true })
+              } catch {
+                buffer = ""
+                yield* rpcError(null, -32700, "Invalid UTF-8")
+
+                return false
+              }
+
+              if (buffer.length > 4 * 1024 * 1024) {
+                yield* rpcError(null, -32600, "Input frame too large")
+                buffer = ""
+
+                return true
+              }
+
+              let newline = buffer.indexOf("\n")
+
+              while (newline >= 0) {
+                const line = buffer.slice(0, newline).replace(/\r$/, "")
+                buffer = buffer.slice(newline + 1)
+
+                if (line.trim()) yield* startLine(line)
+                newline = buffer.indexOf("\n")
+              }
+
+              return false
+            }),
+          ),
+          Stream.takeUntil((oversized) => oversized),
+          Stream.runDrain,
+        )
+
+        try {
+          buffer += decoder.decode()
+        } catch {
+          buffer = ""
+          yield* rpcError(null, -32700, "Invalid UTF-8")
         }
 
-        newline = buffer.indexOf("\n")
-      }
-    }
+        if (buffer.trim()) yield* startLine(buffer)
+        yield* Effect.forEach(tasks.values(), Fiber.join, { discard: true })
 
-    try {
-      buffer += decoder.decode()
-    } catch {
-      buffer = ""
-      await rpcError(null, -32700, "Invalid UTF-8")
-    }
+        if (firstFailure) return yield* Effect.fail(firstFailure)
+      })
 
-    if (buffer.trim()) await handle(buffer)
-    await Promise.all(tasks)
-    await outputQueue
-  } finally {
-    for (const controller of pending.values()) controller.abort()
-  }
+      yield* Effect.raceFirst(consume, Deferred.await(failed))
+    }),
+  )
 }
