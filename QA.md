@@ -94,7 +94,9 @@ data.
     defaults, expected errors, and test results.
   - **Cleanup:** Restore only environment values set for this case. Remove only
     temporary test data after evidence inspection.
-  - **Status:** Pending; discover the final affected filenames before execution.
+  - **Status:** Pending. Isolated Linux probes passed for defaults, valid size
+    boundaries, a relative data path and invalid size and launch values. The
+    named storage tests also passed. macOS and Windows path checks remain unrun.
 
 ## Workspace layout and native tooling
 
