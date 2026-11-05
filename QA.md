@@ -1606,7 +1606,11 @@ mark those cases passed until capture works and the evidence is inspected.
     active fixtures use normal package entrypoints inside the immutable desktop
     snapshot. Font source hashes still match current code. The initial real
     two-second timeout's cause, normal system-font startup, unreadable or
-    invalid assets, OS composition and screen-reader output remain unverified.
+    invalid assets, OS composition and screen-reader output remain unverified. A
+    later fresh bundled-font run at 7f0eca1 still hit the second real native
+    registration timeout before the remount scenario. See
+    `app-run-20261105T163000Z-3692557`. The boundary contained the failure but
+    did not fix registration latency; no successful remount is claimed there.
 
 - [ ] **QA-059 — P0 — Preserve failed drafts across native root remounts**
   - **Purpose:** Protect pending notes when hot reload or an explicit root
@@ -1644,7 +1648,12 @@ mark those cases passed until capture works and the evidence is inspected.
     scenario checks original bytes, exact rescue exports before and after a real
     root replacement, retained fields, and successful retry. Native input not
     yet delivered to JavaScript, legacy hook-held drafts, incompatible runtime
-    handling and ordinary-close protection remain separate open risks.
+    handling and ordinary-close protection remain separate open risks. The
+    private run `app-run-20261105T163000Z-3692557` at 7f0eca1 stopped before the
+    remount scenario: the second real bundled-font registration timed out after
+    two seconds. Fixture typecheck passed 84 files; the error boundary prevented
+    editor mounting, and owned cleanup released the store lock and private
+    runtime. This is startup evidence, not a draft-remount result.
 
 - [ ] **QA-060 — P1 — Open a read-only folder with an explicit path**
   - **Purpose:** Support keyboard-only folder entry and systems without a usable
