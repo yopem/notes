@@ -6,6 +6,8 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
+import { settingsFileSchema } from "@/features/settings/store"
+
 const regressionWorkspaceSchema = Schema.Struct({
   notes: Schema.Array(
     Schema.Struct({
@@ -116,8 +118,12 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await createNote(app, dataDirectory, "Regression outside", "Outside filter")
   await app.getByTestId("search").fill("selection-token")
   await textIs(app, "note-count", "2 notes")
-  await app.getByText("Last edited").click()
-  await app.getByText("Oldest first").waitFor()
+  await app.getByTestId("settings-open").click()
+  await app.getByTestId("settings-tab-navigation").click()
+  await app.getByTestId("setting-noteSortOrder-updated-desc").click()
+  await app.getByTestId("settings-close").click()
+  await app.getByTestId("note-sort").click()
+  await app.getByText("Updated: oldest first").waitFor()
   const oldestEditor = await app.getByTestId("note-body").element()
   await app.getByTestId("note-body").fill("selection-token edited oldest")
   assert.equal(
@@ -175,7 +181,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await textIs(app, "note-count", "0 notes")
   await absent(app, "note-title")
   await app.getByTestId("search").fill("")
-  await app.getByText("Oldest first").click()
+  await app.getByTestId("note-sort").click()
   steps.push(
     "Search edits keep editor identity; explicit search navigation and empty results update it",
   )
@@ -214,6 +220,13 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     writeFileSync(workspacePath, conflict)
     await app.getByTestId("note-title").fill(draftTitle)
     await app.getByTestId("note-body").fill(draftBody)
+    await app.getByTestId("pending-drafts").waitFor()
+    const draftEditor = await app.getByTestId("note-body").element()
+    await app.getByTestId("note-sort").click()
+    assert.equal(
+      (await app.getByTestId("note-body").element()).id,
+      draftEditor.id,
+    )
     await app.getByTestId("pending-drafts").waitFor()
     await app.getByTestId("search").fill("Regression second")
     await app.getByTestId("note-row").click()
@@ -284,6 +297,83 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   )
   await app.getByTestId("search").fill("")
   await app.getByTestId("nav-all").click()
+  await createNote(app, dataDirectory, "Sort note 2", "Sort order regression")
+  await createNote(app, dataDirectory, "Sort note 10", "Sort order regression")
+  await createNote(
+    app,
+    dataDirectory,
+    "Sort note pinned",
+    "Sort order regression",
+  )
+  await app.getByTestId("pin-note").click()
+  await app.getByTestId("search").fill("Sort order regression")
+  await textIs(app, "note-count", "3 notes")
+  await app.getByTestId("settings-open").click()
+  await app.getByTestId("settings-tab-navigation").click()
+  await app.getByTestId("setting-noteSortOrder-name-asc").click()
+  await textIs(app, "setting-current-noteSortOrder", "name-asc")
+  await app.getByTestId("settings-close").click()
+
+  const [pinned, two, ten] = await Promise.all([
+    app.getByText("Sort note pinned").bounds(),
+    app.getByText("Sort note 2").bounds(),
+    app.getByText("Sort note 10").bounds(),
+  ])
+
+  assert(pinned.y < two.y && two.y < ten.y, "Pinned and natural name order")
+  await app.getByTestId("note-row").getByText("Sort note 2").click()
+  const sortedEditor = await app.getByTestId("note-body").element()
+  await app.getByTestId("note-title").fill("Sort note 20")
+  await savedNoteIs(dataDirectory, "Sort note 20", "Sort order regression")
+  assert.equal(
+    (await app.getByTestId("note-body").element()).id,
+    sortedEditor.id,
+  )
+  assert(
+    (await app.getByText("Sort note 20").bounds()).y <
+      (await app.getByText("Sort note 10").bounds()).y,
+    "Editing keeps the current list order",
+  )
+  await app.getByTestId("note-sort").click()
+  assert.equal(
+    (await app.getByTestId("note-body").element()).id,
+    sortedEditor.id,
+  )
+  assert(
+    (await app.getByText("Sort note 20").bounds()).y <
+      (await app.getByText("Sort note 10").bounds()).y,
+    "Reversing name sort uses the committed preference",
+  )
+  await app.getByTestId("settings-open").click()
+  await app.getByTestId("settings-tab-navigation").click()
+  await textIs(app, "setting-current-noteSortOrder", "name-desc")
+  const settingsPath = join(dataDirectory, "settings.json")
+  const settingsBytes = readFileSync(settingsPath, "utf8")
+
+  try {
+    writeFileSync(settingsPath, settingsBytes + "\n")
+    await app.getByTestId("setting-noteSortOrder-name-asc").click()
+    await app.getByTestId("settings-error").waitFor()
+    await textIs(app, "setting-current-noteSortOrder", "name-desc")
+    assert.equal(readFileSync(settingsPath, "utf8"), settingsBytes + "\n")
+  } finally {
+    writeFileSync(settingsPath, settingsBytes)
+  }
+
+  await app.getByTestId("setting-noteSortOrder-name-asc").click()
+  await textIs(app, "setting-current-noteSortOrder", "name-asc")
+
+  const savedSettings = Schema.decodeUnknownSync(settingsFileSchema)(
+    JSON.parse(readFileSync(settingsPath, "utf8")),
+  )
+
+  assert.equal(savedSettings.preferences.noteSortOrder, "name-asc")
+  await app.getByTestId("settings-close").click()
+  await app.getByTestId("search").fill("")
+
+  steps.push(
+    "Natural sort, pinned order, stable editor, settings conflict and persistence",
+  )
   saveReport("native-regressions.json", dataDirectory, steps)
 
   return steps
@@ -295,6 +385,10 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
     "Regression checks require a disposable native E2E data directory.",
   )
   assert((await app.getByTestId("app").bounds()).width < 780)
+  await app.getByTestId("settings-open").click()
+  await app.getByTestId("settings-tab-navigation").click()
+  await textIs(app, "setting-current-noteSortOrder", "name-asc")
+  await app.getByTestId("settings-close").click()
   await app.getByTestId("new-note").waitFor()
   await createNote(
     app,
