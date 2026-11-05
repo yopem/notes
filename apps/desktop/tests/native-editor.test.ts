@@ -471,13 +471,14 @@ describe("native font completion boundary", function fontCompletion() {
 
   test("refuses legacy and synchronous font hosts", async function invalidHost() {
     const native = {
-      applyBatch() {
+      applyBatch(this: void) {
         return []
       },
       registerFontsAsyncV1() {
         return Promise.resolve(2)
       },
     }
+
     await expect(
       registerFonts({ applyBatch: native.applyBatch }),
     ).rejects.toThrow("registerFontsAsyncV1")

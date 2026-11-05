@@ -57,6 +57,7 @@ export function registerFonts(renderer: FontRenderer) {
   if (previous) return previous.completion
 
   const reply = Promise.withResolvers<void>()
+
   const registration: FontRegistration = {
     status: "pending",
     completion: reply.promise,
