@@ -285,7 +285,7 @@ describe("MCP real stdio child", () => {
     const effect = import.meta.resolve("effect")
     writeFileSync(
       entry,
-      `import { runMcpStdio } from ${JSON.stringify(service)};\nimport { Effect } from ${JSON.stringify(effect)};\nimport { readFileSync, writeFileSync } from 'node:fs';\nawait Effect.runPromise(runMcpStdio({ input: Bun.stdin.stream(), output: async line => { await Bun.write(Bun.stdout, line) }, adapter: { async execute(name, args, context) { if (name === 'read_note') { await Bun.sleep(20); context.signal.throwIfAborted(); return { body: readFileSync(${JSON.stringify(note)}, 'utf8') } } if (name === 'write_note') { writeFileSync(${JSON.stringify(note)}, args.body); return { ok: true } } throw new Error('Adapter unavailable'); } } }));`,
+      `import { runMcpStdio } from ${JSON.stringify(service)};\nimport { Effect } from ${JSON.stringify(effect)};\nimport { readFileSync, writeFileSync } from 'node:fs';\nawait Effect.runPromise(runMcpStdio({ input: Bun.stdin.stream(), output: async line => { await Bun.write(Bun.stdout, line) }, adapter: { async execute(name, args, context) { if (name === 'read_note') { await Bun.sleep(20); context.signal.throwIfAborted(); return { body: readFileSync(${JSON.stringify(note)}, 'utf8') } } if (name === 'list_notes') { return args } if (name === 'write_note') { writeFileSync(${JSON.stringify(note)}, args.body); return { ok: true } } throw new Error('Adapter unavailable'); } } }));`,
     )
 
     const child = Bun.spawn([process.execPath, entry], {
@@ -363,6 +363,11 @@ describe("MCP real stdio child", () => {
           method: "tools/call",
           params: { name: "list_assets", arguments: {} },
         },
+        {
+          id: 11,
+          method: "tools/call",
+          params: { name: "list_notes", arguments: { folder: "root", subpath: "Books/Nested" } },
+        },
       ].map((value) => JSON.stringify({ jsonrpc: "2.0", ...value })),
     ]
 
@@ -395,6 +400,15 @@ describe("MCP real stdio child", () => {
 
     expect(listed.tools.map((tool) => tool.name)).toContain("read_note")
     expect(listed.tools.map((tool) => tool.name)).toContain("list_comments")
+    expect(replies.find((reply) => reply.id === 2)?.result).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({ name: "list_notes", inputSchema: { properties: { folder: { enum: expect.arrayContaining(["root", "inbox", "quick", "archive", "trash"]) } } } }),
+      ]),
+    })
+    expect(replies.find((reply) => reply.id === 11)?.result).toMatchObject({
+      isError: false,
+      content: [{ type: "text", text: JSON.stringify({ folder: "root", subpath: "Books/Nested" }) }],
+    })
     expect(replies.find((reply) => reply.id === 3)?.result).toMatchObject({
       isError: false,
     })
@@ -1136,6 +1150,22 @@ describe("MCP real stdio child", () => {
       ),
     ).toBe(true)
     expect(maxActiveOutputs).toBe(1)
+  })
+
+  test("folder tool schemas accept root and keep existing values", () => {
+    for (const folder of ["root", "inbox", "quick", "archive"]) {
+      expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder, subpath: "Books/Nested" })).toBe(true)
+      expect(Schema.is(MCP_TOOL_SCHEMAS.create_note)({ folder, subpath: "Books" })).toBe(true)
+      expect(Schema.is(MCP_TOOL_SCHEMAS.move_note)({ path: "A.md", targetFolder: folder, targetSubpath: "Books" })).toBe(true)
+      expect(Schema.is(MCP_TOOL_SCHEMAS.create_folder)({ folder, subpath: "Books" })).toBe(true)
+      expect(Schema.is(MCP_TOOL_SCHEMAS.rename_folder)({ folder, oldSubpath: "Books", newSubpath: "Other" })).toBe(true)
+      expect(Schema.is(MCP_TOOL_SCHEMAS.delete_folder)({ folder, subpath: "Books", confirm: true })).toBe(true)
+      expect(Schema.is(MCP_TOOL_SCHEMAS.list_tasks)({ folder })).toBe(true)
+    }
+    expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder: "trash" })).toBe(true)
+    expect(Schema.is(MCP_TOOL_SCHEMAS.move_note)({ path: "A.md", targetFolder: "trash" })).toBe(true)
+    expect(Schema.is(MCP_TOOL_SCHEMAS.create_note)({ folder: "trash" })).toBe(false)
+    expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder: "other" })).toBe(false)
   })
 
   test("every source tool has a strict schema and rejects unsafe paths", () => {
