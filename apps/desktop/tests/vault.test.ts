@@ -20,6 +20,7 @@ import { join, resolve } from "node:path"
 
 import {
   Vault,
+  VaultAssetError,
   VaultFolderError,
   VaultNoteError,
   VaultOpenError,
@@ -430,41 +431,145 @@ describe("native Markdown vault", () => {
     )
     expect(existsSync(join(vault.root, "trash/.ignored/private.md"))).toBe(true)
   })
+  test("asset effects defer file access and report typed failures", () => {
+    const vault = open()
+    const path = join(vault.root, "assets/deferred.bin")
+    const create = vault.createAsset("deferred.bin", Uint8Array.of(0, 255))
+    expect(existsSync(path)).toBe(false)
+    const asset = Effect.runSync(create)
+    expect(readFileSync(path)).toEqual(Buffer.from([0, 255]))
+
+    const read = vault.readAsset(asset.path)
+    writeFileSync(path, Uint8Array.of(1, 254))
+    expect(Effect.runSync(read)).toEqual(Uint8Array.of(1, 254))
+
+    const failure = Effect.runSync(
+      vault
+        .writeAsset(asset.path, Uint8Array.of(2), { expectedHash: asset.hash })
+        .pipe(
+          Effect.match({
+            onFailure: (error) => error,
+            onSuccess: () => undefined,
+          }),
+        ),
+    )
+
+    expect(failure).toBeInstanceOf(VaultAssetError)
+    expect(failure?._tag).toBe("VaultAssetError")
+    expect(failure?.message).toMatch(/conflict/i)
+    expect(readFileSync(path)).toEqual(Buffer.from([1, 254]))
+  })
+  test("every asset effect observes a closed vault at execution", () => {
+    const directory = root()
+    const vault = open(directory)
+    const source = join(root(), "source.bin")
+    writeFileSync(source, Uint8Array.of(8))
+
+    const asset = Effect.runSync(
+      vault.createAsset("live.bin", Uint8Array.of(1)),
+    )
+
+    const discarded = Effect.runSync(
+      vault.createAsset("deleted.bin", Uint8Array.of(2)),
+    )
+
+    const deleted = Effect.runSync(vault.deleteAsset(discarded.path))
+
+    const operations: readonly Effect.Effect<unknown, VaultAssetError>[] = [
+      vault.listAssets(),
+      vault.readAsset(asset.path),
+      vault.readAssetText(asset.path),
+      vault.createAsset("new.bin", Uint8Array.of(3)),
+      vault.importAsset(source),
+      vault.writeAsset(asset.path, Uint8Array.of(4), {
+        expectedHash: asset.hash,
+      }),
+      vault.renameAsset(asset.path, "renamed.bin"),
+      vault.moveAsset(asset.path, "assets/nested"),
+      vault.duplicateAsset(asset.path),
+      vault.deleteAsset(asset.path),
+      vault.listDeletedAssets(),
+      vault.restoreDeletedAsset(deleted.undoToken),
+      vault.purgeDeletedAsset(deleted.undoToken, { confirm: true }),
+      vault.emptyDeletedAssets({ confirm: true }),
+    ]
+
+    vault.close()
+
+    for (const operation of operations) {
+      const failure = Effect.runSync(
+        operation.pipe(
+          Effect.match({
+            onFailure: (error) => error,
+            onSuccess: () => undefined,
+          }),
+        ),
+      )
+
+      expect(failure).toBeInstanceOf(VaultAssetError)
+      expect(failure?.message).toMatch(/closed/i)
+    }
+
+    const reopened = open(directory)
+    expect(Effect.runSync(reopened.readAsset(asset.path))).toEqual(
+      Uint8Array.of(1),
+    )
+    expect(Effect.runSync(reopened.listDeletedAssets())).toEqual([deleted])
+    expect(Effect.runSync(reopened.listAssets())).toHaveLength(1)
+  })
   test("attachments support binary import, text limits, moves, restore metadata and guarded purge", () => {
     const directory = root()
     const source = join(root(), "résumé.txt")
     writeFileSync(source, "日本語\n")
     let vault = open(directory)
-    let asset = vault.importAsset(source)
+    let asset = Effect.runSync(vault.importAsset(source))
     expect(asset.path).toBe("assets/résumé.txt")
     expect(existsSync(source)).toBe(true)
-    expect(vault.readAssetText(asset.path, 64)).toBe("日本語\n")
-    expect(() => vault.readAssetText(asset.path, 2)).toThrow(/limit/i)
-    asset = vault.writeAsset(asset.path, new TextEncoder().encode("updated"), {
-      expectedHash: asset.hash,
-    })
-    asset = vault.renameAsset(asset.path, "new.txt")
-    asset = vault.moveAsset(asset.path, "assets/deep")
-    expect(vault.duplicateAsset(asset.path).path).toBe(
+    expect(Effect.runSync(vault.readAssetText(asset.path, 64))).toBe("日本語\n")
+    expect(() => Effect.runSync(vault.readAssetText(asset.path, 2))).toThrow(
+      /limit/i,
+    )
+    asset = Effect.runSync(
+      vault.writeAsset(asset.path, new TextEncoder().encode("updated"), {
+        expectedHash: asset.hash,
+      }),
+    )
+    asset = Effect.runSync(vault.renameAsset(asset.path, "new.txt"))
+    asset = Effect.runSync(vault.moveAsset(asset.path, "assets/deep"))
+    expect(Effect.runSync(vault.duplicateAsset(asset.path)).path).toBe(
       "assets/deep/new copy.txt",
     )
-    const deleted = vault.deleteAsset(asset.path)
+    const deleted = Effect.runSync(vault.deleteAsset(asset.path))
     vault.close()
     vault = open(directory)
-    expect(vault.listDeletedAssets()).toEqual([deleted])
-    expect(vault.restoreDeletedAsset(deleted.undoToken).path).toBe(
-      "assets/deep/new.txt",
+    expect(Effect.runSync(vault.listDeletedAssets())).toEqual([deleted])
+    expect(
+      Effect.runSync(vault.restoreDeletedAsset(deleted.undoToken)).path,
+    ).toBe("assets/deep/new.txt")
+
+    const binary = Effect.runSync(
+      vault.createAsset("image.png", Uint8Array.from([255, 0, 1])),
     )
-    const binary = vault.createAsset("image.png", Uint8Array.from([255, 0, 1]))
-    expect(vault.readAsset(binary.path)).toEqual(Uint8Array.from([255, 0, 1]))
-    expect(() => vault.readAssetText(binary.path)).toThrow(/UTF-8|text/i)
-    const removed = vault.deleteAsset(binary.path)
+
+    expect(Effect.runSync(vault.readAsset(binary.path))).toEqual(
+      Uint8Array.from([255, 0, 1]),
+    )
+    expect(() => Effect.runSync(vault.readAssetText(binary.path))).toThrow(
+      /UTF-8|text/i,
+    )
+    const removed = Effect.runSync(vault.deleteAsset(binary.path))
     expect(() =>
-      vault.purgeDeletedAsset(removed.undoToken, { confirm: false }),
+      Effect.runSync(
+        vault.purgeDeletedAsset(removed.undoToken, { confirm: false }),
+      ),
     ).toThrow()
-    vault.purgeDeletedAsset(removed.undoToken, { confirm: true })
-    expect(vault.listAssets()).toHaveLength(2)
-    expect(vault.emptyDeletedAssets({ confirm: true }).deleted).toEqual([])
+    Effect.runSync(
+      vault.purgeDeletedAsset(removed.undoToken, { confirm: true }),
+    )
+    expect(Effect.runSync(vault.listAssets())).toHaveLength(2)
+    expect(
+      Effect.runSync(vault.emptyDeletedAssets({ confirm: true })).deleted,
+    ).toEqual([])
   })
   test("collisions never overwrite or follow dangling links", () => {
     const vault = open()
@@ -479,12 +584,12 @@ describe("native Markdown vault", () => {
       "inbox/Dangling 2.md",
     )
     expect(Effect.runSync(vault.readNote(a.path)).body).toBe("one")
-    expect(vault.createAsset("data.bin", Uint8Array.of(1)).path).toBe(
-      "assets/data.bin",
-    )
-    expect(vault.createAsset("data.bin", Uint8Array.of(2)).path).toBe(
-      "assets/data 2.bin",
-    )
+    expect(
+      Effect.runSync(vault.createAsset("data.bin", Uint8Array.of(1))).path,
+    ).toBe("assets/data.bin")
+    expect(
+      Effect.runSync(vault.createAsset("data.bin", Uint8Array.of(2))).path,
+    ).toBe("assets/data 2.bin")
   })
 
   for (const value of [
@@ -505,7 +610,9 @@ describe("native Markdown vault", () => {
       const vault = open()
       expect(() => Effect.runSync(vault.createFolder("inbox", value))).toThrow()
       expect(() => Effect.runSync(vault.readNote(value))).toThrow()
-      expect(() => vault.createAsset(value, Uint8Array.of(1))).toThrow()
+      expect(() =>
+        Effect.runSync(vault.createAsset(value, Uint8Array.of(1))),
+      ).toThrow()
     })
   }
 
@@ -568,7 +675,11 @@ describe("native Markdown vault", () => {
     const directory = root()
     const vault = open(directory)
     const note = Effect.runSync(vault.createNote("inbox", "Keep", "", "saved"))
-    const asset = vault.createAsset("keep.bin", Uint8Array.of(1, 2))
+
+    const asset = Effect.runSync(
+      vault.createAsset("keep.bin", Uint8Array.of(1, 2)),
+    )
+
     vault.close()
 
     const valid = {
@@ -694,14 +805,20 @@ describe("native Markdown vault", () => {
   })
   test("attachment restore collisions and unknown token files retain independent bytes", () => {
     const vault = open()
-    const asset = vault.createAsset("restore.txt", Buffer.from("old"))
+
+    const asset = Effect.runSync(
+      vault.createAsset("restore.txt", Buffer.from("old")),
+    )
+
     expect(() =>
-      vault.writeAsset(asset.path, Buffer.from("draft"), {
-        expectedHash: hash("wrong"),
-      }),
+      Effect.runSync(
+        vault.writeAsset(asset.path, Buffer.from("draft"), {
+          expectedHash: hash("wrong"),
+        }),
+      ),
     ).toThrow(/conflict/i)
-    const deleted = vault.deleteAsset(asset.path)
-    vault.createAsset("restore.txt", Buffer.from("new"))
+    const deleted = Effect.runSync(vault.deleteAsset(asset.path))
+    Effect.runSync(vault.createAsset("restore.txt", Buffer.from("new")))
 
     const unknown = join(
       vault.root,
@@ -711,16 +828,22 @@ describe("native Markdown vault", () => {
     )
 
     writeFileSync(unknown, "preserve")
-    const restored = vault.restoreDeletedAsset(deleted.undoToken)
+
+    const restored = Effect.runSync(
+      vault.restoreDeletedAsset(deleted.undoToken),
+    )
+
     expect(restored.path).toBe("assets/restore 2.txt")
-    expect(vault.readAssetText(restored.path)).toBe("old")
-    expect(vault.readAssetText(asset.path)).toBe("new")
+    expect(Effect.runSync(vault.readAssetText(restored.path))).toBe("old")
+    expect(Effect.runSync(vault.readAssetText(asset.path))).toBe("new")
     expect(readFileSync(unknown, "utf8")).toBe("preserve")
-    expect(() => vault.restoreDeletedAsset("../escape")).toThrow()
-    const next = vault.deleteAsset(restored.path)
-    expect(vault.emptyDeletedAssets({ confirm: true }).deleted).toEqual([
-      next.undoToken,
-    ])
+    expect(() =>
+      Effect.runSync(vault.restoreDeletedAsset("../escape")),
+    ).toThrow()
+    const next = Effect.runSync(vault.deleteAsset(restored.path))
+    expect(
+      Effect.runSync(vault.emptyDeletedAssets({ confirm: true })).deleted,
+    ).toEqual([next.undoToken])
     expect(readFileSync(unknown, "utf8")).toBe("preserve")
   })
   test("same-process and child-process locks exclude writers; close blocks writes", () => {

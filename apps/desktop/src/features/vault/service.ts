@@ -1624,17 +1624,29 @@ export class Vault {
     })
   }
 
+  private assetIO<A>(operation: () => A) {
+    return Effect.try({
+      try: operation,
+      catch: (cause) =>
+        new VaultAssetError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    })
+  }
   listAssets() {
-    this.assertOpen()
+    return this.assetIO(() => {
+      this.assertOpen()
 
-    return this.walk("assets")
-      .files.filter(function notMarkdown(path) {
-        return !/\.md$/i.test(path)
-      })
-      .map((id) => this.assetRecord(id))
+      return this.walk("assets")
+        .files.filter(function notMarkdown(path) {
+          return !/\.md$/i.test(path)
+        })
+        .map((id) => this.assetRecord(id))
+    })
   }
   private assetRecord(id: string): AssetRecord {
-    const bytes = this.readAsset(id)
+    const bytes = this.readAssetSync(id)
     const stat = lstatSync(this.safe(id))
 
     return {
@@ -1646,7 +1658,10 @@ export class Vault {
       kind: assetKind(id),
     }
   }
-  readAsset(id: string): Uint8Array {
+  readAsset(id: string) {
+    return this.assetIO(() => this.readAssetSync(id))
+  }
+  private readAssetSync(id: string): Uint8Array {
     this.assertOpen()
 
     return new Uint8Array(
@@ -1654,12 +1669,17 @@ export class Vault {
     )
   }
   readAssetText(id: string, limit = noteLimit) {
-    this.assertOpen()
-    decodeNoteLimit(limit)
+    return this.assetIO(() => {
+      this.assertOpen()
+      decodeNoteLimit(limit)
 
-    return text(readBytes(this.safe(this.assetPath(id), true), limit))
+      return text(readBytes(this.safe(this.assetPath(id), true), limit))
+    })
   }
   createAsset(name: string, bytes: Uint8Array, targetDir = "assets") {
+    return this.assetIO(() => this.createAssetSync(name, bytes, targetDir))
+  }
+  private createAssetSync(name: string, bytes: Uint8Array, targetDir: string) {
     this.assertWritable()
     decodeName(name)
     decodeBytes(bytes)
@@ -1675,30 +1695,34 @@ export class Vault {
     return this.assetRecord(target)
   }
   importAsset(source: string, targetDir = "assets") {
-    decodeNonEmptyString(source)
-    this.assertAbsoluteParents(resolve(source))
+    return this.assetIO(() => {
+      decodeNonEmptyString(source)
+      this.assertAbsoluteParents(resolve(source))
 
-    return this.createAsset(
-      basename(source),
-      readBytes(resolve(source), assetLimit),
-      targetDir,
-    )
+      return this.createAssetSync(
+        basename(source),
+        readBytes(resolve(source), assetLimit),
+        targetDir,
+      )
+    })
   }
   writeAsset(id: string, bytes: Uint8Array, expected: ExpectedContent) {
-    const previous = this.readAsset(id)
-    this.guard(previous, expected)
-    decodeBytes(bytes)
+    return this.assetIO(() => {
+      const previous = this.readAssetSync(id)
+      this.guard(previous, expected)
+      decodeBytes(bytes)
 
-    if (bytes.length > assetLimit)
-      throw new Error("Attachment exceeds size limit")
-    this.transaction(this.nextState(), [
-      { path: id, bytes, expectedHash: digest(previous) },
-    ])
+      if (bytes.length > assetLimit)
+        throw new Error("Attachment exceeds size limit")
+      this.transaction(this.nextState(), [
+        { path: id, bytes, expectedHash: digest(previous) },
+      ])
 
-    return this.assetRecord(id)
+      return this.assetRecord(id)
+    })
   }
   private relocateAsset(id: string, target: string) {
-    const bytes = this.readAsset(id)
+    const bytes = this.readAssetSync(id)
     this.assetPath(target)
 
     if (id === target) return this.assetRecord(id)
@@ -1713,49 +1737,60 @@ export class Vault {
     return this.assetRecord(target)
   }
   renameAsset(id: string, name: string) {
-    decodeName(name)
+    return this.assetIO(() => {
+      decodeName(name)
 
-    return this.relocateAsset(id, posix.join(posix.dirname(id), name))
+      return this.relocateAsset(id, posix.join(posix.dirname(id), name))
+    })
   }
   moveAsset(id: string, targetDir: string) {
-    this.assetPath(id)
-    const target = `${targetDir}/${basename(id)}`
+    return this.assetIO(() => {
+      this.assetPath(id)
+      const target = `${targetDir}/${basename(id)}`
 
-    return this.relocateAsset(id, target === id ? id : this.unique(target))
+      return this.relocateAsset(id, target === id ? id : this.unique(target))
+    })
   }
   duplicateAsset(id: string) {
-    const bytes = this.readAsset(id)
+    return this.assetIO(() => {
+      const bytes = this.readAssetSync(id)
 
-    return this.createAsset(
-      `${basename(id, extname(id))} copy${extname(id)}`,
-      bytes,
-      posix.dirname(id),
-    )
+      return this.createAssetSync(
+        `${basename(id, extname(id))} copy${extname(id)}`,
+        bytes,
+        posix.dirname(id),
+      )
+    })
   }
   deleteAsset(id: string) {
-    const bytes = this.readAsset(id)
+    return this.assetIO(() => {
+      const bytes = this.readAssetSync(id)
 
-    const record = decodeDeletedAsset({
-      path: id,
-      name: basename(id),
-      undoToken: randomUUID(),
-      deletedAt: new Date().toISOString(),
+      const record = decodeDeletedAsset({
+        path: id,
+        name: basename(id),
+        undoToken: randomUUID(),
+        deletedAt: new Date().toISOString(),
+      })
+
+      const next = this.nextState()
+      next.deletedAssets[record.undoToken] = record
+      this.transaction(next, [
+        {
+          path: `${internal}/deleted-assets/${record.undoToken}/content`,
+          bytes,
+          expectedHash: null,
+        },
+        { path: id, bytes: null, expectedHash: digest(bytes) },
+      ])
+
+      return record
     })
-
-    const next = this.nextState()
-    next.deletedAssets[record.undoToken] = record
-    this.transaction(next, [
-      {
-        path: `${internal}/deleted-assets/${record.undoToken}/content`,
-        bytes,
-        expectedHash: null,
-      },
-      { path: id, bytes: null, expectedHash: digest(bytes) },
-    ])
-
-    return record
   }
   listDeletedAssets() {
+    return this.assetIO(() => this.listDeletedAssetsSync())
+  }
+  private listDeletedAssetsSync() {
     this.assertOpen()
 
     return Object.values(this.state.deletedAssets)
@@ -1772,56 +1807,62 @@ export class Vault {
       })
   }
   restoreDeletedAsset(token: string) {
-    this.assertOpen()
-    decodeUuid(token)
-    const stored = this.state.deletedAssets[token]
+    return this.assetIO(() => {
+      this.assertOpen()
+      decodeUuid(token)
+      const stored = this.state.deletedAssets[token]
 
-    if (!stored) throw new Error("Attachment restore metadata is missing")
-    const source = `${internal}/deleted-assets/${token}/content`
-    const bytes = readBytes(this.safe(source), assetLimit)
-    const target = this.unique(this.assetPath(stored.path))
-    const next = this.nextState()
-    delete next.deletedAssets[token]
-    this.transaction(next, [
-      { path: target, bytes, expectedHash: null },
-      { path: source, bytes: null, expectedHash: digest(bytes) },
-    ])
+      if (!stored) throw new Error("Attachment restore metadata is missing")
+      const source = `${internal}/deleted-assets/${token}/content`
+      const bytes = readBytes(this.safe(source), assetLimit)
+      const target = this.unique(this.assetPath(stored.path))
+      const next = this.nextState()
+      delete next.deletedAssets[token]
+      this.transaction(next, [
+        { path: target, bytes, expectedHash: null },
+        { path: source, bytes: null, expectedHash: digest(bytes) },
+      ])
 
-    return this.assetRecord(target)
+      return this.assetRecord(target)
+    })
   }
   purgeDeletedAsset(token: string, confirmation: DeleteConfirmation) {
-    decodeConfirmation(confirmation)
-    decodeUuid(token)
+    return this.assetIO(() => {
+      decodeConfirmation(confirmation)
+      decodeUuid(token)
 
-    if (!this.state.deletedAssets[token])
-      throw new Error("Attachment restore metadata is missing")
-    const next = this.nextState()
-    delete next.deletedAssets[token]
-    this.transaction(next, [
-      { path: `${internal}/deleted-assets/${token}/content`, bytes: null },
-    ])
+      if (!this.state.deletedAssets[token])
+        throw new Error("Attachment restore metadata is missing")
+      const next = this.nextState()
+      delete next.deletedAssets[token]
+      this.transaction(next, [
+        { path: `${internal}/deleted-assets/${token}/content`, bytes: null },
+      ])
+    })
   }
   emptyDeletedAssets(confirmation: DeleteConfirmation) {
-    decodeConfirmation(confirmation)
+    return this.assetIO(() => {
+      decodeConfirmation(confirmation)
 
-    const deleted = this.listDeletedAssets().map(function token(entry) {
-      return entry.undoToken
+      const deleted = this.listDeletedAssetsSync().map(function token(entry) {
+        return entry.undoToken
+      })
+
+      const next = this.nextState()
+
+      for (const token of deleted) delete next.deletedAssets[token]
+      this.transaction(
+        next,
+        deleted.map(function removal(token) {
+          return {
+            path: `${internal}/deleted-assets/${token}/content`,
+            bytes: null,
+          }
+        }),
+      )
+
+      return { deleted }
     })
-
-    const next = this.nextState()
-
-    for (const token of deleted) delete next.deletedAssets[token]
-    this.transaction(
-      next,
-      deleted.map(function removal(token) {
-        return {
-          path: `${internal}/deleted-assets/${token}/content`,
-          bytes: null,
-        }
-      }),
-    )
-
-    return { deleted }
   }
 
   /** Events invalidate views; callers must compare expected content before saving. */
@@ -1933,6 +1974,14 @@ export class Vault {
     this.closed = true
   }
 }
+
+export class VaultAssetError extends Schema.TaggedError<VaultAssetError>()(
+  "VaultAssetError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
 
 export class VaultFolderError extends Schema.TaggedError<VaultFolderError>()(
   "VaultFolderError",
