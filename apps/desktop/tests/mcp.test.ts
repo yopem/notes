@@ -766,8 +766,9 @@ describe("MCP real stdio child", () => {
         id: index + 3,
         method: "ping",
       })))
-      const exit = await Effect.runPromise(Fiber.await(fiber))
-      expect(exit._tag).toBe("Failure")
+      const error = await Effect.runPromise(Effect.flip(Fiber.join(fiber)))
+      expect(error.operation).toBe("output")
+      expect(error.cause).toEqual(new Error("MCP response capacity exceeded"))
       expect(stream.isCancelled()).toBe(true)
       expect(stream.input.locked).toBe(false)
       expect(output.map((line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)).id)).toEqual([1, 2])
