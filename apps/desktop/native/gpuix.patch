@@ -1337,7 +1337,7 @@ index c5f4fa1212554676217279fa2a3873c26c58a477..e8aa3bb2ea2c27284982e18beb404999
  // types instead of a copy that silently drifts from them.
  pub mod retained_tree;
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32dbea3382d 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66ebec1720 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -1527,7 +1527,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      tree: Arc<Mutex<RetainedTree>>,
      initialized: Arc<Mutex<bool>>,
      /// Shared with GpuixView so napi methods can read the live selection
-@@ -977,6 +1069,548 @@ pub struct GpuixRenderer {
+@@ -977,6 +1069,544 @@ pub struct GpuixRenderer {
      ui_running: Arc<AtomicBool>,
  }
  
@@ -1942,6 +1942,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
 +    Error::from_reason(match error {
 +        CloseGuardError::InvalidOwner => "Window close ownership changed",
 +        CloseGuardError::InvalidRequest => "Window close request is no longer current",
++        CloseGuardError::InvalidApproval => "Window close approval attempt is no longer current",
 +        CloseGuardError::Detached => "Window close owner is detached",
 +        CloseGuardError::InvalidPhase => "Window close approval is already queued",
 +        CloseGuardError::Closing => "Window is already closing",
@@ -1982,7 +1983,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
 +        .map_err(|_| "Window close state is unavailable".to_string())?;
 +    if owner.execute_approval(token).is_err() {
 +        return Ok(close_commands::request_reply(
-+            token,
++            token.into(),
 +            close_commands::RequestOutcome::Stale,
 +        ));
 +    }
@@ -1993,7 +1994,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
 +        return Err(error);
 +    }
 +    Ok(close_commands::request_reply(
-+        token,
++        token.into(),
 +        close_commands::RequestOutcome::Closing,
 +    ))
 +}
@@ -2019,12 +2020,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
 +        Ok(reply) => reply.map_err(Error::from_reason),
 +        Err(error) => {
 +            if let Ok(mut owner) = owner.lock() {
-+                if owner
-+                    .snapshot()
-+                    .is_some_and(|binding| binding.phase == crate::window_close::Phase::Queued)
-+                {
-+                    let _ = owner.cancel(token.owner, token.request_id);
-+                }
++                let _ = owner.cancel_approval(token);
 +            }
 +            Err(Error::from_reason(match error {
 +                std::sync::mpsc::RecvTimeoutError::Disconnected => {
@@ -2076,7 +2072,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
  #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
  #[napi]
  impl GpuixRenderer {
-@@ -1174,7 +1808,10 @@ impl GpuixRenderer {
+@@ -1174,7 +1804,10 @@ impl GpuixRenderer {
      pub fn new(event_callback: Option<ThreadsafeFunction<EventPayload>>) -> Self {
          let _ = env_logger::try_init();
          Self {
@@ -2087,7 +2083,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
              tree: Arc::new(Mutex::new(RetainedTree::new())),
              initialized: Arc::new(Mutex::new(false)),
              selection: SharedSelection::default(),
-@@ -1245,6 +1882,8 @@ impl GpuixRenderer {
+@@ -1245,6 +1878,8 @@ impl GpuixRenderer {
  
          let tree = self.tree.clone();
          let callback = self.event_callback_for_view();
@@ -2096,7 +2092,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
  
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
-@@ -1274,9 +1913,18 @@ impl GpuixRenderer {
+@@ -1274,9 +1909,18 @@ impl GpuixRenderer {
  
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
@@ -2117,7 +2113,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
                      })
                  },
              ) {
-@@ -1377,6 +2025,8 @@ impl GpuixRenderer {
+@@ -1377,6 +2021,8 @@ impl GpuixRenderer {
          let tree = self.tree.clone();
          let selection = self.selection.clone();
          let callback = self.event_callback_for_view();
@@ -2126,7 +2122,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
          let (command_sender, command_receiver) = mpsc::unbounded();
          let (startup_sender, startup_receiver) = sync_channel(1);
          let exit_startup_sender = startup_sender.clone();
-@@ -1434,8 +2084,20 @@ impl GpuixRenderer {
+@@ -1434,8 +2080,20 @@ impl GpuixRenderer {
                              };
                              let window = match cx.open_window(
                                  to_gpui_window_options(&window_options, bounds),
@@ -2149,7 +2145,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
                                  },
                              ) {
                                  Ok(window) => window,
-@@ -1573,7 +2235,6 @@ impl GpuixRenderer {
+@@ -1573,7 +2231,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
  
@@ -2157,7 +2153,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2793,236 @@ impl GpuixRenderer {
+@@ -2132,6 +2789,228 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
@@ -2195,15 +2191,11 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
 +    pub fn cancel_close_owner_v2(&self, command: String) -> Result<String> {
 +        use crate::window_close::CloseGuardError;
 +        let command = close_commands::request(&command)?;
-+        let token = crate::window_close::ApprovalToken {
-+            owner: command.owner,
-+            request_id: command.request_id,
-+        };
 +        let mut owner = self
 +            .close_owner
 +            .lock()
 +            .map_err(|_| Error::from_reason("Window close state is unavailable"))?;
-+        let outcome = match owner.cancel(token.owner, token.request_id) {
++        let outcome = match owner.cancel(command.owner, command.request_id) {
 +            Ok(()) => close_commands::RequestOutcome::Cancelled,
 +            Err(
 +                CloseGuardError::InvalidOwner
@@ -2212,7 +2204,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
 +            ) => close_commands::RequestOutcome::Stale,
 +            Err(error) => return Err(close_owner_error(error)),
 +        };
-+        Ok(close_commands::request_reply(token, outcome))
++        Ok(close_commands::request_reply(command, outcome))
 +    }
 +
 +    #[napi(js_name = "releaseCloseOwnerV2")]
@@ -2256,12 +2248,8 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
 +                    | CloseGuardError::InvalidPhase
 +                    | CloseGuardError::Closing,
 +                ) => {
-+                    let token = crate::window_close::ApprovalToken {
-+                        owner: command.owner,
-+                        request_id: command.request_id,
-+                    };
 +                    return Ok(CloseApprovalWait::Ready(close_commands::request_reply(
-+                        token,
++                        command,
 +                        close_commands::RequestOutcome::Stale,
 +                    )));
 +                }
@@ -2394,7 +2382,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      // ── Selection API ────────────────────────────────────────────────
  
      /// The current text selection joined in document order, or null.
-@@ -2467,14 +3358,95 @@ impl GpuixRenderer {
+@@ -2467,14 +3346,95 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
@@ -2496,7 +2484,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      }
  
      #[napi]
-@@ -3428,11 +4400,7 @@ impl WebGpuixRenderer {
+@@ -3428,11 +4388,7 @@ impl WebGpuixRenderer {
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
      pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
          notify_web();
@@ -2509,7 +2497,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      }
  
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
-@@ -3652,6 +4620,7 @@ pub(crate) struct GpuixView {
+@@ -3652,6 +4608,7 @@ pub(crate) struct GpuixView {
      pub(crate) window_key_event_id: u64,
      pub(crate) window_selection_change: bool,
      pub(crate) window_selection_event_id: u64,
@@ -2517,7 +2505,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      /// Last identity delivered through `selectionChange`. Only written once an
      /// event is really queued, so adding the listener later still reports.
      reported_selection: Option<u64>,
-@@ -3820,8 +4789,12 @@ pub(crate) fn emit_key_event(
+@@ -3820,8 +4777,12 @@ pub(crate) fn emit_key_event(
      });
  }
  
@@ -2532,7 +2520,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
  }
  
  fn window_key_events(
-@@ -3869,7 +4842,13 @@ fn window_key_events(
+@@ -3869,7 +4830,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -2547,7 +2535,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
                  }
              });
          },
-@@ -3957,6 +4936,34 @@ fn resolve_highlight(
+@@ -3957,6 +4924,34 @@ fn resolve_highlight(
  }
  
  impl GpuixView {
@@ -2582,7 +2570,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -3972,6 +4979,7 @@ impl GpuixView {
+@@ -3972,6 +4967,7 @@ impl GpuixView {
              window_key_event_id: 0,
              window_selection_change: false,
              window_selection_event_id: 0,
@@ -2590,7 +2578,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
              reported_selection: None,
              focus_handles: HashMap::new(),
              pending_focus_element: None,
-@@ -4041,10 +5049,8 @@ impl GpuixView {
+@@ -4041,10 +5037,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -2603,7 +2591,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
          self.set_live_image(id, image, window, cx)
      }
  
-@@ -4066,6 +5072,24 @@ impl GpuixView {
+@@ -4066,6 +5060,24 @@ impl GpuixView {
          Ok(())
      }
  
@@ -2628,7 +2616,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      pub(crate) fn scroll_element_into_view(&self, id: u64) -> bool {
          let Some((scroller_id, child_index)) = self.scroll_target(id) else {
              return false;
-@@ -4314,7 +5338,9 @@ impl GpuixView {
+@@ -4314,7 +5326,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -2639,7 +2627,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
              }
              current = parent_id;
          };
-@@ -4764,7 +5790,12 @@ impl VirtualListEntry {
+@@ -4764,7 +5778,12 @@ impl VirtualListEntry {
  }
  
  impl GpuixView {
@@ -2653,7 +2641,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -5188,7 +6219,7 @@ impl gpui::Render for GpuixView {
+@@ -5188,7 +6207,7 @@ impl gpui::Render for GpuixView {
              let drag_move_view = cx.weak_entity();
              let drag_end_view = drag_move_view.clone();
              let root = gpui::div().size_full();
@@ -2662,7 +2650,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
                  .child(window_key_events(
                      callback.clone(),
                      self.window_key_down,
-@@ -6731,10 +7762,7 @@ fn report_layout(
+@@ -6731,10 +7750,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -2674,7 +2662,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32d
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
-@@ -8329,3 +9357,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
+@@ -8329,3 +9345,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
      }
      Ok(())
  }
@@ -2949,10 +2937,10 @@ index fe530846d1800c2755cb35840e56ef11f2ce13ff..68d4a15db8205a0b29a093445f9b1990
      /// Last painted bounds for an element, or null if it was not painted.
 diff --git a/packages/native/src/window_close.rs b/packages/native/src/window_close.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed728fc229a
+index 0000000000000000000000000000000000000000..015077728918fd081517ebeaf97394409d96f68b
 --- /dev/null
 +++ b/packages/native/src/window_close.rs
-@@ -0,0 +1,534 @@
+@@ -0,0 +1,573 @@
 +pub(crate) const MAX_SAFE_ID: u64 = 9_007_199_254_740_991;
 +
 +#[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2968,6 +2956,7 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +    pub(crate) event_id: u64,
 +    pub(crate) attached: bool,
 +    pub(crate) pending_request: Option<u64>,
++    pub(crate) approval_id: Option<u64>,
 +    pub(crate) phase: Phase,
 +}
 +
@@ -2982,6 +2971,7 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +pub(crate) struct ApprovalToken {
 +    pub(crate) owner: u64,
 +    pub(crate) request_id: u64,
++    pub(crate) approval_id: u64,
 +}
 +
 +#[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2994,6 +2984,7 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +pub(crate) enum CloseGuardError {
 +    InvalidOwner,
 +    InvalidRequest,
++    InvalidApproval,
 +    Detached,
 +    InvalidPhase,
 +    Closing,
@@ -3005,6 +2996,7 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +    binding: Option<BindingSnapshot>,
 +    last_owner: u64,
 +    last_request: u64,
++    last_approval: u64,
 +}
 +
 +impl CloseGuardState {
@@ -3036,6 +3028,7 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +            event_id,
 +            attached: true,
 +            pending_request: self.binding.and_then(|binding| binding.pending_request),
++            approval_id: None,
 +            phase: Phase::Armed,
 +        };
 +        self.last_owner = owner;
@@ -3048,6 +3041,7 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +        binding.attached = false;
 +        if binding.phase == Phase::Queued {
 +            binding.phase = Phase::Armed;
++            binding.approval_id = None;
 +        }
 +        Ok(())
 +    }
@@ -3082,6 +3076,10 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +        owner: u64,
 +        request_id: u64,
 +    ) -> Result<ApprovalToken, CloseGuardError> {
++        let next_approval = self
++            .last_approval
++            .checked_add(1)
++            .filter(|id| *id <= MAX_SAFE_ID);
 +        let binding = self.current_request_mut(owner, request_id)?;
 +        if binding.phase == Phase::Closing {
 +            return Err(CloseGuardError::Closing);
@@ -3092,21 +3090,29 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +        if binding.phase != Phase::Armed {
 +            return Err(CloseGuardError::InvalidPhase);
 +        }
++        let approval_id = next_approval.ok_or(CloseGuardError::IdExhausted)?;
 +        binding.phase = Phase::Queued;
-+        Ok(ApprovalToken { owner, request_id })
++        binding.approval_id = Some(approval_id);
++        self.last_approval = approval_id;
++        Ok(ApprovalToken {
++            owner,
++            request_id,
++            approval_id,
++        })
 +    }
 +
 +    pub(crate) fn revoke_approval(&mut self, token: ApprovalToken) -> Result<(), CloseGuardError> {
-+        let binding = self.current_request_mut(token.owner, token.request_id)?;
++        let binding = self.current_approval_mut(token)?;
 +        if binding.phase != Phase::Queued {
 +            return Err(CloseGuardError::InvalidPhase);
 +        }
 +        binding.phase = Phase::Armed;
++        binding.approval_id = None;
 +        Ok(())
 +    }
 +
 +    pub(crate) fn execute_approval(&mut self, token: ApprovalToken) -> Result<(), CloseGuardError> {
-+        let binding = self.current_request_mut(token.owner, token.request_id)?;
++        let binding = self.current_approval_mut(token)?;
 +        if binding.phase != Phase::Queued {
 +            return Err(CloseGuardError::InvalidPhase);
 +        }
@@ -3118,12 +3124,21 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +    }
 +
 +    pub(crate) fn close_failed(&mut self, token: ApprovalToken) -> Result<(), CloseGuardError> {
-+        let binding = self.current_request_mut(token.owner, token.request_id)?;
++        let binding = self.current_approval_mut(token)?;
 +        if binding.phase != Phase::Closing {
 +            return Err(CloseGuardError::InvalidPhase);
 +        }
 +        binding.phase = Phase::Armed;
++        binding.approval_id = None;
 +        Ok(())
++    }
++
++    pub(crate) fn cancel_approval(&mut self, token: ApprovalToken) -> Result<(), CloseGuardError> {
++        let binding = self.current_approval_mut(token)?;
++        if binding.phase != Phase::Queued {
++            return Err(CloseGuardError::InvalidPhase);
++        }
++        self.cancel(token.owner, token.request_id)
 +    }
 +
 +    pub(crate) fn cancel(&mut self, owner: u64, request_id: u64) -> Result<(), CloseGuardError> {
@@ -3132,8 +3147,20 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +            return Err(CloseGuardError::Closing);
 +        }
 +        binding.pending_request = None;
++        binding.approval_id = None;
 +        binding.phase = Phase::Armed;
 +        Ok(())
++    }
++
++    fn current_approval_mut(
++        &mut self,
++        token: ApprovalToken,
++    ) -> Result<&mut BindingSnapshot, CloseGuardError> {
++        let binding = self.current_request_mut(token.owner, token.request_id)?;
++        if binding.approval_id != Some(token.approval_id) {
++            return Err(CloseGuardError::InvalidApproval);
++        }
++        Ok(binding)
 +    }
 +
 +    fn current_owner_mut(&mut self, owner: u64) -> Result<&mut BindingSnapshot, CloseGuardError> {
@@ -3489,10 +3516,10 @@ index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed7
 +}
 diff --git a/packages/native/src/window_close_command.rs b/packages/native/src/window_close_command.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f6704ee12a714ad5128417403349a6f19bd11ea6
+index 0000000000000000000000000000000000000000..ea565e71b031e79bb2f5c5c361d030ec51ad7b1b
 --- /dev/null
 +++ b/packages/native/src/window_close_command.rs
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,134 @@
 +use napi::{Error, Result};
 +use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 +
@@ -3518,6 +3545,16 @@ index 0000000000000000000000000000000000000000..f6704ee12a714ad5128417403349a6f1
 +    pub(crate) owner: u64,
 +    #[serde(deserialize_with = "positive_id")]
 +    pub(crate) request_id: u64,
++}
++
++impl From<ApprovalToken> for RequestCommand {
++    fn from(token: ApprovalToken) -> Self {
++        Self {
++            _protocol: (),
++            owner: token.owner,
++            request_id: token.request_id,
++        }
++    }
 +}
 +
 +#[derive(Debug, Deserialize)]
@@ -3603,11 +3640,11 @@ index 0000000000000000000000000000000000000000..f6704ee12a714ad5128417403349a6f1
 +    .to_string()
 +}
 +
-+pub(crate) fn request_reply(token: ApprovalToken, outcome: RequestOutcome) -> String {
++pub(crate) fn request_reply(request: RequestCommand, outcome: RequestOutcome) -> String {
 +    serde_json::json!({
 +        "protocol": 2,
-+        "owner": token.owner,
-+        "requestId": token.request_id,
++        "owner": request.owner,
++        "requestId": request.request_id,
 +        "outcome": outcome,
 +    })
 +    .to_string()
