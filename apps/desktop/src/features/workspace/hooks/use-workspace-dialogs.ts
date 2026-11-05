@@ -6,6 +6,8 @@ import type { DialogState } from "@/features/workspace/components/app-dialog"
 import type { useNoteDrafts } from "@/features/workspace/hooks/use-note-drafts"
 import type { useWorkspaceNavigation } from "@/features/workspace/hooks/use-workspace-navigation"
 
+import { useDesktopEffect } from "@/components/effect-boundary"
+
 export function useWorkspaceDialogs({
   store,
   navigation,
@@ -21,6 +23,7 @@ export function useWorkspaceDialogs({
   importPath: (path: string) => void
   onNotice: (message: string) => void
 }) {
+  const run = useDesktopEffect()
   const [dialog, setDialog] = useState<DialogState | null>(null)
 
   const current = useRef({
@@ -31,6 +34,7 @@ export function useWorkspaceDialogs({
     importPath,
     onNotice,
     dialog,
+    run,
   })
 
   useLayoutEffect(
@@ -43,9 +47,19 @@ export function useWorkspaceDialogs({
         importPath,
         onNotice,
         dialog,
+        run,
       }
     },
-    [store, navigation, drafts, discardDraft, importPath, onNotice, dialog],
+    [
+      store,
+      navigation,
+      drafts,
+      discardDraft,
+      importPath,
+      onNotice,
+      dialog,
+      run,
+    ],
   )
 
   const [handlers] = useState(function createDialogHandlers() {
@@ -78,20 +92,21 @@ export function useWorkspaceDialogs({
         discardDraft,
         importPath,
         onNotice,
+        run,
       } = current.current
 
       if (!dialog) return
 
       if (dialog.kind === "notebook") {
-        const created = store.createNotebook(value)
+        const created = run(store.createNotebook(value))
         navigation.setView({ kind: "notebook", notebookId: created.id })
         navigation.setActiveNoteId(null)
         navigation.setMobileEditor(false)
         navigation.setQuery("")
       } else if (dialog.kind === "rename")
-        store.renameNotebook(dialog.id, value)
+        run(store.renameNotebook(dialog.id, value))
       else if (dialog.kind === "move") {
-        store.updateNote(dialog.id, { notebookId: value })
+        run(store.updateNote(dialog.id, { notebookId: value }))
 
         if (
           navigation.view.kind === "notebook" &&
@@ -100,15 +115,17 @@ export function useWorkspaceDialogs({
           navigation.selectNextNote(dialog.id, navigation.notes)
       } else if (dialog.kind === "import") importPath(value)
       else if (dialog.kind === "export") {
-        const destination = store.exportMarkdown(
-          dialog.id,
-          value || homedir(),
-          drafts[dialog.id],
+        const destination = run(
+          store.exportMarkdown(
+            dialog.id,
+            value || homedir(),
+            drafts[dialog.id],
+          ),
         )
 
         onNotice(`Exported to ${destination}`)
       } else if (dialog.kind === "delete") {
-        store.deleteNote(dialog.id)
+        run(store.deleteNote(dialog.id))
         navigation.selectNextNote(dialog.id, navigation.notes)
         discardDraft(dialog.id)
       }
