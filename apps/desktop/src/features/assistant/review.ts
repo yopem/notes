@@ -1,4 +1,4 @@
-import { Option, Schema, Struct } from "effect"
+import { Effect, Option, Schema, Struct } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import {
   closeSync,
@@ -12,6 +12,7 @@ import {
 } from "node:fs"
 import { dirname, join, parse, resolve } from "node:path"
 
+import { AssistantReviewError } from "@/features/assistant/errors"
 import {
   MCP_TOOL_SCHEMAS,
   mcpPathSchema,
@@ -222,6 +223,13 @@ function keepVersion(record: ReviewRecord, body: string) {
     record.versions.push({ id: randomUUID(), body, at: Date.now() })
 }
 
+function reviewAttempt<T>(operation: string, action: () => T) {
+  return Effect.try({
+    try: action,
+    catch: (cause) => AssistantReviewError.fromCause(operation, cause),
+  })
+}
+
 export interface AssistantReviewOptions {
   /** Use the vault's guarded writer when the application owns the vault lock. */
   writeNote?(path: string, body: string, expectedContent: string): void
@@ -384,7 +392,7 @@ export class AssistantReview {
       ),
     }
   }
-  read(path: string) {
+  private readRecord(path: string) {
     this.notePath(path)
     const record = this.load(path)
 
@@ -415,138 +423,171 @@ export class AssistantReview {
 
     return this.snapshot(record)
   }
-  list() {
-    this.safe(this.directory)
-    let files: string[]
-
-    try {
-      files = readdirSync(this.directory)
-    } catch (error) {
-      if (Option.getOrUndefined(decodeError(error))?.code === "ENOENT")
-        return []
-      throw error
-    }
-
-    const found = []
-
-    for (const file of files) {
-      if (!/^[a-f0-9]{64}\.json$/.test(file)) continue
-      const path = this.safe(join(this.directory, file))
-      const stat = lstatSync(path)
-
-      if (!stat.isFile() || stat.size > 64 * 1024 * 1024)
-        throw new Error("Invalid or oversized review record")
-      const record = decodeRecord(JSON.parse(readFileSync(path, "utf8")))
-
-      if (`${hash(record.path)}.json` !== file)
-        throw new Error("Review filename mismatch")
-      const incoming = this.read(record.path)
-
-      if (incoming?.hunks.length) found.push(incoming)
-    }
-
-    return found.sort((a, b) => b.at - a.at)
+  read(path: string) {
+    return reviewAttempt("read", () => this.readRecord(path))
   }
-  async recordTool<K extends McpToolName, T>(
+  list() {
+    return reviewAttempt("list", () => {
+      this.safe(this.directory)
+      let files: string[]
+
+      try {
+        files = readdirSync(this.directory)
+      } catch (error) {
+        if (Option.getOrUndefined(decodeError(error))?.code === "ENOENT")
+          return []
+        throw error
+      }
+
+      const found = []
+
+      for (const file of files) {
+        if (!/^[a-f0-9]{64}\.json$/.test(file)) continue
+        const path = this.safe(join(this.directory, file))
+        const stat = lstatSync(path)
+
+        if (!stat.isFile() || stat.size > 64 * 1024 * 1024)
+          throw new Error("Invalid or oversized review record")
+        const record = decodeRecord(JSON.parse(readFileSync(path, "utf8")))
+
+        if (`${hash(record.path)}.json` !== file)
+          throw new Error("Review filename mismatch")
+        const incoming = this.readRecord(record.path)
+
+        if (incoming?.hunks.length) found.push(incoming)
+      }
+
+      return found.sort((a, b) => b.at - a.at)
+    })
+  }
+  recordTool<K extends McpToolName, T, E, R>(
     name: K,
     args: (typeof MCP_TOOL_SCHEMAS)[K]["Type"],
     source: string,
-    mutate: () => T | Promise<T>,
+    mutate: Effect.Effect<T, E, R>,
   ) {
-    const validated = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
-      onExcessProperty: "error",
-    })(args)
-
-    if (name === "toggle_task") {
-      const id = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS.toggle_task, {
-        onExcessProperty: "error",
-      })(validated).id
-
-      const path = id.slice(0, id.lastIndexOf("#"))
-
-      return await this.record(
-        path,
-        { source, sourcefile: path, tool: name },
-        mutate,
+    return Effect.gen({ self: this }, function* () {
+      const validated = yield* reviewAttempt("recordTool", () =>
+        Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
+          onExcessProperty: "error",
+        })(args),
       )
-    }
 
-    if (
-      [
-        "write_note",
-        "append_to_note",
-        "prepend_to_note",
-        "insert_at_line",
-        "replace_in_note",
-      ].includes(name)
-    ) {
-      const path = decodeNotePath(validated).path
+      if (name === "toggle_task") {
+        const id = yield* reviewAttempt(
+          "recordTool",
+          () =>
+            Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS.toggle_task, {
+              onExcessProperty: "error",
+            })(validated).id,
+        )
 
-      return await this.record(
-        path,
-        { source, sourcefile: path, tool: name },
-        mutate,
-      )
-    }
+        const path = id.slice(0, id.lastIndexOf("#"))
 
-    return await mutate()
+        return yield* this.record(
+          path,
+          { source, sourcefile: path, tool: name },
+          mutate,
+        )
+      }
+
+      if (
+        [
+          "write_note",
+          "append_to_note",
+          "prepend_to_note",
+          "insert_at_line",
+          "replace_in_note",
+        ].includes(name)
+      ) {
+        const path = yield* reviewAttempt(
+          "recordTool",
+          () => decodeNotePath(validated).path,
+        )
+
+        return yield* this.record(
+          path,
+          { source, sourcefile: path, tool: name },
+          mutate,
+        )
+      }
+
+      return yield* mutate
+    })
   }
 
-  async record<T>(
+  record<T, E, R>(
     path: string,
     evidence: typeof evidenceSchema.Encoded,
-    mutate: () => T | Promise<T>,
+    mutate: Effect.Effect<T, E, R>,
   ) {
-    const validated = decodeEvidence(evidence)
-    const release = this.lock(path)
+    return Effect.uninterruptible(
+      Effect.gen({ self: this }, function* () {
+        const validated = yield* reviewAttempt("record", () =>
+          decodeEvidence(evidence),
+        )
 
-    try {
-      let record = this.load(path)
+        return yield* Effect.acquireUseRelease(
+          reviewAttempt("record", () => this.lock(path)),
+          () =>
+            Effect.gen({ self: this }, function* () {
+              const record = yield* reviewAttempt("record", () => {
+                let record = this.load(path)
 
-      if (record) record = this.recover(record)
-      const before = this.text(path)
+                if (record) record = this.recover(record)
+                const before = this.text(path)
 
-      if (record) {
-        if (before !== record.expected)
-          throw new Error("Outside change conflicts with assistant edit")
-        record.baseline = content(record, true)
-        record.proposed = before
-        record.decisions = {}
-        Object.assign(record, validated)
-        record.at = Date.now()
-        record.revision = randomUUID()
-      } else
-        record = {
-          version: 1,
-          path,
-          baseline: before,
-          proposed: before,
-          expected: before,
-          revision: randomUUID(),
-          ...validated,
-          at: Date.now(),
-          decisions: {},
-          versions: [],
-          capturing: false,
-          transaction: null,
-        }
-      keepVersion(record, before)
-      record.capturing = true
-      this.save(record)
+                if (record) {
+                  if (before !== record.expected)
+                    throw new Error(
+                      "Outside change conflicts with assistant edit",
+                    )
+                  record.baseline = content(record, true)
+                  record.proposed = before
+                  record.decisions = {}
+                  Object.assign(record, validated)
+                  record.at = Date.now()
+                  record.revision = randomUUID()
+                } else
+                  record = {
+                    version: 1,
+                    path,
+                    baseline: before,
+                    proposed: before,
+                    expected: before,
+                    revision: randomUUID(),
+                    ...validated,
+                    at: Date.now(),
+                    decisions: {},
+                    versions: [],
+                    capturing: false,
+                    transaction: null,
+                  }
+                keepVersion(record, before)
+                record.capturing = true
+                this.save(record)
 
-      try {
-        return await mutate()
-      } finally {
-        const after = this.text(path)
-        keepVersion(record, after)
-        record.proposed = after
-        record.expected = after
-        record.capturing = false
-        this.save(record)
-      }
-    } finally {
-      release()
-    }
+                return record
+              })
+
+              return yield* Effect.acquireUseRelease(
+                Effect.succeed(record),
+                () => mutate,
+                (current) =>
+                  reviewAttempt("record", () => {
+                    const after = this.text(path)
+                    keepVersion(current, after)
+                    current.proposed = after
+                    current.expected = after
+                    current.capturing = false
+                    this.save(current)
+                  }),
+              )
+            }),
+          (release) => reviewAttempt("record", release),
+        )
+      }),
+    )
   }
   decide(
     path: string,
@@ -554,70 +595,76 @@ export class AssistantReview {
     choice: "accept" | "reject",
     revision: string,
   ) {
-    decodeChoice(choice)
-    decodeUuid(revision)
-    const release = this.lock(path)
+    return reviewAttempt("decide", () => {
+      decodeChoice(choice)
+      decodeUuid(revision)
+      const release = this.lock(path)
 
-    try {
-      const loaded = this.load(path)
+      try {
+        const loaded = this.load(path)
 
-      if (!loaded) throw new Error("No assistant review record")
-      const record = this.recover(loaded)
+        if (!loaded) throw new Error("No assistant review record")
+        const record = this.recover(loaded)
 
-      if (this.text(path) !== record.expected)
-        throw new Error("Outside change conflicts with review")
-      const decided = record.decisions[hunkId]
+        if (this.text(path) !== record.expected)
+          throw new Error("Outside change conflicts with review")
+        const decided = record.decisions[hunkId]
 
-      if (decided) {
-        if (decided !== choice) throw new Error("Hunk already decided")
+        if (decided) {
+          if (decided !== choice) throw new Error("Hunk already decided")
+
+          return this.snapshot(record)
+        }
+
+        if (record.revision !== revision)
+          throw new Error("Stale review revision")
+
+        if (
+          !hunks(record.baseline, record.proposed).some(
+            (hunk) => hunk.id === hunkId,
+          )
+        )
+          throw new Error("Unknown hunk")
+        record.decisions[hunkId] = choice
+        this.commitContent(record, content(record))
 
         return this.snapshot(record)
+      } finally {
+        release()
       }
-
-      if (record.revision !== revision) throw new Error("Stale review revision")
-
-      if (
-        !hunks(record.baseline, record.proposed).some(
-          (hunk) => hunk.id === hunkId,
-        )
-      )
-        throw new Error("Unknown hunk")
-      record.decisions[hunkId] = choice
-      this.commitContent(record, content(record))
-
-      return this.snapshot(record)
-    } finally {
-      release()
-    }
+    })
   }
   rollback(path: string, versionId: string, revision: string) {
-    decodeUuid(versionId)
-    decodeUuid(revision)
-    const release = this.lock(path)
+    return reviewAttempt("rollback", () => {
+      decodeUuid(versionId)
+      decodeUuid(revision)
+      const release = this.lock(path)
 
-    try {
-      const loaded = this.load(path)
+      try {
+        const loaded = this.load(path)
 
-      if (!loaded) throw new Error("No assistant review record")
-      const record = this.recover(loaded)
+        if (!loaded) throw new Error("No assistant review record")
+        const record = this.recover(loaded)
 
-      if (record.revision !== revision) throw new Error("Stale review revision")
+        if (record.revision !== revision)
+          throw new Error("Stale review revision")
 
-      if (this.text(path) !== record.expected)
-        throw new Error("Outside change conflicts with rollback")
-      const version = record.versions.find((item) => item.id === versionId)
+        if (this.text(path) !== record.expected)
+          throw new Error("Outside change conflicts with rollback")
+        const version = record.versions.find((item) => item.id === versionId)
 
-      if (!version) throw new Error("Unknown version")
-      keepVersion(record, record.expected)
-      record.baseline = version.body
-      record.proposed = version.body
-      record.decisions = {}
-      this.commitContent(record, version.body)
+        if (!version) throw new Error("Unknown version")
+        keepVersion(record, record.expected)
+        record.baseline = version.body
+        record.proposed = version.body
+        record.decisions = {}
+        this.commitContent(record, version.body)
 
-      return this.snapshot(record)
-    } finally {
-      release()
-    }
+        return this.snapshot(record)
+      } finally {
+        release()
+      }
+    })
   }
   private writeNote(path: string, body: string, expectedContent: string) {
     if (this.text(path) !== expectedContent)

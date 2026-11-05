@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import {
   mkdirSync,
   mkdtempSync,
@@ -11,7 +12,61 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { AssistantReview } from "@/features/assistant/review"
+import type { MCP_TOOL_SCHEMAS, McpToolName } from "@/features/assistant/mcp"
+
+import {
+  AssistantReview,
+  type AssistantReviewOptions,
+} from "@/features/assistant/review"
+
+function reviewAt(root: string, options?: AssistantReviewOptions) {
+  const review = new AssistantReview(root, options)
+
+  return {
+    read: (path: string) => Effect.runSync(review.read(path)),
+    list: () => Effect.runSync(review.list()),
+    decide: (
+      path: string,
+      hunk: string,
+      choice: "accept" | "reject",
+      revision: string,
+    ) => Effect.runSync(review.decide(path, hunk, choice, revision)),
+    rollback: (path: string, version: string, revision: string) =>
+      Effect.runSync(review.rollback(path, version, revision)),
+    record: <T>(
+      path: string,
+      evidence: { source: string; sourcefile: string; tool: string },
+      mutate: () => T | Promise<T>,
+    ) =>
+      Effect.runPromise(
+        review.record(
+          path,
+          evidence,
+          Effect.tryPromise({
+            try: () => Promise.resolve().then(mutate),
+            catch: (cause) => cause,
+          }),
+        ),
+      ),
+    recordTool: <K extends McpToolName, T>(
+      name: K,
+      args: (typeof MCP_TOOL_SCHEMAS)[K]["Type"],
+      source: string,
+      mutate: () => T | Promise<T>,
+    ) =>
+      Effect.runPromise(
+        review.recordTool(
+          name,
+          args,
+          source,
+          Effect.tryPromise({
+            try: () => Promise.resolve().then(mutate),
+            catch: (cause) => cause,
+          }),
+        ),
+      ),
+  }
+}
 
 const roots: string[] = []
 
@@ -22,7 +77,7 @@ function workspace(body = "one\ntwo\nthree\nfour\nfive\n") {
 
   return {
     root,
-    review: new AssistantReview(root),
+    review: reviewAt(root),
     path: join(root, "note.md"),
     body,
   }
@@ -52,13 +107,33 @@ const evidence = {
 
 // Define expected filesystem behavior before implementation. No native windows.
 describe("durable assistant edit review", () => {
+  test("review effects defer edits and report typed failures", async () => {
+    const { root, path, body } = workspace()
+    const review = new AssistantReview(root)
+
+    const edit = review.record(
+      "note.md",
+      evidence,
+      Effect.sync(() => {
+        writeFileSync(path, "deferred")
+      }),
+    )
+
+    expect(readFileSync(path, "utf8")).toBe(body)
+    expect(Effect.runSync(review.read("note.md"))).toBeNull()
+    await Effect.runPromise(edit)
+    expect(readFileSync(path, "utf8")).toBe("deferred")
+
+    const error = Effect.runSync(Effect.flip(review.read("../outside")))
+    expect(error._tag).toBe("AssistantReviewError")
+  })
   test("baseline precedes edit, records persist, hunks accept/reject independently", async () => {
     const { root, review, path, body } = workspace()
     await review.record("note.md", evidence, () => {
-      expect(new AssistantReview(root).read("note.md")?.baseline).toBe(body)
+      expect(reviewAt(root).read("note.md")?.baseline).toBe(body)
       writeFileSync(path, "ONE\ntwo\nthree\nfour\nFIVE\n")
     })
-    const reopened = new AssistantReview(root)
+    const reopened = reviewAt(root)
     expect(reopened.list()).toHaveLength(1)
     const incoming = reopened.read("note.md")
     expect(incoming?.source).toBe("Claude Code")
@@ -158,7 +233,7 @@ describe("durable assistant edit review", () => {
     review.rollback("note.md", version.id, incoming.revision)
     expect(readFileSync(path, "utf8")).toBe(body)
     expect(
-      new AssistantReview(root)
+      reviewAt(root)
         .read("note.md")
         ?.versions.map((item) => item.body),
     ).toContain("partial")
@@ -214,7 +289,7 @@ describe("durable assistant edit review", () => {
 
     if (!incoming?.hunks[0]) throw new Error("Missing edit")
 
-    const failing = new AssistantReview(root, {
+    const failing = reviewAt(root, {
       writeNote(_path, next) {
         writeFileSync(join(root, "missing", "note.md"), next)
       },
@@ -229,7 +304,7 @@ describe("durable assistant edit review", () => {
       ),
     ).toThrow()
     expect(readFileSync(path, "utf8")).toBe("assistant")
-    const reopened = new AssistantReview(root)
+    const reopened = reviewAt(root)
     await reopened.record("note.md", evidence, () => {
       expect(readFileSync(path, "utf8")).toBe(body)
       writeFileSync(path, "next edit")
@@ -257,7 +332,7 @@ describe("durable assistant edit review", () => {
     const entry = join(root, "interrupted.ts")
     writeFileSync(
       entry,
-      `import { AssistantReview } from ${JSON.stringify(resolve("src/features/assistant/review.ts"))};\nimport { writeFileSync } from 'node:fs';\nawait new AssistantReview(${JSON.stringify(root)}).record('note.md', ${JSON.stringify(evidence)}, () => { writeFileSync(${JSON.stringify(path)}, 'interrupted edit'); process.exit(7); });`,
+      `import { AssistantReview } from ${JSON.stringify(resolve("src/features/assistant/review.ts"))};\nimport { Effect } from ${JSON.stringify(import.meta.resolve("effect"))};\nimport { writeFileSync } from 'node:fs';\nawait Effect.runPromise(new AssistantReview(${JSON.stringify(root)}).record('note.md', ${JSON.stringify(evidence)}, Effect.sync(() => { writeFileSync(${JSON.stringify(path)}, 'interrupted edit'); process.exit(7); })));`,
     )
 
     const child = Bun.spawn([process.execPath, entry], {
@@ -267,7 +342,7 @@ describe("durable assistant edit review", () => {
 
     expect(await child.exited).toBe(7)
     expect(await new Response(child.stderr).text()).toBe("")
-    const reopened = new AssistantReview(root)
+    const reopened = reviewAt(root)
     const incoming = reopened.read("note.md")
 
     if (!incoming?.hunks[0]) throw new Error("Missing recovered edit")
@@ -290,9 +365,7 @@ describe("durable assistant edit review", () => {
     mkdirSync(actual)
     symlinkSync(actual, parent)
     mkdirSync(join(actual, "vault"))
-    expect(() => new AssistantReview(join(parent, "vault"))).toThrow(
-      /symbolic|symlink/i,
-    )
+    expect(() => reviewAt(join(parent, "vault"))).toThrow(/symbolic|symlink/i)
   })
   test("failed record storage prevents untracked mutation", async () => {
     const { root, review, path, body } = workspace()
