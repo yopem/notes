@@ -360,3 +360,45 @@ desktop warnings and zero errors. The other workspaces have no findings.
   - **Cleanup:** Close only owned native sessions. Remove isolated QA data after
     its evidence is inspected. Keep reports ignored and local.
   - **Status:** Pending. User explicitly includes all existing findings.
+
+## Effect migration
+
+Acceptance: replace all application Zod contracts with Effect Schema. Apply
+Effect to desktop business workflows, typed failures, configuration and scoped
+resources where AGENTS.md requires it. Keep React UI state, rendering and simple
+synchronous calculations in ordinary TypeScript.
+
+- [ ] **QA-014 — P0 — Preserve contracts through Effect migration**
+  - **Purpose:** Replace existing validation and suitable desktop workflows
+    without losing data, changing accepted inputs or hiding expected failures.
+  - **Prerequisites:** Shared setup; exact verified Effect v4 release; complete
+    installed Effect guidance read before implementation; isolated test data.
+  - **Inputs:** Existing store/settings/vault/task/template/assistant contracts,
+    environment variables, Markdown limits, native editor/capture protocols, and
+    their existing valid/invalid examples and regression files.
+  - **Steps:**
+    1. Inventory all Zod schemas, inferred types and parse callers. Record the
+       matching canonical Effect schema and execution boundary for each.
+    2. Migrate callers with their contracts. Preserve strict unknown-key checks,
+       defaults, transformations, UTF-8 and numeric limits, references, errors,
+       immutable snapshots and write rollback.
+    3. Use Effect Config only in the environment owner. Keep native clients
+       server-only and release scoped resources. Preserve the launcher base.
+    4. Inspect all desktop workflows for appropriate Effect services, typed
+       errors, cancellation and lifetime. Do not add Effect to simple rendering
+       or introduce runtime execution inside domain services.
+    5. Run the existing affected files with native Bun, all workspace checks,
+       and the isolated native E2E workflow. Inspect failures and saved state.
+    6. Confirm no application Zod imports or direct dependencies remain. List
+       any unavoidable tooling-only transitive dependency separately.
+  - **Expected results:** Existing valid inputs and observable workflows still
+    work. Invalid inputs fail before writes. Corrupt files remain intact.
+    Expected failures have precise contracts. Zero lint warnings/errors,
+    typecheck and format checks pass. No old Effect APIs or parallel validators
+    remain in application code.
+  - **Evidence:** `docs/artifacts/effect-migration/`; save contract inventory,
+    runtime/release metadata, revision, exact commands, reports and native
+    screenshots. Do not include secrets or personal data.
+  - **Cleanup:** Close only owned processes and scopes. Remove isolated test
+    data after evidence review. Leave user data and configuration untouched.
+  - **Status:** Pending; user explicitly includes existing desktop code.
