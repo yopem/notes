@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect, Schema } from "effect"
+import { Effect, Fiber, Schema } from "effect"
 import {
   mkdirSync,
   mkdtempSync,
@@ -222,6 +222,53 @@ const replySchema = Schema.Struct({
 const listedToolsSchema = Schema.Struct({
   tools: Schema.Array(Schema.Struct({ name: Schema.String })),
 })
+
+function streamInput() {
+  const ready = Promise.withResolvers<ReadableStreamDefaultController<Uint8Array>>()
+  let cancelled = false
+  const input = new ReadableStream<Uint8Array>({
+    start(controller) {
+      ready.resolve(controller)
+    },
+    cancel() {
+      cancelled = true
+    },
+  })
+
+  return { input, ready: ready.promise, isCancelled: () => cancelled }
+}
+
+function sendMessages(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  messages: object[],
+) {
+  controller.enqueue(
+    new TextEncoder().encode(
+      messages.map((message) => JSON.stringify({ jsonrpc: "2.0", ...message })).join("\n") + "\n",
+    ),
+  )
+}
+
+const initializeMessages = [
+  {
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "test", version: "1" },
+    },
+  },
+  { method: "notifications/initialized" },
+]
+
+function readNote(id: number) {
+  return {
+    id,
+    method: "tools/call",
+    params: { name: "read_note", arguments: { path: "note.md" } },
+  }
+}
 
 describe("MCP real stdio child", () => {
   test("NDJSON handshake, tools, actual files, invalid RPC, errors, traversal, cancellation", async () => {
@@ -459,6 +506,129 @@ describe("MCP real stdio child", () => {
       expect(calls).toBe(0)
     }
   })
+  test("cancels an adapter after it starts and emits one cancellation response", async () => {
+    const stream = streamInput()
+    const started = Promise.withResolvers<void>()
+    const aborted = Promise.withResolvers<void>()
+    const output: string[] = []
+    const fiber = Effect.runFork(
+      runMcpStdio({
+        input: stream.input,
+        output(line) {
+          output.push(line)
+          return Promise.resolve()
+        },
+        adapter: {
+          execute(_name, _args, context) {
+            started.resolve()
+            return new Promise((_resolve, reject) => {
+              context.signal.addEventListener("abort", () => {
+                aborted.resolve()
+                reject(new Error("aborted"))
+              }, { once: true })
+            })
+          },
+        },
+      }),
+    )
+    const controller = await stream.ready
+    sendMessages(controller, [...initializeMessages, readNote(2)])
+    await started.promise
+    sendMessages(controller, [
+      { method: "notifications/cancelled", params: { requestId: 2 } },
+    ])
+    await aborted.promise
+    controller.close()
+    await Effect.runPromise(Fiber.join(fiber))
+    const replies = output.map((line) =>
+      Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
+    )
+    expect(replies.filter((reply) => reply.id === 2)).toHaveLength(1)
+    expect(replies.find((reply) => reply.id === 2)?.error?.code).toBe(-32800)
+    expect(stream.input.locked).toBe(false)
+  })
+
+  test("interrupting the outer fiber aborts work and releases the input reader", async () => {
+    const stream = streamInput()
+    const started = Promise.withResolvers<void>()
+    const aborted = Promise.withResolvers<void>()
+    const fiber = Effect.runFork(
+      runMcpStdio({
+        input: stream.input,
+        output() {
+          return Promise.resolve()
+        },
+        adapter: {
+          execute(_name, _args, context) {
+            started.resolve()
+            return new Promise((_resolve, reject) => {
+              context.signal.addEventListener("abort", () => {
+                aborted.resolve()
+                reject(new Error("aborted"))
+              }, { once: true })
+            })
+          },
+        },
+      }),
+    )
+    const controller = await stream.ready
+    sendMessages(controller, [...initializeMessages, readNote(2)])
+    await started.promise
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    await aborted.promise
+    expect(stream.isCancelled()).toBe(true)
+    expect(stream.input.locked).toBe(false)
+  })
+
+  test("serializes concurrent ready responses while output is backpressured", async () => {
+    const stream = streamInput()
+    const started = Promise.withResolvers<void>()
+    const finishFirst = Promise.withResolvers<string>()
+    const finishSecond = Promise.withResolvers<string>()
+    const secondOutputStarted = Promise.withResolvers<void>()
+    const releaseOutput = Promise.withResolvers<void>()
+    const output: string[] = []
+    let calls = 0
+    let activeOutputs = 0
+    let maxActiveOutputs = 0
+    const fiber = Effect.runFork(
+      runMcpStdio({
+        input: stream.input,
+        async output(line) {
+          activeOutputs += 1
+          maxActiveOutputs = Math.max(maxActiveOutputs, activeOutputs)
+          output.push(line)
+          if (JSON.parse(line).id === 3) {
+            secondOutputStarted.resolve()
+            await releaseOutput.promise
+          }
+          activeOutputs -= 1
+        },
+        adapter: {
+          execute() {
+            calls += 1
+            if (calls === 2) started.resolve()
+            return calls === 1 ? finishFirst.promise : finishSecond.promise
+          },
+        },
+      }),
+    )
+    const controller = await stream.ready
+    sendMessages(controller, [...initializeMessages, readNote(2), readNote(3)])
+    await started.promise
+    finishSecond.resolve("second")
+    await secondOutputStarted.promise
+    finishFirst.resolve("first")
+    controller.close()
+    await Bun.sleep(20)
+    expect(output.map((line) => JSON.parse(line).id)).toEqual([1, 3])
+    releaseOutput.resolve()
+    await Effect.runPromise(Fiber.join(fiber))
+    expect(output.map((line) => JSON.parse(line).id)).toEqual([1, 3, 2])
+    expect(output.every((line) => line.endsWith("\n") && line.trim().split("\n").length === 1)).toBe(true)
+    expect(maxActiveOutputs).toBe(1)
+  })
+
   test("every source tool has a strict schema and rejects unsafe paths", () => {
     expect(Object.keys(MCP_TOOL_SCHEMAS)).toHaveLength(34)
 
