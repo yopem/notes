@@ -568,6 +568,205 @@ describe("MCP real stdio child", () => {
     expect(stream.input.locked).toBe(false)
   })
 
+  test("retains a cancelled write and its ID until the adapter settles", async () => {
+    const stream = streamInput()
+    const started = Promise.withResolvers<void>()
+    const aborted = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<string>()
+    const ping = Promise.withResolvers<void>()
+    const cancelled = Promise.withResolvers<void>()
+    const output: string[] = []
+    let calls = 0
+    let active = 0
+    let maxActive = 0
+    const write = {
+      id: 7,
+      method: "tools/call",
+      params: { name: "write_note", arguments: { path: "note.md", body: "safe" } },
+    }
+
+    const fiber = Effect.runFork(
+      runMcpStdio({
+        input: stream.input,
+        output(line) {
+          output.push(line)
+          const reply = Schema.decodeUnknownSync(replySchema)(JSON.parse(line))
+          if (reply.id === 9) ping.resolve()
+          if (reply.id === 7 && reply.error?.code === -32600)
+            cancelled.resolve()
+
+          return Promise.resolve()
+        },
+        adapter: {
+          async execute(_name, _args, context) {
+            calls += 1
+            active += 1
+            maxActive = Math.max(maxActive, active)
+            if (calls === 1) {
+              context.signal.addEventListener("abort", () => aborted.resolve(), {
+                once: true,
+              })
+              started.resolve()
+              await release.promise
+            }
+            active -= 1
+
+            return "saved"
+          },
+        },
+      }),
+    )
+
+    const controller = await stream.ready
+    try {
+      sendMessages(controller, [...initializeMessages, write])
+      await started.promise
+      sendMessages(controller, [
+        { method: "notifications/cancelled", params: { requestId: 7 } },
+        write,
+        { id: 9, method: "ping" },
+      ])
+      await aborted.promise
+      await ping.promise
+      expect(calls).toBe(1)
+      expect(output.map((line) => JSON.parse(line)).filter((reply) => reply.id === 7)).toHaveLength(0)
+      release.resolve("done")
+      await cancelled.promise
+      const firstReplies = output
+        .map((line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)))
+        .filter((reply) => reply.id === 7)
+      expect(firstReplies.map((reply) => reply.error?.code)).toEqual([
+        -32800,
+        -32600,
+      ])
+      sendMessages(controller, [write])
+      controller.close()
+      await Effect.runPromise(Fiber.join(fiber))
+      expect(calls).toBe(2)
+      expect(maxActive).toBe(1)
+      const replies = output
+        .map((line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)))
+        .filter((reply) => reply.id === 7)
+      expect(replies).toHaveLength(3)
+      expect(replies[2]?.result).toMatchObject({ isError: false })
+    } finally {
+      release.resolve("done")
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    }
+  })
+
+  test("rejects excess calls while output is blocked and processes cancellation", async () => {
+    const stream = streamInput()
+    const allStarted = Promise.withResolvers<void>()
+    const aborted = Promise.withResolvers<void>()
+    const outputBlocked = Promise.withResolvers<void>()
+    const releaseOutput = Promise.withResolvers<void>()
+    const releaseWork = Promise.withResolvers<string>()
+    const output: string[] = []
+    let calls = 0
+
+    const fiber = Effect.runFork(
+      runMcpStdio({
+        input: stream.input,
+        async output(line) {
+          output.push(line)
+          const reply = Schema.decodeUnknownSync(replySchema)(JSON.parse(line))
+          if (reply.id === 30) {
+            outputBlocked.resolve()
+            await releaseOutput.promise
+          }
+        },
+        adapter: {
+          async execute(_name, _args, context) {
+            calls += 1
+            if (calls === 16) allStarted.resolve()
+            context.signal.addEventListener("abort", () => aborted.resolve(), {
+              once: true,
+            })
+            return releaseWork.promise
+          },
+        },
+      }),
+    )
+
+    const controller = await stream.ready
+    try {
+      sendMessages(controller, [
+        ...initializeMessages,
+        ...Array.from({ length: 16 }, (_, index) => readNote(index + 2)),
+      ])
+      await allStarted.promise
+      sendMessages(controller, [readNote(30)])
+      await outputBlocked.promise
+      sendMessages(controller, [
+        readNote(31),
+        { method: "notifications/cancelled", params: { requestId: 2 } },
+      ])
+      await aborted.promise
+      expect(calls).toBe(16)
+      releaseWork.resolve("done")
+      releaseOutput.resolve()
+      controller.close()
+      await Effect.runPromise(Fiber.join(fiber))
+      const replies = output.map((line) =>
+        Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
+      )
+      expect(replies.find((reply) => reply.id === 30)?.error).toEqual({
+        code: -32000,
+        message: "Server busy",
+      })
+      expect(replies.find((reply) => reply.id === 31)?.error).toEqual({
+        code: -32000,
+        message: "Server busy",
+      })
+      expect(replies.find((reply) => reply.id === 2)?.error?.code).toBe(-32800)
+      expect(calls).toBe(16)
+    } finally {
+      releaseWork.resolve("done")
+      releaseOutput.resolve()
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    }
+  })
+
+  test("fails the session when blocked output exhausts the response backlog", async () => {
+    const stream = streamInput()
+    const blocked = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const output: string[] = []
+    const fiber = Effect.runFork(
+      runMcpStdio({
+        input: stream.input,
+        async output(line) {
+          output.push(line)
+          const reply = Schema.decodeUnknownSync(replySchema)(JSON.parse(line))
+          if (reply.id === 2) {
+            blocked.resolve()
+            await release.promise
+          }
+        },
+        adapter: { execute: () => Promise.resolve("unused") },
+      }),
+    )
+
+    const controller = await stream.ready
+    try {
+      sendMessages(controller, [...initializeMessages, { id: 2, method: "ping" }])
+      await blocked.promise
+      sendMessages(controller, Array.from({ length: 40 }, (_, index) => ({
+        id: index + 3,
+        method: "ping",
+      })))
+      const exit = await Effect.runPromise(Fiber.await(fiber))
+      expect(exit._tag).toBe("Failure")
+      expect(stream.isCancelled()).toBe(true)
+      expect(stream.input.locked).toBe(false)
+      expect(output.map((line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)).id)).toEqual([1, 2])
+    } finally {
+      release.resolve()
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    }
+  })
+
   test("interrupting the outer fiber aborts work and releases the input reader", async () => {
     const stream = streamInput()
     const started = Promise.withResolvers<void>()
