@@ -26,6 +26,7 @@ export function Sidebar({
   onNewNotebook,
   onRename,
   onImport,
+  onOpenFolder,
 }: {
   color: Palette
   notebooks: Notebook[]
@@ -35,6 +36,7 @@ export function Sidebar({
   onNewNotebook: () => void
   onRename: (notebook: Notebook) => void
   onImport: () => void
+  onOpenFolder: () => void
 }) {
   const changeView = useRef(onView)
 
@@ -145,6 +147,14 @@ export function Sidebar({
           />
         ))}
       </div>
+      <Button
+        color={color}
+        icon="book"
+        testId="open-folder"
+        onClick={onOpenFolder}
+      >
+        Open folder
+      </Button>
       <Button color={color} icon="upload" testId="import" onClick={onImport}>
         Import Markdown
       </Button>

@@ -2,7 +2,14 @@ import type { App } from "@gpuix/react/automation"
 
 import { Schema } from "effect"
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -113,7 +120,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await textIs(
     app,
     "folder-warning",
-    "Note contents are read-only, but opening is not filesystem-read-only. It can create .still-notes/state.json, inbox (for the inbox layout), quick, archive, trash and assets directories. Each open, read and refresh creates .still-notes/vault.lock and a temporary lock file, then releases the lock. Metadata and directories remain. Pending recovery journals are refused, not repaired. No notes are imported or migrated. Links are shown as text and do not open.",
+    "Note contents are read-only, but opening is not filesystem-read-only. It can create the selected folder, .still-notes/, .still-notes/state.json (using a temporary state file), inbox (for the inbox layout), quick, archive, trash and assets directories. Each open, read and refresh acquires .still-notes/vault.lock using a temporary lock file, then releases its lock. Metadata and directories remain. Pending recovery journals are refused, not repaired. No notes are imported or migrated. Links are shown as text and do not open.",
   )
   await app.getByTestId("folder-cancel").press("enter")
   await absent(app, "folder-warning")
@@ -323,13 +330,17 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     await app.getByTestId("open-folder").click()
     await absent(app, "folder-warning")
     await absent(app, "folder-preview")
-    await app.getByText(
-      "Folder preview is blocked. Save or export all JSON drafts and finish workspace and settings write recovery first. Your drafts and recovery controls remain here.",
-    ).waitFor()
+    await app
+      .getByText(
+        "Folder preview is blocked. Save or export all JSON drafts and finish workspace and settings write recovery first. Your drafts and recovery controls remain here.",
+      )
+      .waitFor()
     await textIs(app, "note-title", draftTitle)
     await textIs(app, "note-body", draftBody)
     assert.equal(readFileSync(workspacePath, "utf8"), conflict)
-    steps.push("Folder entry refuses unsaved JSON drafts without hiding recovery")
+    steps.push(
+      "Folder entry refuses unsaved JSON drafts without hiding recovery",
+    )
 
     await app.getByTestId("nav-tasks").click()
     await app.getByTestId("task-search").fill("Draft task 🌿")
@@ -691,15 +702,21 @@ export async function verifyFolderPreview(
   writeFileSync(asset, "asset")
   const workspacePath = join(dataDirectory, "workspace.json")
   const before = readFileSync(workspacePath)
-  const title = await app.getByTestId("note-title").textContent()
-  const source = await app.getByTestId("note-body").textContent()
+
+  const [title, source] = await Promise.all([
+    app.getByTestId("note-title").textContent(),
+    app.getByTestId("note-body").textContent(),
+  ])
+
   const lock = join(folder, ".still-notes", "vault.lock")
+
   async function open() {
     await app.getByTestId("open-folder").click()
     await app.getByTestId("folder-warning").waitFor()
     await app.getByTestId("folder-choose").click()
     await chooseFolder(folder)
   }
+
   await open()
   await app.getByTestId("folder-preview").waitFor()
   assert.equal(existsSync(lock), false)
@@ -719,15 +736,23 @@ export async function verifyFolderPreview(
   const journal = join(folder, ".still-notes", "transaction.json")
   writeFileSync(journal, "{pending recovery}")
   await app.getByTestId("folder-refresh").click()
-  assert.match(await app.getByTestId("folder-error").textContent(), /Pending recovery journal/)
+  await app.getByTestId("folder-error").waitFor()
+  assert.match(
+    await app.getByTestId("folder-error").textContent(),
+    /Pending recovery journal/,
+  )
   await absent(app, "folder-note-content")
   assert.equal(existsSync(lock), false)
   await app.getByTestId("folder-back").click()
   await textIs(app, "note-title", title)
   await textIs(app, "note-body", source)
   await open()
+  await app.getByTestId("folder-open-error").waitFor()
   await absent(app, "folder-preview")
-  assert.match(await app.getByTestId("folder-open-error").textContent(), /Pending recovery journal/)
+  assert.match(
+    await app.getByTestId("folder-open-error").textContent(),
+    /Pending recovery journal/,
+  )
   assert.equal(readFileSync(journal, "utf8"), "{pending recovery}")
   assert.equal(existsSync(lock), false)
   await app.getByTestId("folder-cancel").click()

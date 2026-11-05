@@ -26,6 +26,7 @@ export function WorkspaceHeader({
   onSearch,
   onShowNotebooks,
   onImport,
+  onOpenFolder,
   onSettings,
   onHelp,
   onError,
@@ -40,6 +41,7 @@ export function WorkspaceHeader({
   onSearch: NonNullable<InputProps["onChange"]>
   onShowNotebooks: () => void
   onImport: () => void
+  onOpenFolder: () => void
   onSettings: () => void
   onHelp: () => void
   onError: (message: string) => void
@@ -106,6 +108,15 @@ export function WorkspaceHeader({
         )}
       </div>
       <div style={workspaceStyles.actions}>
+        {!showSidebar && (
+          <Button
+            color={color}
+            icon="book"
+            label="Open folder"
+            testId="open-folder"
+            onClick={onOpenFolder}
+          />
+        )}
         {!showSidebar && (
           <Button
             color={color}

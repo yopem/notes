@@ -9,6 +9,11 @@ import { palettes } from "@/components/ui/theme"
 import { WriteRecovery } from "@/components/write-recovery"
 import { SettingsPanel } from "@/features/settings/components/settings-panel"
 import { TaskView } from "@/features/tasks/components/task-view"
+import {
+  FolderDisclosure,
+  FolderWorkspace,
+} from "@/features/vault/components/folder-preview"
+import { useFolderPreview } from "@/features/vault/hooks/use-folder-preview"
 import { AppDialog } from "@/features/workspace/components/app-dialog"
 import { Sidebar } from "@/features/workspace/components/sidebar"
 import { WorkspaceHeader } from "@/features/workspace/components/workspace-header"
@@ -120,9 +125,16 @@ export function App({
     onError: setError,
   })
 
+  const preview = useFolderPreview({
+    hasDrafts,
+    store,
+    settings,
+    onError: setError,
+  })
+
   const native = useWorkspaceNativeEvents({
     navigation,
-    dialogOpen: Boolean(dialogs.dialog),
+    dialogOpen: Boolean(dialogs.dialog) || preview.disclosure,
     settingsOpen,
     onSettings: handlers.openSettings,
     onNew: intake.newNote,
@@ -148,122 +160,132 @@ export function App({
   )
 
   return (
-    <div
-      ref={native.registerRoot}
-      testId="app"
-      role="application"
-      aria-label="Still Notes workspace"
-      onKeyDown={native.onKeyDown}
-      onFileDrop={native.importDrop}
-      style={styles.root}
+    <FolderWorkspace
+      color={color}
+      preview={preview}
+      registerRoot={native.registerRoot}
+      rootStyle={styles.root}
     >
-      <div style={workspaceStyles.row}>
-        {showSidebar && (
-          <Sidebar
-            color={color}
-            notebooks={workspace.notebooks}
-            notes={workspace.notes}
-            view={navigation.view}
-            onView={navigation.changeView}
-            onNewNotebook={dialogs.newNotebook}
-            onRename={dialogs.renameNotebook}
-            onImport={dialogs.showImport}
-          />
-        )}
-        <div
-          style={
-            showSidebar
-              ? workspaceStyles.content
-              : workspaceStyles.contentWithoutSidebar
-          }
-        >
-          {navigation.view.kind !== "tasks" && (
-            <WorkspaceHeader
+      <div
+        ref={native.registerRoot}
+        testId="app"
+        role="application"
+        aria-label="Still Notes workspace"
+        onKeyDown={native.onKeyDown}
+        onFileDrop={preview.disclosure ? undefined : native.importDrop}
+        style={styles.root}
+      >
+        <div style={workspaceStyles.row}>
+          {showSidebar && (
+            <Sidebar
               color={color}
-              theme={theme}
-              settings={settings}
-              narrow={narrow}
-              showSidebar={showSidebar}
-              searchRef={native.searchRef}
-              query={navigation.query}
-              onSearch={navigation.searchNotes}
-              onShowNotebooks={navigation.showNotebooks}
+              notebooks={workspace.notebooks}
+              notes={workspace.notes}
+              view={navigation.view}
+              onView={navigation.changeView}
+              onNewNotebook={dialogs.newNotebook}
+              onRename={dialogs.renameNotebook}
               onImport={dialogs.showImport}
-              onSettings={handlers.openSettings}
-              onHelp={dialogs.showHelp}
-              onError={setError}
+              onOpenFolder={preview.showDisclosure}
             />
           )}
-          <WriteRecovery
-            store={store}
-            color={color}
-            kind="workspace"
-            onError={setError}
-          />
-          {!settingsOpen && (
+          <div
+            style={
+              showSidebar
+                ? workspaceStyles.content
+                : workspaceStyles.contentWithoutSidebar
+            }
+          >
+            {navigation.view.kind !== "tasks" && (
+              <WorkspaceHeader
+                color={color}
+                theme={theme}
+                settings={settings}
+                narrow={narrow}
+                showSidebar={showSidebar}
+                searchRef={native.searchRef}
+                query={navigation.query}
+                onSearch={navigation.searchNotes}
+                onShowNotebooks={navigation.showNotebooks}
+                onImport={dialogs.showImport}
+                onOpenFolder={preview.showDisclosure}
+                onSettings={handlers.openSettings}
+                onHelp={dialogs.showHelp}
+                onError={setError}
+              />
+            )}
             <WriteRecovery
-              store={settings}
+              store={store}
               color={color}
-              kind="settings"
+              kind="workspace"
               onError={setError}
             />
-          )}
-          <WorkspaceMessages
-            color={color}
-            error={error}
-            notice={notice}
-            hasDrafts={hasDrafts}
-            retryDisabled={writeRecovery === "uncertain"}
-            onRetry={retry}
-            onDismissError={handlers.dismissError}
-            onDismissNotice={handlers.dismissNotice}
-          />
-          <div style={styles.panes}>
-            <WorkspaceViews
+            {!settingsOpen && (
+              <WriteRecovery
+                store={settings}
+                color={color}
+                kind="settings"
+                onError={setError}
+              />
+            )}
+            <WorkspaceMessages
               color={color}
-              preferences={preferences}
-              note={note}
-              notebookName={notebook?.name ?? "Notebook"}
-              navigation={navigation}
-              editor={editor}
-              onChange={changeNote}
-              saveState={saveState}
-              narrow={narrow}
-              onNew={intake.newNote}
-              taskView={
-                <TaskView
-                  color={color}
-                  notes={workspace.notes}
-                  drafts={drafts}
-                  searchRef={native.searchRef}
-                  showSidebar={showSidebar}
-                  onShowNotebooks={navigation.showNotebooks}
-                  onSettings={handlers.openSettings}
-                  onOpenNote={navigation.openTaskNote}
-                />
-              }
+              error={error}
+              notice={notice}
+              hasDrafts={hasDrafts}
+              retryDisabled={writeRecovery === "uncertain"}
+              onRetry={retry}
+              onDismissError={handlers.dismissError}
+              onDismissNotice={handlers.dismissNotice}
             />
+            <div style={styles.panes}>
+              <WorkspaceViews
+                color={color}
+                preferences={preferences}
+                note={note}
+                notebookName={notebook?.name ?? "Notebook"}
+                navigation={navigation}
+                editor={editor}
+                onChange={changeNote}
+                saveState={saveState}
+                narrow={narrow}
+                onNew={intake.newNote}
+                taskView={
+                  <TaskView
+                    color={color}
+                    notes={workspace.notes}
+                    drafts={drafts}
+                    searchRef={native.searchRef}
+                    showSidebar={showSidebar}
+                    onShowNotebooks={navigation.showNotebooks}
+                    onSettings={handlers.openSettings}
+                    onOpenNote={navigation.openTaskNote}
+                  />
+                }
+              />
+            </div>
           </div>
         </div>
+        <FolderDisclosure color={color} preview={preview} />
+        {settingsOpen && (
+          <SettingsPanel
+            store={settings}
+            color={color}
+            onClose={handlers.closeSettings}
+          />
+        )}
+        {dialogs.dialog && (
+          <AppDialog
+            key={JSON.stringify(dialogs.dialog)}
+            state={dialogs.dialog}
+            color={color}
+            onClose={dialogs.closeDialog}
+            onConfirm={dialogs.confirmDialog}
+            notebooks={workspace.notebooks}
+            dataDirectory={dataDirectory}
+          />
+        )}
       </div>
-      {settingsOpen && (
-        <SettingsPanel
-          store={settings}
-          color={color}
-          onClose={handlers.closeSettings}
-        />
-      )}
-      {dialogs.dialog && (
-        <AppDialog
-          key={JSON.stringify(dialogs.dialog)}
-          state={dialogs.dialog}
-          color={color}
-          onClose={dialogs.closeDialog}
-          onConfirm={dialogs.confirmDialog}
-          notebooks={workspace.notebooks}
-          dataDirectory={dataDirectory}
-        />
-      )}
-    </div>
+    </FolderWorkspace>
   )
 }
