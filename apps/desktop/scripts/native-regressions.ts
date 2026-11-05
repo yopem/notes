@@ -42,6 +42,42 @@ async function textIs(app: App, testId: string, expected: string) {
   assert.equal(actual, expected, testId)
 }
 
+async function selectNoteRow(app: App, title: string) {
+  const panel = app.getByTestId("note-list-panel")
+  const target = app.getByTestId("note-row").getByText(title)
+  const deadline = Date.now() + 5000
+  let resetScroll = false
+  let lastWheel = 0
+
+  while (Date.now() < deadline) {
+    const matches = await target.all()
+    assert.equal(matches.length, 1, `Expected one note row for ${title}`)
+    const match = matches[0]
+    assert(match)
+
+    if (match.bounds && match.bounds.width > 0 && match.bounds.height > 0) {
+      await target.click()
+
+      return
+    }
+
+    const now = Date.now()
+
+    if (!resetScroll) {
+      await panel.wheel(0, -100000)
+      resetScroll = true
+      lastWheel = now
+    } else if (now - lastWheel >= 150) {
+      await panel.wheel(0, 300)
+      lastWheel = now
+    }
+
+    await Bun.sleep(25)
+  }
+
+  throw new Error(`Note row did not paint after wheel navigation: ${title}`)
+}
+
 async function absent(app: App, testId: string) {
   const deadline = Date.now() + 5000
 
@@ -566,7 +602,7 @@ export async function verifyRegressions(
   assert.equal(copiedDraft.selectedNoteId, draftCopy.id)
   await app.getByTestId("pending-drafts").waitFor()
   await textIs(app, "save-status", "Not saved · Retry before closing")
-  await app.getByTestId("note-row").getByText("Regression rescue").click()
+  await selectNoteRow(app, "Regression rescue")
   await app.getByTestId("pending-drafts").waitFor()
   await textIs(app, "save-status", "Not saved · Retry before closing")
   steps.push(

@@ -45,7 +45,12 @@ export function NoteList({
   const styles = getNoteListStyles(color)
 
   return (
-    <div role="region" aria-label={title} style={styles.frame}>
+    <div
+      role="region"
+      aria-label={title}
+      testId="note-list-panel"
+      style={styles.frame}
+    >
       <div style={noteListStyles.header}>
         <div style={noteListStyles.headingRow}>
           <text role="heading" aria-level={1} style={styles.heading}>
