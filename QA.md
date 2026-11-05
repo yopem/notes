@@ -43,21 +43,21 @@ data.
 
 ## Coverage map
 
-| Requirement or workflow                                      | Cases                                                          |
-| ------------------------------------------------------------ | -------------------------------------------------------------- |
-| Preserve local notes and failed-draft recovery               | QA-001, QA-007                                                 |
-| Workspace ownership, dependency install and exports          | QA-002, QA-003                                                 |
-| Native tooling, exact runtime, strict policy                 | QA-004, QA-005                                                 |
-| Environment contracts and isolation                          | QA-006, QA-012                                                 |
-| Native app, fonts, editor bridge and packaging paths         | QA-007, QA-008                                                 |
-| Existing service behavior and desktop integration boundaries | QA-009                                                         |
-| Documentation and reproducible handoff                       | QA-010                                                         |
-| Platform-neutral Markdown and exact UTF-8 byte limits        | QA-005, QA-011                                                 |
-| Zero-warning lint and Effect migration                       | QA-013, QA-014, QA-015                                         |
-| Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025, QA-032 |
-| Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                                 |
-| Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                         |
-| Reactive system appearance                                   | QA-022                                                         |
+| Requirement or workflow                                      | Cases                                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Preserve local notes and failed-draft recovery               | QA-001, QA-007                                                                 |
+| Workspace ownership, dependency install and exports          | QA-002, QA-003                                                                 |
+| Native tooling, exact runtime, strict policy                 | QA-004, QA-005                                                                 |
+| Environment contracts and isolation                          | QA-006, QA-012                                                                 |
+| Native app, fonts, editor bridge and packaging paths         | QA-007, QA-008                                                                 |
+| Existing service behavior and desktop integration boundaries | QA-009                                                                         |
+| Documentation and reproducible handoff                       | QA-010                                                                         |
+| Platform-neutral Markdown and exact UTF-8 byte limits        | QA-005, QA-011                                                                 |
+| Zero-warning lint and Effect migration                       | QA-013, QA-014, QA-015                                                         |
+| Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025, QA-032, QA-033, QA-034 |
+| Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                                                 |
+| Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                                         |
+| Reactive system appearance                                   | QA-022                                                                         |
 
 ## Storage and configuration
 
@@ -857,3 +857,52 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Pending. Source review found lock initialization can leave a
     partial lock, unsupported unrelated filenames can block listing, and root
     folder coordinates can be incorrect.
+
+- [ ] **QA-033 — P1 — Browse a folder without editing its files**
+  - **Purpose:** Open and leave an explicitly selected read-only folder without
+    changing its Markdown, attachments, or the existing JSON workspace.
+  - **Prerequisites:** Shared isolated desktop and folder setup; implemented
+    preview UI; valid test-owned folder with no pending journal. Screenshot
+    capture must work without viewing another process's window.
+  - **Inputs:** In the isolated `VAULT`, create `Books/A.md` with exact text
+    `Preview Ω` and `assets/sample.txt` with exact text `asset`. Record hashes
+    of both and of the isolated JSON workspace before opening.
+  - **Steps:**
+    1. Choose **Open folder**, select `VAULT`, and read the metadata-creation
+       disclosure. Cancel once and confirm the JSON workspace stays active.
+    2. Open the same folder, accept the disclosure, and select `Books/A.md`.
+    3. Inspect the read-only label, content, keyboard focus and available
+       controls. Use **Refresh notes**, then return to the JSON workspace.
+    4. Compare the recorded hashes and confirm the test vault lock is absent.
+  - **Expected results:** The exact text is visible with a clear read-only
+    label. No content-editing or mutation action is offered. Cancel and Back
+    preserve the JSON workspace. Both input files retain their exact bytes; only
+    disclosed app metadata and standard directories may be created.
+  - **Evidence:** Save sanitized screenshots, app tree, file hashes and the
+    tested revision under `docs/artifacts/vault-workspace/QA-033/`.
+  - **Cleanup:** Close only the test app; remove only the isolated test folder
+    and data after reviewing evidence.
+  - **Status:** Pending implementation; client-only screenshots are blocked by
+    QA-015. Vault safety findings are tracked in QA-032.
+
+- [ ] **QA-034 — P0 — Keep pending JSON drafts when opening a folder**
+  - **Purpose:** A folder switch must not discard or silently save an unsaved
+    draft in the existing JSON workspace.
+  - **Prerequisites:** Shared isolated desktop and folder setup, implemented
+    preview UI, and the existing native draft-conflict regression scenario.
+    Never use a user workspace.
+  - **Inputs:** The `Regression rescue` note and Unicode draft from
+    `apps/desktop/scripts/native-regressions.ts`, plus isolated `VAULT`.
+  - **Steps:**
+    1. Follow the existing regression to induce an external byte conflict and
+       enter the unsaved note draft in the test-owned JSON workspace.
+    2. Choose **Open folder** and inspect the response and current editor.
+    3. Export the draft, restore the isolated workspace bytes, then retry save.
+  - **Expected results:** Folder preview does not open while the draft is
+    pending. Clear recovery guidance remains visible. Export has the exact draft
+    bytes without saving it; retry saves only after the conflict is removed.
+  - **Evidence:** Save the sanitized app tree, screenshots and isolated file
+    hashes under `docs/artifacts/vault-workspace/QA-034/`.
+  - **Cleanup:** Restore only test-owned workspace bytes, stop the test app and
+    remove its isolated data after evidence review.
+  - **Status:** Pending implementation and blocked by QA-015 screenshot capture.
