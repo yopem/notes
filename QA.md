@@ -1124,10 +1124,11 @@ mark those cases passed until capture works and the evidence is inspected.
     workspace hashes under `docs/artifacts/tasks/QA-043/`.
   - **Cleanup:** Stop only the test app and remove its isolated data after
     evidence review.
-  - **Status:** Pending. The read-only view is implemented with explicit search
-    submission and a focusable result summary. Native interaction, focus
-    announcements and screen-reader behavior remain unverified. Screenshot
-    capture is blocked by QA-015.
+  - **Status:** Pending. A tree-only native run reached task visibility, search,
+    error feedback and source-note activation, then stopped because input text
+    is absent from the native automation tree. Evidence:
+    `docs/artifacts/tasks/native-tree/report.json`. Actual input values, focus
+    announcements, screen-reader output and screenshots remain unverified.
 
 - [ ] **QA-044 — P0 — Show pending draft tasks without saving them**
   - **Purpose:** Task discovery must use unsaved draft content without clearing
