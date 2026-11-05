@@ -1,4 +1,5 @@
 import type { Palette } from "@/components/ui/theme"
+import type { EditorSaveState } from "@/features/editor/components/editor-footer"
 import type { Note } from "@/features/notes/store"
 import type { Preferences } from "@/features/settings/store"
 
@@ -28,7 +29,7 @@ export function Editor({
   onLink,
   focusMode,
   onFocusMode,
-  dirty,
+  saveState,
   narrow,
   onBack,
 }: {
@@ -48,7 +49,7 @@ export function Editor({
   onLink: (url: string) => void
   focusMode: boolean
   onFocusMode: () => void
-  dirty: boolean
+  saveState: EditorSaveState
   narrow: boolean
   onBack: () => void
 }) {
@@ -95,7 +96,7 @@ export function Editor({
       <EditorFooter
         color={color}
         note={note}
-        dirty={dirty}
+        saveState={saveState}
         narrow={narrow}
         onPin={onPin}
         onMove={onMove}

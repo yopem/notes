@@ -8,10 +8,18 @@ import { Icon } from "@/components/ui/icons"
 import { DuplicateNoteContext } from "@/features/editor/components/duplicate-note-context"
 import { getEditorChromeStyles } from "@/features/editor/components/editor-styles"
 
+export type EditorSaveState = "saved" | "draft" | "uncertain"
+
+const saveStateLabels: Record<EditorSaveState, string> = {
+  saved: "Saved locally",
+  draft: "Not saved · Retry before closing",
+  uncertain: "Write uncertain · Recover before closing",
+}
+
 export function EditorFooter({
   color,
   note,
-  dirty,
+  saveState,
   narrow,
   onPin,
   onMove,
@@ -20,7 +28,7 @@ export function EditorFooter({
 }: {
   color: Palette
   note: Note
-  dirty: boolean
+  saveState: EditorSaveState
   narrow: boolean
   onPin: () => void
   onMove: () => void
@@ -29,20 +37,21 @@ export function EditorFooter({
 }) {
   const styles = getEditorChromeStyles(color)
   const duplicateNote = use(DuplicateNoteContext)
+  const saved = saveState === "saved"
 
   return (
     <div style={styles.footer}>
       <div style={styles.saveState}>
         <Icon
-          name={dirty ? "edit" : "check"}
-          color={dirty ? color.destructive : color.mutedForeground}
+          name={saved ? "check" : "edit"}
+          color={saved ? color.mutedForeground : color.destructive}
           size={13}
         />
         <text
           testId="save-status"
-          style={dirty ? styles.unsavedStatus : styles.savedStatus}
+          style={saved ? styles.savedStatus : styles.unsavedStatus}
         >
-          {dirty ? "Not saved · Retry before closing" : "Saved locally"}
+          {saveStateLabels[saveState]}
         </text>
       </div>
       <div style={styles.noteActions}>

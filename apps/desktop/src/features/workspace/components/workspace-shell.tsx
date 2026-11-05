@@ -1,10 +1,12 @@
 import { useWindowSize } from "@gpuix/react"
 import { useState, useSyncExternalStore } from "react"
 
+import type { EditorSaveState } from "@/features/editor/components/editor-footer"
 import type { NotesStore } from "@/features/notes/store"
 import type { SettingsStore } from "@/features/settings/store"
 
 import { palettes } from "@/components/ui/theme"
+import { WriteRecovery } from "@/components/write-recovery"
 import { SettingsPanel } from "@/features/settings/components/settings-panel"
 import { TaskView } from "@/features/tasks/components/task-view"
 import { AppDialog } from "@/features/workspace/components/app-dialog"
@@ -35,6 +37,11 @@ export function App({
   const workspace = useSyncExternalStore(
     (listener) => store.subscribe(listener),
     () => store.getSnapshot(),
+  )
+
+  const writeRecovery = useSyncExternalStore(
+    (listener) => store.subscribe(listener),
+    () => store.getWriteRecoveryState(),
   )
 
   const preferences = useSyncExternalStore(
@@ -89,6 +96,12 @@ export function App({
       onActiveNote: navigation.setActiveNoteId,
       onError: setError,
     })
+
+  let saveState: EditorSaveState = "saved"
+
+  if (hasDrafts) saveState = "draft"
+
+  if (writeRecovery === "uncertain") saveState = "uncertain"
 
   const dialogs = useWorkspaceDialogs({
     store,
@@ -181,11 +194,18 @@ export function App({
               onError={setError}
             />
           )}
+          <WriteRecovery
+            store={store}
+            color={color}
+            kind="workspace"
+            onError={setError}
+          />
           <WorkspaceMessages
             color={color}
             error={error}
             notice={notice}
             hasDrafts={hasDrafts}
+            retryDisabled={writeRecovery === "uncertain"}
             onRetry={retry}
             onDismissError={handlers.dismissError}
             onDismissNotice={handlers.dismissNotice}
@@ -199,7 +219,7 @@ export function App({
               navigation={navigation}
               editor={editor}
               onChange={changeNote}
-              dirty={hasDrafts}
+              saveState={saveState}
               narrow={narrow}
               onNew={intake.newNote}
               taskView={

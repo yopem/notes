@@ -1,5 +1,6 @@
 import type { Palette } from "@/components/ui/theme"
 import type { EditorMode } from "@/features/editor/components/editor"
+import type { EditorSaveState } from "@/features/editor/components/editor-footer"
 import type { Note } from "@/features/notes/store"
 import type { Preferences } from "@/features/settings/store"
 import type { View } from "@/features/workspace/components/sidebar"
@@ -20,7 +21,7 @@ export function WorkspaceEditor({
   actions,
   focusMode,
   onFocusMode,
-  dirty,
+  saveState,
   narrow,
   mobileEditor,
   onBack,
@@ -38,7 +39,7 @@ export function WorkspaceEditor({
   actions: ReturnType<typeof useWorkspaceEditorActions>
   focusMode: boolean
   onFocusMode: () => void
-  dirty: boolean
+  saveState: EditorSaveState
   narrow: boolean
   mobileEditor: boolean
   onBack: () => void
@@ -70,7 +71,7 @@ export function WorkspaceEditor({
       onLink={actions.openLink}
       focusMode={focusMode}
       onFocusMode={onFocusMode}
-      dirty={dirty}
+      saveState={saveState}
       narrow={narrow}
       onBack={onBack}
     />

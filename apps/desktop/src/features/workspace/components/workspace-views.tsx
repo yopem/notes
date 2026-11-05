@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import type { Palette } from "@/components/ui/theme"
+import type { EditorSaveState } from "@/features/editor/components/editor-footer"
 import type { Note } from "@/features/notes/store"
 import type { Preferences } from "@/features/settings/store"
 import type { useNoteDrafts } from "@/features/workspace/hooks/use-note-drafts"
@@ -19,7 +20,7 @@ export function WorkspaceViews({
   navigation,
   editor,
   onChange,
-  dirty,
+  saveState,
   narrow,
   onNew,
   taskView,
@@ -31,7 +32,7 @@ export function WorkspaceViews({
   navigation: ReturnType<typeof useWorkspaceNavigation>
   editor: ReturnType<typeof useWorkspaceEditorActions>
   onChange: ReturnType<typeof useNoteDrafts>["changeNote"]
-  dirty: boolean
+  saveState: EditorSaveState
   narrow: boolean
   onNew: () => void
   taskView: ReactNode
@@ -67,7 +68,7 @@ export function WorkspaceViews({
           actions={editor}
           focusMode={navigation.focusMode}
           onFocusMode={navigation.toggleFocus}
-          dirty={dirty}
+          saveState={saveState}
           narrow={narrow}
           mobileEditor={navigation.mobileEditor}
           onBack={navigation.showList}

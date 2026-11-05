@@ -8,6 +8,7 @@ export function WorkspaceMessages({
   error,
   notice,
   hasDrafts,
+  retryDisabled,
   onRetry,
   onDismissError,
   onDismissNotice,
@@ -16,11 +17,15 @@ export function WorkspaceMessages({
   error: string
   notice: string
   hasDrafts: boolean
+  retryDisabled: boolean
   onRetry: () => void
   onDismissError: () => void
   onDismissNotice: () => void
 }) {
   const styles = getWorkspaceStyles(color)
+  const draftWarning = retryDisabled
+    ? "Unsaved edits remain in this window. Recover the pending write before retrying."
+    : "Unsaved edits remain in this window. Retry before closing."
 
   return (
     <>
@@ -32,9 +37,14 @@ export function WorkspaceMessages({
         >
           <text
             style={styles.errorText}
-          >{`${error}${error && hasDrafts ? " " : ""}${hasDrafts ? "Unsaved edits remain in this window. Retry before closing." : ""}`}</text>
+          >{`${error}${error && hasDrafts ? " " : ""}${hasDrafts ? draftWarning : ""}`}</text>
           {hasDrafts ? (
-            <Button color={color} testId="retry-save" onClick={onRetry}>
+            <Button
+              color={color}
+              testId="retry-save"
+              disabled={retryDisabled}
+              onClick={onRetry}
+            >
               Retry save
             </Button>
           ) : (
