@@ -1815,9 +1815,10 @@ mark those cases passed until capture works and the evidence is inspected.
     asynchronous batch operation. Keep pending work shared across roots and
     mount application text only after the actual native success reply.
   - **Prerequisites:** Shared isolated setup, the completed versioned batch-font
-    API, bundled Inter and IBM Plex Mono, and a matching unpublished test addon.
+    API, bundled Inter and IBM Plex Mono, and a matching verified test addon.
     Confirm the exact new method and focused commands from its implementation.
-    Keep the old installed addon and all user processes unchanged during QA.
+    Use the pinned snapshot copy. Keep the installed addon and user processes
+    unchanged during QA.
   - **Inputs:** The two bundled font files and one owned native completion
     delayed beyond the previous two-second wait. Use a fresh disposable
     workspace with the unchanged welcome note.
@@ -1857,10 +1858,20 @@ mark those cases passed until capture works and the evidence is inspected.
     unchanged exact workspace bytes and an inspected restart-only screenshot.
     This is an injected reply rejection, not delayed physical work. See
     `native-isolation/accepted-v2-source-milestone.json`. This checkbox remains
-    pending until actual root replacement during a real outstanding native font
-    reply and detached-root ordering are observed. No normal-system-font
-    latency, IME or other-platform claim is made. Timeout still means unknown
-    completion, never cancellation or permission to replay.
+    pending for a live native completion delayed beyond two seconds with
+    event-loop progress. The separate actual pending-reply root replacement now
+    passes at c0095f4 in `app-run-20261105T213341Z-3592366`: the original
+    Promise remains pending through replacement, both sampled roots contain only
+    the text-free startup element, and the current root later shows the editor.
+    Init1, fonts2 and batch1 remain exact. The call returns in about 1.10 ms and
+    its reply arrives after 148.98 ms. All 95 snapshot hashes, unchanged
+    workspace bytes, private isolation, exits and cleanup pass. The screenshot
+    was inspected. See `native-isolation/accepted-font-pending-remount.json`.
+    This run records zero pending timer heartbeats and does not measure physical
+    font completion time. Earlier heartbeat and delayed protocol checks remain
+    separate evidence. No normal-system-font latency, IME or other-platform
+    claim is made. Timeout means unknown completion, never cancellation or
+    permission to replay.
 
 - [ ] **QA-063 — P1 — Select an offscreen note in the native list**
   - **Purpose:** Keep the duplicate/draft regression valid when retained virtual
