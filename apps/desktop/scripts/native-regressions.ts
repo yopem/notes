@@ -82,6 +82,8 @@ async function createNote(
   const before = Schema.decodeUnknownSync(regressionWorkspaceSchema)(
     JSON.parse(readFileSync(join(dataDirectory, "workspace.json"), "utf8")),
   )
+  const originalIds = new Set(before.notes.map((note) => note.id))
+
   await absent(app, "folder-warning")
   await app.getByTestId("new-note").click()
   await absent(app, "folder-warning")
@@ -89,20 +91,20 @@ async function createNote(
   await app.getByTestId("note-title").fill(title)
   await app.getByTestId("note-body").fill(body)
   const after = await savedNoteIs(dataDirectory, title, body)
-  assert.equal(after.notes.length, before.notes.length + 1)
-  const created = after.notes.find(
-    (note) => !before.notes.some((original) => original.id === note.id),
+  const savedNotes = new Map(
+    after.notes.map((note) => [note.id, note] as const),
   )
+
+  assert.equal(after.notes.length, before.notes.length + 1)
+  const created = after.notes.find((note) => !originalIds.has(note.id))
+
   assert(created)
   assert.equal(created.title, title)
   assert.equal(created.body, body)
   assert.equal(after.selectedNoteId, created.id)
 
   for (const original of before.notes) {
-    assert.deepEqual(
-      after.notes.find((note) => note.id === original.id),
-      original,
-    )
+    assert.deepEqual(savedNotes.get(original.id), original)
   }
 
   await textIs(app, "save-status", "Saved locally")
