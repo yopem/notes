@@ -95,6 +95,7 @@ async function noteRowsAreOrdered(
         app.getByTestId("note-row").getByText(title).bounds(),
       ),
     )
+
     let ordered = true
 
     for (const [index, position] of positions.entries()) {
