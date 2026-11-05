@@ -473,3 +473,113 @@ synchronous calculations in ordinary TypeScript.
   - **Cleanup:** Existing cases close their streams and child processes. Remove
     only data created by those cases. No other cleanup is required.
   - **Status:** Pending; stdio migration and test scenarios are in progress.
+
+## Planned local folder workspace
+
+Acceptance: open one explicitly selected folder, show its Markdown notes, edit
+and save a selected note, and return to the existing workspace. Do not migrate,
+remove or dual-write existing JSON data. Opening must disclose that the folder
+will receive `.still-notes`, standard note folders and an `assets` directory.
+
+Shared setup for QA-016 and QA-018 through QA-021: use an isolated Linux test
+session and a unique directory under `/tmp`. Before each case, from the
+repository root, create an empty directory with
+`mktemp -d /tmp/still-notes-vault-qa-XXXXXX`, record its path as `VAULT`, then
+run `mkdir -p "$VAULT/inbox"` and
+`printf 'First line\n' > "$VAULT/inbox/Example.md"`. Use the test-only app data
+directory from the shared setup. Keep the user-owned application and its data
+untouched. Client-only screenshots are blocked as recorded in QA-015; do not
+mark those cases passed until capture works and the evidence is inspected.
+
+- [ ] **QA-016 — P1 — Open a selected folder and return**
+  - **Purpose:** Open and close a folder without changing the JSON workspace.
+  - **Prerequisites:** Planned folder workflow is implemented; use shared folder
+    setup. No other process may hold the isolated folder lock.
+  - **Inputs:** The isolated `VAULT` path and `inbox/Example.md` from setup.
+  - **Steps:**
+    1. In the test app choose **Open folder**, select `VAULT`, and confirm the
+       displayed folder path and the listed metadata changes.
+    2. Select **Example**, then choose **Back to workspace** without editing.
+    3. Reopen the same folder, select **Example**, then return again.
+  - **Expected results:** The note shows `First line`. Both opens succeed, the
+    return shows the original JSON notes, and closing the folder releases its
+    lock. The original Markdown file content remains unchanged.
+  - **Evidence:** Save the isolated app tree, folder file listing, and
+    screenshots in `docs/artifacts/vault-workspace/QA-016/`; inspect paths and
+    note text.
+  - **Cleanup:** Close only the test app. After evidence review, remove only the
+    recorded `VAULT` and isolated app data directories.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-018 — P0 — Save a selected Markdown file**
+  - **Purpose:** Save an edit to the selected folder note without changing JSON.
+  - **Prerequisites:** Shared folder setup; isolated app and folder open.
+  - **Inputs:** Select `Example`; replace its body with `First line` followed by
+    a newline and `Saved Ω` followed by a newline.
+  - **Steps:**
+    1. Record the test app's JSON workspace bytes and `Example.md` bytes.
+    2. Edit the selected note, choose **Save**, then choose **Back to
+       workspace**.
+    3. Reopen the folder and read the note and its file on disk.
+  - **Expected results:** The app reports **Saved**; the file and reopened note
+    contain exactly the input. JSON workspace bytes do not change.
+  - **Evidence:** Save sanitized before/after file hashes, file text, app tree,
+    and screenshots under `docs/artifacts/vault-workspace/QA-018/`.
+  - **Cleanup:** Close the test app and remove only the recorded isolated data
+    after evidence review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-019 — P0 — Preserve a draft on an external edit**
+  - **Purpose:** Reject a stale write without overwriting disk or losing a
+    draft.
+  - **Prerequisites:** Shared folder setup; open and select `Example` in the
+    test app. The folder must be writable by the test user.
+  - **Inputs:** App draft `Local draft Ω`; external file text `Outside change`.
+  - **Steps:**
+    1. Change the app editor to the draft without saving.
+    2. From the repository root write `Outside change` and a newline to the
+       recorded `"$VAULT/inbox/Example.md"`, then choose **Save** in the app.
+    3. Choose **Back to workspace**, then **Cancel** in the unsaved prompt.
+  - **Expected results:** Save reports a conflict; the disk retains
+    `Outside change` and the app retains `Local draft Ω`. The app stays in the
+    folder after cancel. JSON data is unchanged.
+  - **Evidence:** Save the sanitized file contents, app tree, conflict status
+    and screenshots in `docs/artifacts/vault-workspace/QA-019/`.
+  - **Cleanup:** Close only the test app and remove the recorded isolated data
+    after evidence review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-020 — P0 — Cancel folder selection and failed open**
+  - **Purpose:** Prevent a canceled or unsafe folder open from altering data.
+  - **Prerequisites:** Shared folder setup. The picker is available. Create a
+    second isolated test folder with malformed `.still-notes/state.json`.
+  - **Inputs:** Cancel the picker; then select the malformed isolated folder.
+  - **Steps:**
+    1. Record JSON workspace and malformed metadata bytes.
+    2. Choose **Open folder** and cancel the picker.
+    3. Choose the malformed folder and confirm the folder-open dialog.
+  - **Expected results:** Cancel leaves the JSON workspace active. The invalid
+    folder reports an actionable error; its metadata and JSON bytes are
+    unchanged. No lock remains after the failed open.
+  - **Evidence:** Save sanitized hashes, errors, app tree and screenshots under
+    `docs/artifacts/vault-workspace/QA-020/`.
+  - **Cleanup:** Close only the test app and remove the two isolated folders and
+    app data after evidence review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-021 — P1 — Folder keyboard and narrow layout**
+  - **Purpose:** Keep folder navigation and editing accessible at a narrow size.
+  - **Prerequisites:** Shared folder setup, isolated app at 700 by 760 pixels,
+    and a working client-only screenshot and accessibility tree capture.
+  - **Inputs:** The isolated `Example` note and a keyboard only.
+  - **Steps:**
+    1. Open the folder, select the note, edit it and save using only the
+       keyboard.
+    2. Navigate back to the JSON workspace and inspect focus and status labels.
+  - **Expected results:** Each control has a usable name and visible focus; text
+    does not overflow the window, and the saved file contains the edit.
+  - **Evidence:** Save the client-only screenshot, accessibility tree and saved
+    file under `docs/artifacts/vault-workspace/QA-021/` and inspect each one.
+  - **Cleanup:** Close only the test app and remove the recorded isolated data
+    after evidence review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
