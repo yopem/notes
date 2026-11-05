@@ -53,15 +53,32 @@ export function FolderDisclosure({
   const renderer = useGpuixRequired()
   const inputRef = useRef<PublicInstance>(null)
   const [path, setPath] = useState("")
+  const current = useRef({ path, preview, renderer })
 
-  function changePath(event: Parameters<NonNullable<InputProps["onChange"]>>[0]) {
-    setPath(event.value ?? "")
-  }
+  useLayoutEffect(
+    function updateDisclosureTarget() {
+      current.current = { path, preview, renderer }
+    },
+    [path, preview, renderer],
+  )
 
-  function openPath() {
-    preview.openPath(path)
-    if (inputRef.current) renderer.focusElement?.(inputRef.current.id)
-  }
+  const [actions] = useState(function createDisclosureHandlers() {
+    function changePath(
+      event: Parameters<NonNullable<InputProps["onChange"]>>[0],
+    ) {
+      current.current.path = event.value ?? ""
+      setPath(current.current.path)
+    }
+
+    function openPath() {
+      current.current.preview.openPath(current.current.path)
+
+      if (inputRef.current)
+        current.current.renderer.focusElement?.(inputRef.current.id)
+    }
+
+    return { changePath, openPath }
+  })
 
   return (
     <Dialog.Root open={preview.disclosure} onOpenChange={preview.openChange}>
@@ -90,8 +107,8 @@ export function FolderDisclosure({
             testId="folder-path"
             aria-label="Absolute folder path"
             value={path}
-            onChange={changePath}
-            onSubmit={openPath}
+            onChange={actions.changePath}
+            onSubmit={actions.openPath}
             style={palette.input}
           />
           {preview.error && (
@@ -113,7 +130,7 @@ export function FolderDisclosure({
               testId="folder-open"
               disabled={preview.busy}
               variant="primary"
-              onClick={openPath}
+              onClick={actions.openPath}
             >
               Open folder
             </Button>

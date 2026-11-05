@@ -750,6 +750,7 @@ export async function verifyFolderPreview(
   async function open() {
     await app.getByTestId("open-folder").click()
     await app.getByTestId("folder-warning").waitFor()
+
     if (chooseFolder) {
       await app.getByTestId("folder-choose").click()
       await chooseFolder(folder)
@@ -765,7 +766,11 @@ export async function verifyFolderPreview(
   await app.getByTestId("folder-path").fill("../relative")
   await textIs(app, "folder-path", "../relative")
   await app.getByTestId("folder-path").press("enter")
-  await textIs(app, "folder-open-error", "Enter an absolute folder path without NUL characters.")
+  await textIs(
+    app,
+    "folder-open-error",
+    "Enter an absolute folder path without NUL characters.",
+  )
   await textIs(app, "folder-path", "../relative")
   await absent(app, "folder-preview")
   assert.deepEqual(readFileSync(workspacePath), before)

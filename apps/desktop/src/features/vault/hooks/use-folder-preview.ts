@@ -117,23 +117,30 @@ export function useFolderPreview({
 
     function openFolder(root: string) {
       if (!canEnter()) return
+
       const next = readSnapshot(root)
+
       setSnapshot(next)
       setDisclosure(false)
       setError("")
     }
+
     function openPath(path: string) {
       if (picking.current || !canEnter()) return
+
       if (!Schema.is(absoluteFolderPath)(path)) {
         setError("Enter an absolute folder path without NUL characters.")
+
         return
       }
+
       try {
         openFolder(path)
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
       }
     }
+
     async function pickFolder() {
       if (picking.current || !canEnter()) return
 
