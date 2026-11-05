@@ -1772,7 +1772,18 @@ mark those cases passed until capture works and the evidence is inspected.
     `native-protocol-tests.txt` under this case's artifact directory. The native
     batch has a 60-second asynchronous deadline; timeout means an unknown
     outcome, not cancellation. The consumer retains terminal failure without
-    replay. The isolated release build and real compiled-addon boundary checks
-    remain pending, as do native pending-root, event-loop and screenshot
-    acceptance. This case does not establish normal-font latency, root cause, OS
-    composition or platform parity.
+    replay. The isolated release build passed at 7147dda after the strict
+    declaration check exposed `Promise<unknown>`; an explicit NAPI return type
+    fixed the contract without weakening the check. Nine actual-addon boundary
+    cases and 13 assertions passed without renderer initialization. The verified
+    host was atomically published with SHA-256
+    `03ff0a20e7bcf71217427e44c5f854fe2adf5da0c47e1bff53f209a95da38224`;
+    `publication.json` records the preserved previous host and matching hashes.
+    Evidence includes `release-build.log`, `addon-boundary-tests.txt`,
+    `generated-index.d.ts` and the tested patch. The first private native run
+    reached a populated app tree after an initial two-second tree-query timeout,
+    but did not reach the draft-remount scenario; inspect
+    `app-run-20261105T180753Z-680414`. The owned app and compositor exited and
+    the lock was removed. Native pending-root, event-loop, remount and
+    screenshot acceptance remain pending. This case does not establish
+    normal-font latency, root cause, OS composition or platform parity.
