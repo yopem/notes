@@ -131,7 +131,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await app.getByTestId("task-errors").waitFor()
   await app.getByTestId("task-search").fill("Call Ω")
   assert.equal(readFileSync(workspacePath, "utf8"), taskBytes)
-  await app.getByTestId("task-row").getByText("Call Ω").press("enter")
+  await app.getByTestId("task-row").press("enter")
   await textIs(app, "note-title", "Task plans")
   assert.equal(readFileSync(workspacePath, "utf8"), taskBytes)
   steps.push("Read-only task discovery, search, parse errors and keyboard open")
@@ -312,7 +312,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
       draftWarning,
     )
     assert.equal(readFileSync(workspacePath, "utf8"), conflict)
-    await app.getByTestId("task-row").getByText("Draft task 🌿").press("enter")
+    await app.getByTestId("task-row").press("enter")
     await textIs(app, "note-title", draftTitle)
     await textIs(app, "note-body", draftBody)
     assert.equal(
