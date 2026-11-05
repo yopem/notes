@@ -113,6 +113,7 @@ async function noteRowsAreOrdered(
     orderedSamples = ordered ? orderedSamples + 1 : 0
 
     if (orderedSamples >= 2) return
+
     await Bun.sleep(25)
   }
 
