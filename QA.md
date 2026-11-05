@@ -1020,3 +1020,48 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Restore only test-owned bytes, stop the test app and remove
     isolated data after evidence review.
   - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-040 — P0 — Recover an uncertain atomic write**
+  - **Purpose:** Prevent duplicate writes or lost drafts if a file replacement
+    succeeds but directory synchronization reports failure.
+  - **Prerequisites:** A disposable fault-injection filesystem and a verified
+    method to fail directory synchronization after a successful rename. Do not
+    use a user workspace. The setup method and command are not yet known.
+  - **Inputs:** An isolated JSON workspace with note `Uncertain` and draft
+    `Unsaved Ω`. Inject the failure only for the test-owned workspace write.
+  - **Steps:**
+    1. Identify and document a reproducible isolated filesystem fault method.
+    2. Save the draft while the fault is active; inspect the visible error,
+       workspace bytes, backup and draft state.
+    3. Remove the fault, retry or use the provided recovery path, and restart.
+  - **Expected results:** The app does not falsely mark an uncertain write as
+    durable, lose the draft, overwrite an external change, or create a second
+    duplicate on retry. Recovery is explicit and preserves both disk evidence
+    and draft content until reconciliation succeeds.
+  - **Evidence:** Save the tested revision, exact setup, sanitized diagnostics,
+    app state and file hashes under `docs/artifacts/storage/QA-040/`.
+  - **Cleanup:** Stop only test-owned processes and remove only isolated fault
+    resources and data after evidence review.
+  - **Status:** Blocked. The existing writer can throw after rename, and the
+    required isolated fault mechanism and reconciliation behavior are
+    unverified.
+
+- [ ] **QA-041 — P0 — Duplicate a pending draft without clearing it**
+  - **Purpose:** Copy the displayed draft while preserving the original draft as
+    unsaved until the user explicitly saves it.
+  - **Prerequisites:** Shared isolated desktop setup, duplicate action and the
+    existing draft-conflict regression scenario; no user data.
+  - **Inputs:** `Regression rescue` and its exact Unicode draft from
+    `apps/desktop/scripts/native-regressions.ts`.
+  - **Steps:**
+    1. Induce the existing workspace-byte conflict and enter the pending draft.
+    2. Restore the original isolated workspace bytes but do not retry the draft.
+    3. Duplicate the note, inspect the copy, and return to the original note.
+  - **Expected results:** The copy contains the exact displayed draft and has a
+    new identity. The original draft warning remains until its own save
+    succeeds; duplicating it does not silently change the original saved body.
+  - **Evidence:** Save sanitized app trees, screenshots and isolated workspace
+    contents under `docs/artifacts/duplication/QA-041/` with the revision.
+  - **Cleanup:** Restore only test-owned bytes; stop the test app and remove its
+    isolated data after evidence review.
+  - **Status:** Pending UI integration and blocked by QA-015 screenshot capture.
