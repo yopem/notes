@@ -48,6 +48,8 @@ async function selectNoteRow(app: App, title: string) {
   const deadline = Date.now() + 5000
   let resetScroll = false
   let lastWheel = 0
+  let initiallyPainted: boolean | undefined
+  let wheelCount = 0
 
   while (Date.now() < deadline) {
     const matches = await target.all()
@@ -55,20 +57,30 @@ async function selectNoteRow(app: App, title: string) {
     const match = matches[0]
     assert(match)
 
-    if (match.bounds && match.bounds.width > 0 && match.bounds.height > 0) {
+    const painted = !!(
+      match.bounds &&
+      match.bounds.width > 0 &&
+      match.bounds.height > 0
+    )
+
+    initiallyPainted ??= painted
+
+    if (painted) {
       await target.click()
 
-      return
+      return { initiallyPainted, wheelCount }
     }
 
     const now = Date.now()
 
     if (!resetScroll) {
       await panel.wheel(0, -100000)
+      wheelCount++
       resetScroll = true
       lastWheel = now
     } else if (now - lastWheel >= 150) {
       await panel.wheel(0, 300)
+      wheelCount++
       lastWheel = now
     }
 
@@ -267,7 +279,11 @@ export async function verifyDraftRemount(
 export async function verifyRegressions(
   app: App,
   dataDirectory: string,
-  options: { chooseFolder?: (path: string) => Promise<void> } = {},
+  options: {
+    chooseFolder?: (path: string) => Promise<void>
+    expectEmptyTasks?: boolean
+    captureTasks?: (phase: "empty" | "populated" | "recovered") => Promise<void>
+  } = {},
 ) {
   assert(
     resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
@@ -278,6 +294,18 @@ export async function verifyRegressions(
   const workspacePath = join(dataDirectory, "workspace.json")
 
   await absent(app, "folder-warning")
+
+  if (options.expectEmptyTasks) {
+    const emptyTaskBytes = readFileSync(workspacePath, "utf8")
+    await app.getByTestId("nav-tasks").click()
+    await app.getByText("No tasks found").waitFor()
+    await absent(app, "task-errors")
+    assert.equal(await app.getByTestId("task-row").count(), 0)
+    await options.captureTasks?.("empty")
+    assert.equal(readFileSync(workspacePath, "utf8"), emptyTaskBytes)
+    steps.push("Empty task workspace has no errors and does not change JSON")
+  }
+
   await app.getByTestId("nav-all").click()
   await createNote(
     app,
@@ -321,6 +349,7 @@ export async function verifyRegressions(
   assert.equal(await app.getByText("Trashed task").count(), 0)
   await app.getByTestId("task-errors").waitFor()
   await app.getByText("Task malformed").waitFor()
+  await options.captureTasks?.("populated")
   await app.getByTestId("task-search").fill("Call Ω")
   await app.getByText("Ship").waitFor()
   await app.getByTestId("task-search-submit").click()
@@ -335,8 +364,38 @@ export async function verifyRegressions(
   assert.equal(readFileSync(workspacePath, "utf8"), taskBytes)
   await app.getByTestId("task-row").press("enter")
   await textIs(app, "note-title", "Task plans")
+  await textIs(
+    app,
+    "note-body",
+    "- [ ] Call Ω\n- [x] Ship\n\n```md\n- [ ] Fenced task\n```",
+  )
   assert.equal(readFileSync(workspacePath, "utf8"), taskBytes)
   steps.push("Read-only task discovery, search, parse errors and keyboard open")
+
+  await app.getByTestId("nav-all").click()
+  await app.getByTestId("search").fill("Task malformed")
+  await app.getByTestId("note-row").getByText("Task malformed").click()
+  await textIs(app, "note-body", "---\nx: [broken\n---")
+  await app.getByTestId("note-body").fill("- [ ] Example")
+  await savedNoteIs(dataDirectory, "Task malformed", "- [ ] Example")
+  await textIs(app, "save-status", "Saved locally")
+  await app.getByTestId("search").fill("")
+  const recoveredTaskBytes = readFileSync(workspacePath, "utf8")
+  await app.getByTestId("nav-tasks").click()
+  await app.getByTestId("task-search").fill("Example")
+  await app.getByTestId("task-search-submit").click()
+  await app.getByTestId("task-row").getByText("Example").waitFor()
+  await absent(app, "task-errors")
+  await options.captureTasks?.("recovered")
+  assert.equal(readFileSync(workspacePath, "utf8"), recoveredTaskBytes)
+  await app.getByTestId("task-row").press("enter")
+  await textIs(app, "note-title", "Task malformed")
+  await textIs(app, "note-body", "- [ ] Example")
+  assert.equal(readFileSync(workspacePath, "utf8"), recoveredTaskBytes)
+  await app.getByTestId("note-body").fill("---\nx: [broken\n---")
+  await savedNoteIs(dataDirectory, "Task malformed", "---\nx: [broken\n---")
+  await textIs(app, "save-status", "Saved locally")
+  steps.push("Corrected task is searchable and opens without a workspace write")
 
   await app.getByTestId("nav-all").click()
   await app.getByTestId("new-notebook").click()
@@ -645,7 +704,12 @@ export async function verifyRegressions(
   assert.equal(copiedDraft.selectedNoteId, draftCopy.id)
   await app.getByTestId("pending-drafts").waitFor()
   await textIs(app, "save-status", "Not saved · Retry before closing")
-  await selectNoteRow(app, "Regression rescue")
+  await app.getByTestId("search").fill("")
+  await app.getByTestId("note-list-panel").wheel(0, 100000)
+  const rowNavigation = await selectNoteRow(app, "Regression rescue")
+  steps.push(
+    `Regression rescue row: initially painted=${rowNavigation.initiallyPainted}; helper wheel count=${rowNavigation.wheelCount}`,
+  )
   await app.getByTestId("pending-drafts").waitFor()
   await textIs(app, "save-status", "Not saved · Retry before closing")
   steps.push(
