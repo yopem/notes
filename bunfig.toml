@@ -5,7 +5,8 @@ printWidth = 80
 semi = false
 singleQuote = false
 tabWidth = 2
-tralingComma = "all"
+trailingComma = "all"
+sortImports = true
 sortPackageJson = true
 ignorePatterns = [
   "**/node_modules",
@@ -40,10 +41,6 @@ ignorePatterns = [
   "**/migrations/",
   "**/*.config.*",
 ]
-
-
-[fmt.sortImports]
-groups = ["react", "builtin", "external", "internal", ["parent", "sibling", "index"]]
 
 [lint]
 plugins = [
@@ -139,7 +136,10 @@ ignorePatterns = [
 "no-unused-expressions" = "error"
 "no-unused-labels" = "error"
 "no-unused-private-class-members" = "error"
-"no-unused-vars" = ["error", { "argsIgnorePattern" = "^_", "varsIgnorePattern" = "^_" }]
+"no-unused-vars" = [
+  "error",
+  { "argsIgnorePattern" = "^_", "varsIgnorePattern" = "^_" },
+]
 "no-useless-backreference" = "error"
 "no-useless-catch" = "error"
 "no-useless-escape" = "error"
@@ -807,7 +807,10 @@ ignorePatterns = [
 "typescript/no-inferrable-types" = "error"
 "typescript/no-misused-new" = "error"
 "typescript/no-misused-spread" = "error"
-"typescript/no-misused-promises" = ["error", { "checksVoidReturn" = { "attributes" = false } }]
+"typescript/no-misused-promises" = [
+  "error",
+  { "checksVoidReturn" = { "attributes" = false } },
+]
 "typescript/no-namespace" = "error"
 "typescript/no-non-null-asserted-optional-chain" = "error"
 "typescript/no-redundant-type-constituents" = "error"
