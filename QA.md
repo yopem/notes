@@ -9,23 +9,28 @@ source-backed product features. This plan does not report QA execution.
 The user explicitly approved local QA, lint, typecheck, formatting, builds and
 related checks for this work. Complete each implementation milestone before its
 QA pass. All cases below are still pending until execution and evidence review.
-Do not run an unrelated whole-project test suite or use production/personal data.
+Do not run an unrelated whole-project test suite or use production/personal
+data.
 
 ## Shared setup
 
 - Repository: the directory containing this file.
 - Desktop workspace: `apps/desktop`, package `@still-notes/desktop`.
-- Notes workspace: `packages/notes`, package `@still-notes/notes`.
+- Notes workspace: `packages/notes`, package `@still-notes/notes`; shared
+  Markdown analysis only. Native persistence stays in its desktop feature.
 - Configuration workspace: `packages/env`, package `@still-notes/env`.
-- Runtime under review: Bun 1.4.4, revision
-  `1.4.4-canary.1+a8fcd319b`. Confirm the committed pin and supported native
-  commands before execution. Do not update the global runtime.
+- Runtime under review: local package `bun@1.4.4-canary.20261104.1`, source
+  revision `b9f2ec36352060f6b976508fa93d54bf8d5d978f`. The previously installed
+  canary has no known immutable published artifact. Confirm local command help
+  and the committed `bun-toolchain.json` pin. Do not update global Bun.
+- After installation, prepend root `node_modules/.bin` to the shell PATH. Bun
+  scripts also resolve the pinned local binary through their command PATH.
 - Runtime commands: native `bun lint`, `bun fmt`, and `bun check`. Leaf scripts
   must use `--no-script` to avoid recursion. Do not substitute other runners.
 - Install dependencies from the one root `bun.lock` with
   `bun install --frozen-lockfile`. This does not authorize tests or builds.
-- No HTTP service or browser is required for the current native desktop app.
-  Web routes, PWA, CORS, SEO, payments, and server database migrations are not
+- No HTTP service or browser is required for the current native desktop app. Web
+  routes, PWA, CORS, SEO, payments, and server database migrations are not
   applicable to this layout refactor. Add cases when those boundaries change.
 - Native QA requires a graphical session and supported GPU driver. Linux capture
   currently requires Hyprland and grim. Check existing processes before launch.
@@ -38,15 +43,16 @@ Do not run an unrelated whole-project test suite or use production/personal data
 
 ## Coverage map
 
-| Requirement or workflow | Cases |
-| --- | --- |
-| Preserve local notes and failed-draft recovery | QA-001, QA-007 |
-| Workspace ownership, dependency install and exports | QA-002, QA-003 |
-| Native tooling, exact runtime, strict policy | QA-004, QA-005 |
-| Environment contracts and isolation | QA-006 |
-| Native app, fonts, editor bridge and packaging paths | QA-007, QA-008 |
-| Existing service behavior and desktop integration boundaries | QA-009 |
-| Documentation and reproducible handoff | QA-010 |
+| Requirement or workflow                                      | Cases          |
+| ------------------------------------------------------------ | -------------- |
+| Preserve local notes and failed-draft recovery               | QA-001, QA-007 |
+| Workspace ownership, dependency install and exports          | QA-002, QA-003 |
+| Native tooling, exact runtime, strict policy                 | QA-004, QA-005 |
+| Environment contracts and isolation                          | QA-006, QA-012 |
+| Native app, fonts, editor bridge and packaging paths         | QA-007, QA-008 |
+| Existing service behavior and desktop integration boundaries | QA-009         |
+| Documentation and reproducible handoff                       | QA-010         |
+| Platform-neutral Markdown and exact UTF-8 byte limits        | QA-005, QA-011 |
 
 ## Storage and configuration
 
@@ -55,17 +61,17 @@ Do not run an unrelated whole-project test suite or use production/personal data
     backup, lock, corruption handling, and failed-draft export guarantees.
   - **Prerequisites:** Shared setup; implementation committed; temporary file
     access. No app may hold the test workspace lock.
-  - **Inputs:** Existing `packages/notes/tests/store.test.ts` fixtures, including
+  - **Inputs:** Existing `apps/desktop/tests/store.test.ts` fixtures, including
     Unicode titles, corrupt JSON, stale locks and a blocked workspace write.
   - **Steps:**
-    1. From `packages/notes`, inspect the `test:store` script.
+    1. From `apps/desktop`, inspect the `test:store` script.
     2. Run `bun run test:store` in the approved QA pass.
     3. Inspect the named test output and any retained recovery evidence.
   - **Expected results:** The affected tests pass. Corrupt originals remain
     intact. Rejected writes do not replace saved state. Draft rescue exports
     exact text without requiring a workspace write or clearing the draft.
-  - **Evidence:** `docs/artifacts/monorepo/QA-001-store.txt`; inspect every failure
-    and the final count. Record the tested revision.
+  - **Evidence:** `docs/artifacts/monorepo/QA-001-store.txt`; inspect every
+    failure and the final count. Record the tested revision.
   - **Cleanup:** Existing tests remove owned temporary data. Preserve failed
     evidence before deleting only those test directories.
   - **Status:** Pending; local execution approved after implementation.
@@ -73,8 +79,8 @@ Do not run an unrelated whole-project test suite or use production/personal data
 - [ ] **QA-006 — P0 — Environment boundary parity**
   - **Purpose:** Confirm that moving configuration to `packages/env` preserves
     OS data paths, dimensions, background mode and explicit binary overrides.
-  - **Prerequisites:** Shared setup; Effect Schema/Config migration complete;
-    no private environment values in command output.
+  - **Prerequisites:** Shared setup; Effect Schema/Config migration complete; no
+    private environment values in command output.
   - **Inputs:** Existing environment cases in the storage tests; width 1360,
     height 900, invalid negative dimensions, and a temporary data directory.
   - **Steps:**
@@ -100,14 +106,15 @@ Do not run an unrelated whole-project test suite or use production/personal data
   - **Inputs:** Root manifest, workspace manifests, root `bun.lock`, exact Bun
     revision and committed Turbo configuration.
   - **Steps:**
-    1. From the repository root, inspect workspace names and dependency ownership.
+    1. From the repository root, inspect workspace names and dependency
+       ownership.
     2. Run `bun install --frozen-lockfile` when installation is approved.
     3. Inspect `git status --short` and workspace dependency resolution.
   - **Expected results:** Install succeeds without lockfile changes. No second
     lockfile or empty app/package appears. Desktop alone owns GPUIX and React.
     No shared UI, web, mobile, extension, database or queue package is invented.
-  - **Evidence:** `docs/artifacts/monorepo/QA-002-install.txt`; inspect exit status,
-    manifest ownership and unchanged lockfile.
+  - **Evidence:** `docs/artifacts/monorepo/QA-002-install.txt`; inspect exit
+    status, manifest ownership and unchanged lockfile.
   - **Cleanup:** No source cleanup. Do not delete unrelated dependency caches.
   - **Status:** Pending; install must use the committed runtime.
 
@@ -139,7 +146,8 @@ Do not run an unrelated whole-project test suite or use production/personal data
     presets, plugin versions and committed runtime pin.
   - **Steps:**
     1. Inspect native help and committed configuration for the pinned runtime.
-    2. Run approved `lint`, `format:check`, and `typecheck` root scripts separately.
+    2. Run approved `lint`, `format:check`, and `typecheck` root scripts
+       separately.
     3. Inspect leaf execution, native diagnostics and Turbo cache inputs.
   - **Expected results:** Native `bun lint`, `bun fmt`, and `bun check` run with
     `--no-script` where needed. No tsc, tsrs or standalone Oxlint/Oxfmt fallback
@@ -154,18 +162,19 @@ Do not run an unrelated whole-project test suite or use production/personal data
     banned hooks, strict types and environment/import restrictions.
   - **Prerequisites:** QA-004 and explicit local lint approval. Use only
     temporary ignored probe files in the owning workspace.
-  - **Inputs:** Allowed concrete imports; rejected useEffect/useMemo/useCallback,
-    unsafe type assertions, direct environment reads and forbidden cross-layer
-    imports. Select exact examples from the final configured rules.
+  - **Inputs:** Allowed concrete imports; rejected
+    useEffect/useMemo/useCallback, unsafe type assertions, direct environment
+    reads and forbidden cross-layer imports. Select exact examples from the
+    final configured rules.
   - **Steps:**
     1. Record the allowed and rejected examples before the approved QA run.
     2. Lint the allowed example and each rejected example separately.
     3. Compare diagnostics to the expected rule IDs; then remove probe files.
   - **Expected results:** Allowed code passes and each prohibited example fails
-    for its intended rule. Missing plugin support is reported as a blocker,
-    not hidden by a weaker config or alternate runner.
-  - **Evidence:** `docs/artifacts/monorepo/QA-005-boundaries.txt`; inspect rule IDs
-    and ensure that failures are not unrelated syntax errors.
+    for its intended rule. Missing plugin support is reported as a blocker, not
+    hidden by a weaker config or alternate runner.
+  - **Evidence:** `docs/artifacts/monorepo/QA-005-boundaries.txt`; inspect rule
+    IDs and ensure that failures are not unrelated syntax errors.
   - **Cleanup:** Remove only the ignored probes created for this case.
   - **Status:** Pending; isolated local probes and QA execution approved.
 
@@ -174,8 +183,8 @@ Do not run an unrelated whole-project test suite or use production/personal data
 - [ ] **QA-007 — P1 — Native source workflow after relocation**
   - **Purpose:** Confirm the moved entrypoint, components, fonts, controls,
     settings, shortcuts, failed-save recovery and restart behavior.
-  - **Prerequisites:** Shared setup, QA-001 and graphical prerequisites; explicit
-    native QA approval. No duplicate development or test process.
+  - **Prerequisites:** Shared setup, QA-001 and graphical prerequisites;
+    explicit native QA approval. No duplicate development or test process.
   - **Inputs:** Existing `apps/desktop/scripts/native-e2e.ts` safe temporary
     records and windows at 1360x900, 1000x760 and 700x760.
   - **Steps:**
@@ -201,8 +210,10 @@ Do not run an unrelated whole-project test suite or use production/personal data
   - **Inputs:** Committed native patch, generated local addon, native build
     script, desktop standalone build and existing binary E2E override.
   - **Steps:**
-    1. Inspect the final build commands, source pin, output paths and asset imports.
-    2. Run only the approved desktop build and existing native-addon named tests.
+    1. Inspect the final build commands, source pin, output paths and asset
+       imports.
+    2. Run only the approved desktop build and existing native-addon named
+       tests.
     3. Run the existing native workflow against the resulting binary override.
     4. Inspect standalone screenshots and ensure all owned processes end.
   - **Expected results:** Compilation and actual binary workflows succeed.
@@ -219,9 +230,10 @@ Do not run an unrelated whole-project test suite or use production/personal data
     review, settings and Markdown behavior while imports and schemas change.
   - **Prerequisites:** Shared setup, completed implementation and explicit QA
     approval. All filesystem/client config records must be isolated fixtures.
-  - **Inputs:** Existing affected named test files moved with each owner. Include
-    Unicode, corrupt data, symlinks, stale writes, collisions, interrupted
-    journals, UTC and documented time-zone boundaries where already covered.
+  - **Inputs:** Existing affected named test files moved with each owner.
+    Include Unicode, corrupt data, symlinks, stale writes, collisions,
+    interrupted journals, UTC and documented time-zone boundaries where already
+    covered.
   - **Steps:**
     1. List the affected existing test filenames and owning working directories.
     2. Run only those explicit files. Do not run the whole repository suite.
@@ -229,10 +241,10 @@ Do not run an unrelated whole-project test suite or use production/personal data
   - **Expected results:** Existing assertions remain intact and pass. Validation
     remains at all trust boundaries. No network or real external-client config
     is changed. New APIs are not counted as native UI integration.
-  - **Evidence:** `docs/artifacts/monorepo/QA-009-services.txt`; record exact file
-    selection, runtime/time zones, actual counts and diagnostics.
-  - **Cleanup:** Use existing fixture cleanup. Preserve sanitized failure evidence
-    before removing owned temporary records.
+  - **Evidence:** `docs/artifacts/monorepo/QA-009-services.txt`; record exact
+    file selection, runtime/time zones, actual counts and diagnostics.
+  - **Cleanup:** Use existing fixture cleanup. Preserve sanitized failure
+    evidence before removing owned temporary records.
   - **Status:** Pending; final test filenames and selection need source review.
 
 - [ ] **QA-010 — P2 — Documentation and status accuracy**
@@ -248,7 +260,64 @@ Do not run an unrelated whole-project test suite or use production/personal data
   - **Expected results:** Documentation describes actual targets and commands.
     Existing license terms remain unchanged. Missing integration and unrun QA
     remain explicit. Old reports stay identified with their old revision.
-  - **Evidence:** `docs/artifacts/monorepo/QA-010-review.txt`; record file paths,
-    mismatches and final conclusions.
+  - **Evidence:** `docs/artifacts/monorepo/QA-010-review.txt`; record file
+    paths, mismatches and final conclusions.
   - **Cleanup:** None; keep working reports ignored.
+  - **Status:** Pending.
+
+## Shared Markdown boundary
+
+- [ ] **QA-011 — P0 — Exact UTF-8 preview limits**
+  - **Purpose:** Remove native-only globals from the shared Markdown contract
+    without changing its 2,097,152-byte limit or allocating unbounded encoding
+    buffers for rejected input.
+  - **Prerequisites:** Shared setup; committed implementation and installed
+    workspace dependencies. No desktop window or external service is needed.
+  - **Inputs:** ASCII `x` repeated 2,097,152 and 2,097,153 times; `🌿` repeated
+    524,288 and 524,289 times. The accepted Unicode input has exactly 2,097,152
+    UTF-8 bytes and 1,048,576 UTF-16 code units.
+  - **Steps:**
+    1. From `packages/notes`, call the existing `@still-notes/notes/markdown`
+       export's `analyzeMarkdown` for each input with an in-memory Bun command.
+       Do not create source fixtures.
+    2. Record whether each input returns or throws. Fail the command if an
+       accepted/rejected result differs from the expected result.
+    3. Run the existing named `src/markdown.test.ts` file. Inspect its source
+       offset, stale-edit and Unicode results.
+  - **Expected results:** The exact-limit ASCII and Unicode inputs return. Both
+    over-limit inputs throw the preview-limit error before parsing. The existing
+    Markdown cases pass. The module has no native-only imports or globals, as
+    verified by QA-005.
+  - **Evidence:** `docs/artifacts/monorepo/QA-011-utf8.txt`; record the exact
+    command, runtime revision, input lengths, observed results and test output.
+    Keep large source text out of logs.
+  - **Cleanup:** No user data is created. Keep only the sanitized QA report.
+  - **Status:** Pending.
+
+- [ ] **QA-012 — P0 — Preserve relative data overrides**
+  - **Purpose:** Keep a root launch's relative `STILL_NOTES_DATA_DIR` anchored
+    to the caller directory after Turbo or Bun enters the desktop workspace.
+  - **Prerequisites:** Shared setup and committed implementation. Confirm that
+    `docs/artifacts/monorepo/qa012-data` does not exist before this case. No
+    user data or existing desktop process may be used for this check.
+  - **Inputs:** Relative override `docs/artifacts/monorepo/qa012-data`;
+    `GPUIX_BACKGROUND=1`. The launch-directory marker must be an absolute path.
+  - **Steps:**
+    1. From repository root, run
+       `STILL_NOTES_DATA_DIR=docs/artifacts/monorepo/qa012-data GPUIX_BACKGROUND=1 bun run start`.
+       Record all owned process IDs and wait for the native workspace to mount.
+    2. Inspect the created workspace file. Confirm that its absolute path is
+       under the root `docs/artifacts/monorepo/qa012-data`, not
+       `apps/desktop/docs/artifacts/monorepo/qa012-data`.
+    3. Confirm that the root start script passes the caller directory through
+       `STILL_NOTES_LAUNCH_DIRECTORY`. Verify that a relative marker is rejected
+       by the existing environment adapter in an isolated child process.
+    4. Close only the app and launcher processes started for this case.
+  - **Expected results:** Relative data overrides preserve the caller base. The
+    normal OS data location stays unchanged and untouched. An invalid marker
+    fails before any workspace is written.
+  - **Evidence:** `docs/artifacts/monorepo/QA-012-launch-path.txt`; record the
+    exact launch, PID, resolved data location and invalid-marker result.
+  - **Cleanup:** Stop only owned processes. Remove only the newly created
+    `docs/artifacts/monorepo/qa012-data` after evidence is inspected.
   - **Status:** Pending.

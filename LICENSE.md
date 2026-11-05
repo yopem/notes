@@ -47,7 +47,8 @@ SOFTWARE.
 ## Font notices
 
 Inter and IBM Plex Mono use the SIL Open Font License 1.1. Full notices ship in
-`src/assets/Inter-OFL` and `src/assets/IBMPlexMono-OFL`.
+`apps/desktop/src/assets/Inter-OFL` and
+`apps/desktop/src/assets/IBMPlexMono-OFL`.
 
 ## Icon notice
 

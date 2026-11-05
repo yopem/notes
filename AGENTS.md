@@ -1583,3 +1583,22 @@ applicable category into concrete cases with the details required above.
 - Google Analytics 4: https://developers.google.com/analytics/devguides/collection/ga4.
 - Umami: https://umami.is/docs.
 - Polar: https://polar.sh/docs.
+
+## Current application workspaces
+
+- The current target is the native desktop app in `apps/desktop`.
+  Its render entry is `apps/desktop/src/app.tsx`.
+- Keep desktop workflows in their owning `src/features/` folders. Keep shared
+  native controls in `src/components/ui/` and runtime adapters in `src/platform/`.
+- `packages/notes` owns platform-neutral Markdown analysis and source-edit
+  contracts. It must not import GPUix, React, or filesystem adapters.
+- `packages/env` owns runtime configuration and OS data paths. Use its concrete
+  `@still-notes/env/server` export from native code.
+- Root desktop launch scripts pass `STILL_NOTES_LAUNCH_DIRECTORY`. Keep it
+  connected to the caller directory so relative data overrides do not move.
+- Root `bun-toolchain.json` and the exact local Bun dependency define the
+  runtime revision. Do not replace the user's global Bun installation.
+- Preserve existing `workspace.json`, backup, lock and settings contracts during
+  source moves. Keep generated native binaries and QA artifacts ignored.
+- Before writing Effect code, read `node_modules/effect/AGENTS.md` completely.
+  Follow its linked guidance and inspect the pinned v4-or-higher source APIs.
