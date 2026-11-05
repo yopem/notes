@@ -675,3 +675,27 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Blocked. Normal vault construction replays pending journals; a
     service-owned mode must refuse recovery before a read-only preview opens.
     Client-only screenshot capture is blocked by QA-015.
+
+- [ ] **QA-025 — P0 — Protect drafts on native close**
+  - **Purpose:** Prevent an ordinary window-close request from discarding an
+    unsaved folder draft before the user chooses how to proceed.
+  - **Prerequisites:** A verified close-veto bridge, isolated native session,
+    working client-only screenshot capture, and the folder editor implemented.
+    OS shutdown, forced termination and crashes need separate recovery coverage.
+  - **Inputs:** Isolated `Example.md` from the folder setup; unsaved text
+    `Close draft Ω`.
+  - **Steps:**
+    1. Open the isolated folder, select `Example`, and enter the unsaved text.
+    2. Send an ordinary window-manager close request to the test-owned window.
+    3. Choose **Cancel** and confirm the draft is still visible.
+    4. Request close again, choose **Save**, and reopen the isolated folder.
+  - **Expected results:** The close request is deferred until a choice. Cancel
+    leaves the app and draft open. Save completes before close; reopening shows
+    the exact text. No user-owned window or data is touched.
+  - **Evidence:** Save the client-only screenshots, app tree and isolated file
+    content in `docs/artifacts/vault-workspace/QA-025/`; inspect each artifact.
+  - **Cleanup:** Close only test-owned processes and remove their isolated data
+    after evidence review.
+  - **Status:** Blocked. GPUix does not expose a documented close-veto callback,
+    and screenshot capture is blocked by QA-015. A native bridge requires
+    source, build and platform verification before this scenario can run.
