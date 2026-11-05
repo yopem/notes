@@ -49,7 +49,13 @@ const lockPath = `${internal}/vault.lock`
 
 const errorSchema = Schema.Struct({ code: Schema.String })
 
-const areaSchema = Schema.Literals(["inbox", "quick", "archive", "trash"])
+const areaSchema = Schema.Literals([
+  "inbox",
+  "quick",
+  "archive",
+  "trash",
+  "root",
+])
 
 const primarySchema = Schema.Literals(["inbox", "root"])
 
@@ -990,7 +996,8 @@ export class Vault {
     return decodeState(this.state)
   }
   private areaRoot(folder: NoteFolder) {
-    return folder === "inbox" && this.state.primaryNotesLocation === "root"
+    return folder === "root" ||
+      (folder === "inbox" && this.state.primaryNotesLocation === "root")
       ? ""
       : folder
   }
@@ -1011,11 +1018,15 @@ export class Vault {
     const id = [this.areaRoot(folder), subpath].filter(Boolean).join("/")
 
     if (
-      folder === "inbox" &&
-      this.state.primaryNotesLocation === "root" &&
-      ["quick", "archive", "trash", "assets", internal].includes(
-        id.split("/")[0] ?? "",
-      )
+      this.areaRoot(folder) === "" &&
+      [
+        "quick",
+        "archive",
+        "trash",
+        "assets",
+        internal,
+        ...(this.state.primaryNotesLocation === "inbox" ? ["inbox"] : []),
+      ].includes(id.split("/")[0] ?? "")
     )
       throw new Error("Reserved system area")
 
@@ -1028,6 +1039,9 @@ export class Vault {
 
     if (first === "quick" || first === "archive" || first === "trash")
       return first
+
+    if (this.state.primaryNotesLocation === "inbox" && first !== "inbox")
+      return "root"
 
     return "inbox"
   }
@@ -1519,7 +1533,7 @@ export class Vault {
         [{ path, before: false, after: true }],
       )
 
-      return { path, folder, subpath }
+      return { path, folder: this.folderOf(path), subpath }
     })
   }
   private folderTree(folder: NoteFolder, subpath: string) {
@@ -1543,7 +1557,11 @@ export class Vault {
     const target = this.folderPath(folder, destination)
 
     if (target === tree.id)
-      return { path: target, folder, subpath: destination }
+      return {
+        path: target,
+        folder: this.folderOf(target),
+        subpath: destination,
+      }
 
     if (target.startsWith(`${tree.id}/`))
       throw new Error("Cannot move a folder into itself")
@@ -1607,7 +1625,7 @@ export class Vault {
 
     this.transaction(next, changes, directories)
 
-    return { path: target, folder, subpath: destination }
+    return { path: target, folder: this.folderOf(target), subpath: destination }
   }
   renameFolder(folder: NoteFolder, subpath: string, destination: string) {
     return this.folderMutation(() =>

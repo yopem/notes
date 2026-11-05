@@ -366,7 +366,10 @@ describe("MCP real stdio child", () => {
         {
           id: 11,
           method: "tools/call",
-          params: { name: "list_notes", arguments: { folder: "root", subpath: "Books/Nested" } },
+          params: {
+            name: "list_notes",
+            arguments: { folder: "root", subpath: "Books/Nested" },
+          },
         },
       ].map((value) => JSON.stringify({ jsonrpc: "2.0", ...value })),
     ]
@@ -400,14 +403,44 @@ describe("MCP real stdio child", () => {
 
     expect(listed.tools.map((tool) => tool.name)).toContain("read_note")
     expect(listed.tools.map((tool) => tool.name)).toContain("list_comments")
-    expect(replies.find((reply) => reply.id === 2)?.result).toMatchObject({
-      tools: expect.arrayContaining([
-        expect.objectContaining({ name: "list_notes", inputSchema: { properties: { folder: { enum: expect.arrayContaining(["root", "inbox", "quick", "archive", "trash"]) } } } }),
-      ]),
-    })
+
+    const toolSchemas = Schema.decodeUnknownSync(
+      Schema.Struct({
+        tools: Schema.Array(
+          Schema.Struct({ name: Schema.String, inputSchema: Schema.Unknown }),
+        ),
+      }),
+    )(replies.find((reply) => reply.id === 2)?.result)
+
+    const listNotesSchema = Schema.decodeUnknownSync(
+      Schema.Struct({
+        properties: Schema.Struct({
+          folder: Schema.Struct({
+            anyOf: Schema.Array(
+              Schema.Struct({
+                enum: Schema.optional(Schema.Array(Schema.String)),
+              }),
+            ),
+          }),
+        }),
+      }),
+    )(toolSchemas.tools.find((tool) => tool.name === "list_notes")?.inputSchema)
+
+    expect(listNotesSchema.properties.folder.anyOf[0]?.enum).toEqual([
+      "inbox",
+      "quick",
+      "archive",
+      "trash",
+      "root",
+    ])
     expect(replies.find((reply) => reply.id === 11)?.result).toMatchObject({
       isError: false,
-      content: [{ type: "text", text: JSON.stringify({ folder: "root", subpath: "Books/Nested" }) }],
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ folder: "root", subpath: "Books/Nested" }),
+        },
+      ],
     })
     expect(replies.find((reply) => reply.id === 3)?.result).toMatchObject({
       isError: false,
@@ -1154,18 +1187,57 @@ describe("MCP real stdio child", () => {
 
   test("folder tool schemas accept root and keep existing values", () => {
     for (const folder of ["root", "inbox", "quick", "archive"]) {
-      expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder, subpath: "Books/Nested" })).toBe(true)
-      expect(Schema.is(MCP_TOOL_SCHEMAS.create_note)({ folder, subpath: "Books" })).toBe(true)
-      expect(Schema.is(MCP_TOOL_SCHEMAS.move_note)({ path: "A.md", targetFolder: folder, targetSubpath: "Books" })).toBe(true)
-      expect(Schema.is(MCP_TOOL_SCHEMAS.create_folder)({ folder, subpath: "Books" })).toBe(true)
-      expect(Schema.is(MCP_TOOL_SCHEMAS.rename_folder)({ folder, oldSubpath: "Books", newSubpath: "Other" })).toBe(true)
-      expect(Schema.is(MCP_TOOL_SCHEMAS.delete_folder)({ folder, subpath: "Books", confirm: true })).toBe(true)
+      expect(
+        Schema.is(MCP_TOOL_SCHEMAS.list_notes)({
+          folder,
+          subpath: "Books/Nested",
+        }),
+      ).toBe(true)
+      expect(
+        Schema.is(MCP_TOOL_SCHEMAS.create_note)({ folder, subpath: "Books" }),
+      ).toBe(true)
+      expect(
+        Schema.is(MCP_TOOL_SCHEMAS.move_note)({
+          path: "A.md",
+          targetFolder: folder,
+          targetSubpath: "Books",
+        }),
+      ).toBe(true)
+      expect(
+        Schema.is(MCP_TOOL_SCHEMAS.create_folder)({ folder, subpath: "Books" }),
+      ).toBe(true)
+      expect(
+        Schema.is(MCP_TOOL_SCHEMAS.rename_folder)({
+          folder,
+          oldSubpath: "Books",
+          newSubpath: "Other",
+        }),
+      ).toBe(true)
+      expect(
+        Schema.is(MCP_TOOL_SCHEMAS.delete_folder)({
+          folder,
+          subpath: "Books",
+          confirm: true,
+        }),
+      ).toBe(true)
       expect(Schema.is(MCP_TOOL_SCHEMAS.list_tasks)({ folder })).toBe(true)
     }
-    expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder: "trash" })).toBe(true)
-    expect(Schema.is(MCP_TOOL_SCHEMAS.move_note)({ path: "A.md", targetFolder: "trash" })).toBe(true)
-    expect(Schema.is(MCP_TOOL_SCHEMAS.create_note)({ folder: "trash" })).toBe(false)
-    expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder: "other" })).toBe(false)
+
+    expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder: "trash" })).toBe(
+      true,
+    )
+    expect(
+      Schema.is(MCP_TOOL_SCHEMAS.move_note)({
+        path: "A.md",
+        targetFolder: "trash",
+      }),
+    ).toBe(true)
+    expect(Schema.is(MCP_TOOL_SCHEMAS.create_note)({ folder: "trash" })).toBe(
+      false,
+    )
+    expect(Schema.is(MCP_TOOL_SCHEMAS.list_notes)({ folder: "other" })).toBe(
+      false,
+    )
   })
 
   test("every source tool has a strict schema and rejects unsafe paths", () => {

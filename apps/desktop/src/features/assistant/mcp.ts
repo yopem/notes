@@ -668,9 +668,15 @@ export const mcpPathSchema = Schema.String.check(
   ),
 )
 
-const folderSchema = Schema.Literals(["inbox", "quick", "archive", "trash"])
+const folderSchema = Schema.Literals([
+  "inbox",
+  "quick",
+  "archive",
+  "trash",
+  "root",
+])
 
-const liveFolderSchema = Schema.Literals(["inbox", "quick", "archive"])
+const liveFolderSchema = Schema.Literals(["inbox", "quick", "archive", "root"])
 
 const bodySchema = Schema.String.check(Schema.isMaxLength(2 * 1024 * 1024))
 
@@ -850,7 +856,7 @@ export type McpToolName = keyof typeof MCP_TOOL_SCHEMAS
 
 const toolDescriptions: Record<McpToolName, string> = {
   vault_info:
-    "Describe the current vault, its folder layout, and primaryNotesLocation. Call first. Never add inbox/ to returned paths.",
+    "Describe the current vault, its folder layout, and primaryNotesLocation. Call first. Use returned paths unchanged. In inbox layout, root identifies non-system root paths; in root layout, inbox is the canonical root area.",
   list_notes:
     "List metadata, tags, wikilinks, excerpts, timestamps, canonical paths and links. Filter by folder, subpath, tag, wikilinkTo, or updatedSinceMs. Exclude trash unless requested. Default limit 200; tags exclude templates.",
   list_folders: "List subfolders grouped by top-level folder.",
@@ -877,7 +883,7 @@ const toolDescriptions: Record<McpToolName, string> = {
   archive_note: "Move a note to archive.",
   unarchive_note: "Move an archived note back to inbox.",
   create_folder:
-    "Create a subfolder in inbox, quick, or archive. Refuse trash.",
+    "Create a subfolder in root, inbox, quick, or archive. Refuse trash.",
   rename_folder: "Rename or move a subfolder within its top-level folder.",
   delete_folder:
     "Delete a subfolder and its contents. Ask the user first; confirm must be true.",

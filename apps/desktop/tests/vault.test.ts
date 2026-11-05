@@ -319,6 +319,7 @@ describe("native Markdown vault", () => {
       readFileSync(join(directory, "assets", "unsafe:asset.txt"), "utf8"),
     ).toBe("asset")
   })
+
   for (const primary of ["inbox", "root"] as const) {
     test(`${primary} layout round-trips root coordinates and note lifecycle`, () => {
       const directory = root()
@@ -328,50 +329,128 @@ describe("native Markdown vault", () => {
       const vault = open(directory, primary)
       const canonical = primary === "inbox" ? "root" : "inbox"
       const folders = Effect.runSync(vault.listFolders())
-      expect(folders).toContainEqual({ path: "Books", folder: canonical, subpath: "Books" })
-      expect(folders).toContainEqual({ path: "Books/Nested", folder: canonical, subpath: "Books/Nested" })
-      expect(Effect.runSync(vault.readNote("Books/A.md")).folder).toBe(canonical)
-      expect(Effect.runSync(vault.readNote("Books/Nested/B.md")).folder).toBe(canonical)
-      expect(Effect.runSync(vault.listNotes()).map((note) => [note.path, note.folder])).toContainEqual(["Books/Nested/B.md", canonical])
+      expect(folders).toContainEqual({
+        path: "Books",
+        folder: canonical,
+        subpath: "Books",
+      })
+      expect(folders).toContainEqual({
+        path: "Books/Nested",
+        folder: canonical,
+        subpath: "Books/Nested",
+      })
+      expect(Effect.runSync(vault.readNote("Books/A.md")).folder).toBe(
+        canonical,
+      )
+      expect(Effect.runSync(vault.readNote("Books/Nested/B.md")).folder).toBe(
+        canonical,
+      )
+      expect(
+        Effect.runSync(vault.listNotes()).map((note) => [
+          note.path,
+          note.folder,
+        ]),
+      ).toContainEqual(["Books/Nested/B.md", canonical])
 
       const created = Effect.runSync(vault.createFolder("root", "Books/New"))
-      expect(created).toEqual({ path: "Books/New", folder: canonical, subpath: "Books/New" })
-      let note = Effect.runSync(vault.createNote("root", "C", "Books/New", "C content"))
-      expect([note.path, note.folder, note.body]).toEqual(["Books/New/C.md", canonical, "C content"])
+      expect(created).toEqual({
+        path: "Books/New",
+        folder: canonical,
+        subpath: "Books/New",
+      })
+
+      let note = Effect.runSync(
+        vault.createNote("root", "C", "Books/New", "C content"),
+      )
+
+      expect([note.path, note.folder, note.body]).toEqual([
+        "Books/New/C.md",
+        canonical,
+        "C content",
+      ])
       note = Effect.runSync(vault.moveNote(note.path, "root", "Books/Nested"))
       expect([note.path, note.folder]).toEqual(["Books/Nested/C.md", canonical])
       note = Effect.runSync(vault.archiveNote(note.path))
-      expect([note.path, note.body]).toEqual(["archive/Books/Nested/C.md", "C content"])
+      expect([note.path, note.body]).toEqual([
+        "archive/Books/Nested/C.md",
+        "C content",
+      ])
       note = Effect.runSync(vault.unarchiveNote(note.path))
       expect([note.path, note.folder]).toEqual(["Books/Nested/C.md", canonical])
       note = Effect.runSync(vault.moveToTrash(note.path))
       expect(note.path).toBe("trash/Books/Nested/C.md")
       note = Effect.runSync(vault.restoreFromTrash(note.path))
-      expect([note.path, note.folder, note.body]).toEqual(["Books/Nested/C.md", canonical, "C content"])
-      expect(Effect.runSync(vault.renameFolder("root", "Books/New", "Books/Renamed"))).toEqual({ path: "Books/Renamed", folder: canonical, subpath: "Books/Renamed" })
-      expect(Effect.runSync(vault.duplicateFolder("root", "Books/Renamed"))).toEqual({ path: "Books/Renamed copy", folder: canonical, subpath: "Books/Renamed copy" })
-      Effect.runSync(vault.deleteFolder("root", "Books/Renamed copy", { confirm: true }))
-      expect(Effect.runSync(vault.listFolders())).toContainEqual({ path: "Books/Renamed", folder: canonical, subpath: "Books/Renamed" })
+      expect([note.path, note.folder, note.body]).toEqual([
+        "Books/Nested/C.md",
+        canonical,
+        "C content",
+      ])
+      expect(
+        Effect.runSync(
+          vault.renameFolder("root", "Books/New", "Books/Renamed"),
+        ),
+      ).toEqual({
+        path: "Books/Renamed",
+        folder: canonical,
+        subpath: "Books/Renamed",
+      })
+      expect(
+        Effect.runSync(vault.duplicateFolder("root", "Books/Renamed")),
+      ).toEqual({
+        path: "Books/Renamed copy",
+        folder: canonical,
+        subpath: "Books/Renamed copy",
+      })
+      Effect.runSync(
+        vault.deleteFolder("root", "Books/Renamed copy", { confirm: true }),
+      )
+      expect(Effect.runSync(vault.listFolders())).toContainEqual({
+        path: "Books/Renamed",
+        folder: canonical,
+        subpath: "Books/Renamed",
+      })
       vault.close()
       const reopened = open(directory, primary)
-      expect(Effect.runSync(reopened.readNote(note.path)).body).toBe("C content")
+      expect(Effect.runSync(reopened.readNote(note.path)).body).toBe(
+        "C content",
+      )
     })
 
     test(`${primary} layout blocks protected root aliases`, () => {
       const vault = open(root(), primary)
       const note = Effect.runSync(vault.createNote("quick", "Keep", "", "keep"))
       const reserved = ["quick", "archive", "trash", "assets", ".still-notes"]
+
       if (primary === "inbox") reserved.push("inbox")
+
       for (const path of reserved) {
-        expect(Effect.runSync(Effect.flip(vault.createFolder("root", `${path}/Escape`)))).toBeInstanceOf(VaultFolderError)
-        expect(Effect.runSync(Effect.flip(vault.renameFolder("root", path, "Moved")))).toBeInstanceOf(VaultFolderError)
-        expect(Effect.runSync(Effect.flip(vault.deleteFolder("root", path, { confirm: true })))).toBeInstanceOf(VaultFolderError)
-        expect(Effect.runSync(Effect.flip(vault.createNote("root", "Escape", path)))).toBeInstanceOf(VaultNoteError)
-        expect(Effect.runSync(Effect.flip(vault.moveNote(note.path, "root", path)))).toBeInstanceOf(VaultNoteError)
+        expect(
+          Effect.runSync(
+            Effect.flip(vault.createFolder("root", `${path}/Escape`)),
+          ),
+        ).toBeInstanceOf(VaultFolderError)
+        expect(
+          Effect.runSync(
+            Effect.flip(vault.renameFolder("root", path, "Moved")),
+          ),
+        ).toBeInstanceOf(VaultFolderError)
+        expect(
+          Effect.runSync(
+            Effect.flip(vault.deleteFolder("root", path, { confirm: true })),
+          ),
+        ).toBeInstanceOf(VaultFolderError)
+        expect(
+          Effect.runSync(Effect.flip(vault.createNote("root", "Escape", path))),
+        ).toBeInstanceOf(VaultNoteError)
+        expect(
+          Effect.runSync(Effect.flip(vault.moveNote(note.path, "root", path))),
+        ).toBeInstanceOf(VaultNoteError)
       }
+
       expect(Effect.runSync(vault.readNote(note.path)).body).toBe("keep")
     })
   }
+
   test("root primary and nested folder IDs remain vault-relative POSIX", () => {
     const vault = open(root(), "root")
     const creation = vault.createFolder("inbox", "Work/研究")
