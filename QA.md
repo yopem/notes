@@ -972,8 +972,10 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save the sanitized accessibility tree and client-only
     screenshots under `docs/artifacts/sorting/QA-037/`.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
-  - **Status:** Pending. Source review found selected state on a button role is
-    not valid for that role. Screenshot capture is blocked by QA-015.
+  - **Status:** Pending. The invalid button state was removed, and selected
+    choices now include visible and accessible text. GPUix does not expose a
+    pressed state for these buttons; inspector and keyboard verification remain
+    open. Screenshot capture is blocked by QA-015.
 
 - [ ] **QA-038 — P1 — Duplicate a note in its notebook**
   - **Purpose:** Create an independent copy with the same displayed content
