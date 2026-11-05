@@ -3,7 +3,7 @@ import type { InputProps } from "@gpuix/react"
 import { useLayoutEffect, useRef, useState } from "react"
 
 import type { EditorMode } from "@/features/editor/components/editor"
-import type { NotesStore, Workspace } from "@/features/notes/store"
+import type { Note, NotesStore, Workspace } from "@/features/notes/store"
 import type { View } from "@/features/workspace/components/sidebar"
 
 import { attempt } from "@/features/workspace/attempt"
@@ -28,6 +28,7 @@ export function useWorkspaceNavigation({
   const [mobileEditor, setMobileEditor] = useState(false)
   const [oldestFirst, setOldestFirst] = useState(false)
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
+
   const { notes, selected, title } = getWorkspaceSelection({
     workspace,
     view,
@@ -35,13 +36,14 @@ export function useWorkspaceNavigation({
     oldestFirst,
     activeNoteId,
   })
-  const current = useRef({ store, notes, view, onError })
+
+  const current = useRef({ store, onError })
 
   useLayoutEffect(
     function updateNavigationTarget() {
-      current.current = { store, notes, view, onError }
+      current.current = { store, onError }
     },
-    [store, notes, view, onError],
+    [store, onError],
   )
 
   const [handlers] = useState(function createNavigationHandlers() {
@@ -69,8 +71,8 @@ export function useWorkspaceNavigation({
       onError(attempt(() => store.selectNote(id)))
     }
 
-    function selectNextNote(id: string) {
-      const { notes } = current.current
+    // Use the list from before the write, even if a store update commits at once.
+    function selectNextNote(id: string, notes: Note[]) {
       const index = notes.findIndex((item) => item.id === id)
       setActiveNoteId(notes[index + 1]?.id ?? notes[index - 1]?.id ?? null)
       setMobileEditor(false)

@@ -35,8 +35,10 @@ export function useWorkspaceNoteIntake({
               ? navigation.view.notebookId
               : undefined,
           )
+
           store.selectNote(created.id)
           navigation.setActiveNoteId(created.id)
+
           if (
             navigation.view.kind === "trash" ||
             navigation.view.kind === "pinned"
@@ -52,12 +54,14 @@ export function useWorkspaceNoteIntake({
 
     function importNotes(paths: string[]) {
       const { store, navigation } = current.current
+
       const imported = store.importMarkdown(
         paths,
         navigation.view.kind === "notebook"
           ? navigation.view.notebookId
           : undefined,
       )
+
       if (imported[0]) store.selectNote(imported[0].id)
       navigation.setActiveNoteId(imported[0]?.id ?? null)
       navigation.setView({ kind: "all" })

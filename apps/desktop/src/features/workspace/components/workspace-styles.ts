@@ -78,6 +78,7 @@ function createWorkspaceStyles(color: Palette) {
     borderColor: color.border,
     height: 36,
   }
+
   const notice: StyleDesc = {
     display: "flex",
     flexDirection: "row",
@@ -88,6 +89,7 @@ function createWorkspaceStyles(color: Palette) {
     borderRadius: 12,
     marginBottom: 8,
   }
+
   const noticeText: StyleDesc = {
     color: color.foreground,
     fontFamily: "Inter",

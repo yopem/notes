@@ -9,6 +9,26 @@ interface Draft {
   body?: string
 }
 
+const draftNotes = new WeakMap<Draft, WeakMap<Note, Note>>()
+
+function getDraftNote(note: Note | undefined, draft: Draft | undefined) {
+  if (!note || !draft) return note
+  let notes = draftNotes.get(draft)
+
+  if (!notes) {
+    notes = new WeakMap<Note, Note>()
+    draftNotes.set(draft, notes)
+  }
+
+  const cached = notes.get(note)
+
+  if (cached) return cached
+  const edited = { ...note, ...draft }
+  notes.set(note, edited)
+
+  return edited
+}
+
 export function useNoteDrafts({
   store,
   note,
@@ -41,6 +61,7 @@ export function useNoteDrafts({
 
     function changeNote(patch: Draft) {
       const { store, note, onActiveNote, onError } = current.current
+
       if (!note || note.trashedAt) return
       const id = note.id
       const draft = { ...pending.current[id], ...patch }
@@ -72,6 +93,7 @@ export function useNoteDrafts({
 
   return {
     drafts,
+    note: getDraftNote(note, note ? drafts[note.id] : undefined),
     hasDrafts: Object.keys(drafts).length > 0,
     changeNote: handlers.changeNote,
     retry: handlers.retry,

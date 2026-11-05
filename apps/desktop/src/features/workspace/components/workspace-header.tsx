@@ -45,6 +45,7 @@ export function WorkspaceHeader({
 }) {
   const styles = getWorkspaceStyles(color)
   const current = useRef({ theme, settings, onError })
+
   const [toggleTheme] = useState(function createThemeHandler() {
     return function toggleTheme() {
       const { theme, settings, onError } = current.current

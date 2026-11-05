@@ -15,10 +15,13 @@ export function getWorkspaceSelection({
   activeNoteId: string | null
 }) {
   const search = query.trim().toLocaleLowerCase()
+
   const notes = workspace.notes
     .filter((note) => {
       if (view.kind === "trash" ? !note.trashedAt : note.trashedAt) return false
+
       if (view.kind === "pinned" && !note.pinned) return false
+
       if (view.kind === "notebook" && note.notebookId !== view.notebookId)
         return false
 
