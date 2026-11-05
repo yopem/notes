@@ -223,7 +223,8 @@ data.
     test report, binary workflow report and inspected screenshots.
   - **Cleanup:** Preserve source checkouts and user files. Remove only generated
     outputs explicitly created for this case when no longer needed.
-  - **Status:** Pending; final relocation paths must be confirmed first.
+  - **Status:** Pending. The desktop build passed after the native binding
+    resolution fix. The addon test, binary workflow and screenshots are unrun.
 
 - [ ] **QA-009 — P1 — Moved domain service regressions**
   - **Purpose:** Preserve vault safety, tasks, recurrence, templates, assistant
