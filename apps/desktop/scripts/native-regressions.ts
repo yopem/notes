@@ -349,11 +349,14 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
       (await app.getByText("Sort note 10").bounds()).y,
     "Editing keeps the current list order",
   )
-  await app.getByTestId("note-sort").click()
-  assert.equal(
-    (await app.getByTestId("note-body").element()).id,
-    sortedEditor.id,
+  await app.getByTestId("note-row").getByText("Sort note 10").click()
+  assert(
+    (await app.getByText("Sort note 10").bounds()).y <
+      (await app.getByText("Sort note 20").bounds()).y,
+    "Leaving the edited note applies the current name order",
   )
+  await app.getByTestId("note-row").getByText("Sort note 20").click()
+  await app.getByTestId("note-sort").click()
   assert(
     (await app.getByText("Sort note 20").bounds()).y <
       (await app.getByText("Sort note 10").bounds()).y,
@@ -393,9 +396,46 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   assert.equal(savedSettings.preferences.noteSortOrder, "name-asc")
   await app.getByTestId("settings-close").click()
   await app.getByTestId("search").fill("")
+  await app.getByTestId("new-notebook").click()
+  await app.getByTestId("dialog-input").waitFor()
+  await app.getByTestId("dialog-input").fill("Fallback sort regression")
+  await app.getByTestId("dialog-confirm").click()
+  await textIs(app, "note-count", "0 notes")
 
+  await createNote(app, dataDirectory, "Apple fallback", "Apple fallback body")
+  await createNote(
+    app,
+    dataDirectory,
+    "Apricot fallback",
+    "Apricot fallback body",
+  )
+  await createNote(
+    app,
+    dataDirectory,
+    "Banana fallback",
+    "Banana fallback body",
+  )
+  await app.getByTestId("search").fill("Ap")
+  await textIs(app, "note-count", "2 notes")
+  const fallbackEditor = await app.getByTestId("note-body").element()
+  await app.getByTestId("note-sort").click()
+  assert.equal(
+    (await app.getByTestId("note-body").element()).id,
+    fallbackEditor.id,
+  )
+  await app.getByTestId("note-body").fill("Apple fallback after sort")
+  const fallbackSaved = await savedNoteIs(
+    dataDirectory,
+    "Apple fallback",
+    "Apple fallback after sort",
+  )
+  assert.equal(
+    fallbackSaved.notes.find((note) => note.title === "Apricot fallback")?.body,
+    "Apricot fallback body",
+  )
   steps.push(
-    "Natural sort, pinned order, stable editor, settings conflict and persistence",
+    "Search fallback stays selected when sort reverses and edits reach the same note",
+    "Natural sort, pinned order, edit-leave order, settings conflict and persistence",
   )
   saveReport("native-regressions.json", dataDirectory, steps)
 
