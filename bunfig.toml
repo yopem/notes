@@ -775,9 +775,7 @@ ignorePatterns = [
 "require-yield" = "error"
 "no-restricted-imports" = [
   "error",
-  { "paths" = [
-    { "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." },
-  ] },
+  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["../**", "**/../**"], "message" = "Use canonical imports instead of parent-relative paths." }] },
 ]
 "stylistic/require-readable-spacing" = "error"
 "typescript/adjacent-overload-signatures" = "error"
@@ -861,7 +859,7 @@ files = ["packages/notes/src/**/*.ts"]
 [lint.overrides.rules]
 "no-restricted-imports" = [
   "error",
-  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["node:*", "bun", "react", "react/**", "@gpuix/**", "@still-notes/env", "@still-notes/env/**", "@still-notes/desktop", "@still-notes/desktop/**", "fs", "fs/*", "path", "path/*", "os", "crypto", "child_process", "worker_threads", "net", "tls", "http", "https", "dns", "stream", "zlib", "vm", "module", "sqlite"], "message" = "Keep shared note contracts platform-neutral." }] },
+  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["node:*", "bun", "react", "react/**", "@gpuix/**", "@still-notes/env", "@still-notes/env/**", "@still-notes/desktop", "@still-notes/desktop/**", "fs", "fs/*", "path", "path/*", "os", "crypto", "child_process", "worker_threads", "net", "tls", "http", "https", "dns", "stream", "zlib", "vm", "module", "sqlite"], "message" = "Keep shared note contracts platform-neutral." }, { "group" = ["../**", "**/../**"], "message" = "Use canonical imports instead of parent-relative paths." }] },
 ]
 "no-restricted-globals" = [
   "error",
@@ -888,7 +886,7 @@ files = [
 [lint.overrides.rules]
 "no-restricted-imports" = [
   "error",
-  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["react", "react/**", "@gpuix/**", "@/components/**", "@/features/*/components/**", "@/app"], "message" = "Keep domain services independent of native UI." }] },
+  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["react", "react/**", "@gpuix/**", "@/components/**", "@/features/*/components/**", "@/app"], "message" = "Keep domain services independent of native UI." }, { "group" = ["../**", "**/../**"], "message" = "Use canonical imports instead of parent-relative paths." }] },
 ]
 
 [[lint.overrides]]
@@ -896,5 +894,5 @@ files = ["apps/desktop/src/platform/**/*.ts"]
 [lint.overrides.rules]
 "no-restricted-imports" = [
   "error",
-  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["@/features/**", "@/app"], "message" = "Platform adapters must not import feature implementations." }] },
+  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["@/features/**", "@/app"], "message" = "Platform adapters must not import feature implementations." }, { "group" = ["../**", "**/../**"], "message" = "Use canonical imports instead of parent-relative paths." }] },
 ]
