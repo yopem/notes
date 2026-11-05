@@ -1736,21 +1736,26 @@ mark those cases passed until capture works and the evidence is inspected.
     acceptance workflow.
   - **Cleanup:** Stop only owned build/test processes and remove owned data.
     Preserve the installed addon and all user app processes.
-  - **Status:** Native v2 implementation is complete at 22bb68e; acceptance
-    stays pending. The implementation compares and retargets owners under one
-    lock, preserves the pending request and veto, and checks the owner and
-    request again at UI execution before removal begins. Cancel, release,
-    retarget and lost or timed-out replies keep old queued requests from
-    removing the window. Legacy arming and removal cannot bypass a versioned
-    owner. The window-menu action uses the guarded callback; macOS runtime
-    behavior remains unrun. At this revision, 26 focused Rust close cases and
-    four retained async-font cases passed on Rust 1.97.1. Evidence is
-    `docs/artifacts/native-close-lifecycle/v2/native-v2-tests.txt`. Dependency
-    and existing native Rust warnings remain; no zero-warning Rust claim is
-    made. The launch/build verifier requires all four v2 methods. The isolated
-    release build, TS adapter, compiled-host probes, UI integration and live
-    acceptance are not complete. Native input quiescence, other platforms and
-    actual window-close decisions remain unverified.
+  - **Status:** Native v2 source is implemented; full acceptance stays pending.
+    The implementation compares and retargets owners under one lock, preserves
+    the pending request and veto, and checks the owner, request and attempt
+    again at UI execution before removal begins. Cancel, release and retarget
+    cannot let an old queued request remove the window. QA-065 records the
+    reproduced asynchronous retry fault and its separate attempt-fence repair.
+    Legacy arming/removal cannot bypass a versioned owner. Normal macOS menu and
+    keyboard quit now use the shared guard, but platform runtime and Dock quit
+    remain unverified in QA-064. At 72477ad, 30 focused Rust close/policy cases
+    and four retained async-font cases passed on Rust 1.97.1. Evidence:
+    `docs/artifacts/native-close-lifecycle/v2/QA-065-repaired-native-tests.txt`.
+    Native dependency/source compile warnings remain; no zero-warning Rust claim
+    is made. Launch/build verification requires all four v2 methods. The first
+    isolated host build succeeded but predates the attempt repair; its
+    replacement build and compiled-host probes remain pending. The TS adapter at
+    c970029 passed 25 fake-host cases; additional stale-root guards are in
+    progress and not accepted yet. UI integration, native input quiescence,
+    actual ordinary-close and other-platform acceptance are not complete. The
+    published older host still lacks v2 and is correctly rejected by the new
+    verifier until a replacement is verified and published.
 
 - [ ] **QA-062 — P1 — Await actual native font completion without blocking JS**
   - **Purpose:** Replace the synchronous two-second font wait with a verified
@@ -1883,19 +1888,22 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/native-close-lifecycle/QA-064/`.
   - **Cleanup:** Stop only the isolated owned app and remove its test data after
     evidence review. Do not change host menu or session settings.
-  - **Status:** Pending implementation; runtime is blocked on isolated macOS
-    access and the close/input UI. Source inspection found the current global
-    Quit action calls `App.quit()` directly, outside the owned window callback.
-    Linux window-close tests do not prove that this path is guarded.
+  - **Status:** Source repair complete at 72477ad; runtime remains blocked on
+    isolated macOS access and close/input UI. The global Quit menu/keyboard
+    action now calls the shared guarded native request instead of invoking
+    `App.quit()` directly. It does not depend on a transient root handler. Patch
+    applicability/whitespace checks passed. Linux tests do not compile or
+    exercise this macOS path, and Dock quit remains outside this repair.
 
-- [ ] **QA-065 — P1 — Keep a newer close approval after an old reply fails**
+- [x] **QA-065 — P1 — Keep a newer close approval after an old reply fails**
   - **Purpose:** An old approval's timeout, disconnect or late revocation must
     not cancel a newer approval for the same owner and pending request.
   - **Prerequisites:** Pinned Rust 1.97.1 and the patched isolated source at
     `docs/tmp/native-async-release/source`. No renderer initialization or GUI.
-  - **Inputs:** Event ID 41, one owner and pending request, approval A, a failed
-    UI update that revokes A, then approval B for that same pending request. Use
-    independent non-reused attempt identities; test identity exhaustion.
+  - **Inputs:** Event ID 41 in the execution helper and 10 in the policy
+    fixture; one owner and pending request, approval A, a failed UI update that
+    revokes A, then approval B for that same pending request. Use independent
+    non-reused attempt identities; test identity exhaustion.
   - **Steps:**
     1. From the repository root, run the focused existing native test module
        with
@@ -1914,7 +1922,16 @@ mark those cases passed until capture works and the evidence is inspected.
     not establish live UI or other-platform acceptance.
   - **Cleanup:** No windows or data directories are created. Keep sanitized
     reports and remove only owned scratch outputs when no longer needed.
-  - **Status:** Pending repair. A read-only source review identified that A and
-    B currently have identical `(owner, request_id)` tokens. An old asynchronous
-    cleanup can cancel B; no old-command window removal was established by the
-    review. The existing passing cases do not cover this interleaving.
+  - **Status:** Passed for the scoped Linux Rust protocol on
+    2026-11-05T20:06:44+00:00 at 72477ad with Rust 1.97.1; no GUI or
+    other-platform claim. The baseline at 6e3f367 failed exactly as predicted:
+    A's disconnected reply cleared B's pending request and returned its queued
+    state to Armed. Repair 0559c08 gives each attempt a non-reused identity and
+    checks it on execution, revocation, failure recovery and asynchronous
+    cancellation. The public owner/request wire shape is unchanged. Inspected
+    results passed 13 close/execution cases, 17 policy cases and four retained
+    font cases, including timeout and disconnect interleavings and counter
+    exhaustion. All 11 source-file hashes match the tracked patch. Evidence is
+    `QA-065-baseline.txt`, `QA-065-repaired-native-tests.txt` and
+    `QA-065-accepted-protocol.json` in the evidence directory above. Native live
+    close, input, platform and UI acceptance remain pending in QA-061/064.
