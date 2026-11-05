@@ -1,3 +1,4 @@
+import { Effect, Option, Schema, Struct } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import {
   closeSync,
@@ -26,7 +27,6 @@ import {
   resolve,
   sep,
 } from "node:path"
-import { z } from "zod"
 
 import { atomicWrite, syncDirectory } from "@/platform/files"
 
@@ -46,112 +46,227 @@ const journalPath = `${internal}/transaction.json`
 
 const lockPath = `${internal}/vault.lock`
 
-const errorSchema = z.object({ code: z.string() })
+const errorSchema = Schema.Struct({ code: Schema.String })
 
-const areaSchema = z.enum(["inbox", "quick", "archive", "trash"])
+const areaSchema = Schema.Literals(["inbox", "quick", "archive", "trash"])
 
-const primarySchema = z.enum(["inbox", "root"])
+const primarySchema = Schema.Literals(["inbox", "root"])
 
-const optionsSchema = z.strictObject({
-  primaryNotesLocation: primarySchema.optional(),
-})
+const optionsSchema = Schema.Struct({
+  primaryNotesLocation: Schema.optional(primarySchema),
+}).mapFields(Struct.map(Schema.mutableKey))
 
-const guardSchema = z.union([
-  z.strictObject({ expectedHash: z.string().regex(/^[a-f0-9]{64}$/) }),
-  z.strictObject({ expectedContent: z.string() }),
+const guardSchema = Schema.Union([
+  Schema.Struct({
+    expectedHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  Schema.Struct({ expectedContent: Schema.String }).mapFields(
+    Struct.map(Schema.mutableKey),
+  ),
 ])
 
-const confirmationSchema = z.strictObject({ confirm: z.literal(true) })
+const confirmationSchema = Schema.Struct({ confirm: Schema.Literal(true) })
 
-const pathSchema = z
-  .string()
-  .min(1)
-  .max(2048)
-  .refine(function validPath(value) {
-    return (
-      !isAbsolute(value) &&
-      !/[\p{Cc}\\:%<>"|?*]/u.test(value) &&
-      Buffer.from(value).toString("utf8") === value &&
-      value.split("/").every(function validPart(part) {
-        return (
-          part.length > 0 &&
-          part !== "." &&
-          part !== ".." &&
-          part.trim() === part &&
-          !part.endsWith(".") &&
-          Buffer.byteLength(part) <= 210 &&
-          !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
-        )
-      })
-    )
-  }, "Unsafe vault-relative POSIX path")
-
-const nameSchema = pathSchema.refine(function singlePart(value) {
-  return !value.includes("/") && !value.startsWith(".")
-}, "A visible filename is required")
-
-const timestampSchema = z.number().int().positive().max(8640000000000000)
-
-const metadataSchema = z.strictObject({
-  createdAt: timestampSchema,
-  pinned: z.boolean().default(false),
-  archiveFrom: pathSchema.optional(),
-  trashFrom: pathSchema.optional(),
-})
-
-const deletedAssetSchema = z.strictObject({
-  path: pathSchema,
-  name: nameSchema,
-  undoToken: z.uuid(),
-  deletedAt: z.iso.datetime(),
-})
-
-const stateSchema = z.strictObject({
-  version: z.literal(1),
-  primaryNotesLocation: primarySchema,
-  notes: z.record(pathSchema, metadataSchema),
-  deletedAssets: z.record(z.uuid(), deletedAssetSchema),
-})
-
-const fileChangeSchema = z.strictObject({
-  path: pathSchema,
-  before: z.base64().nullable(),
-  after: z.base64().nullable(),
-})
-
-const directoryChangeSchema = z.strictObject({
-  path: pathSchema,
-  before: z.boolean(),
-  after: z.boolean(),
-})
-
-const journalSchema = z.strictObject({
-  version: z.literal(1),
-  files: z.array(fileChangeSchema).max(10000),
-  directories: z.array(directoryChangeSchema).max(10000),
-})
-
-const lockSchema = z.strictObject({
-  pid: z.number().int().positive().max(2147483647),
-  token: z.uuid(),
-})
-
-const frontmatterSchema = z.record(
-  z.string(),
-  z.union([z.string(), z.array(z.string())]),
+const pathSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(2048),
+  Schema.makeFilter(
+    function validPath(value) {
+      return (
+        !isAbsolute(value) &&
+        !/[\p{Cc}\\:%<>"|?*]/u.test(value) &&
+        Buffer.from(value).toString("utf8") === value &&
+        value.split("/").every(function validPart(part) {
+          return (
+            part.length > 0 &&
+            part !== "." &&
+            part !== ".." &&
+            part.trim() === part &&
+            !part.endsWith(".") &&
+            Buffer.byteLength(part) <= 210 &&
+            !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
+          )
+        })
+      )
+    },
+    { message: "Unsafe vault-relative POSIX path" },
+  ),
 )
 
-export type NoteFolder = z.infer<typeof areaSchema>
+const nameSchema = pathSchema.check(
+  Schema.makeFilter(
+    function singlePart(value) {
+      return !value.includes("/") && !value.startsWith(".")
+    },
+    { message: "A visible filename is required" },
+  ),
+)
 
-export type VaultOptions = z.infer<typeof optionsSchema>
+const timestampSchema = Schema.Int.check(
+  Schema.isGreaterThan(0),
+  Schema.isLessThanOrEqualTo(8640000000000000),
+)
 
-export type ExpectedContent = z.infer<typeof guardSchema>
+// Keep the stored contract's lowercase-only max UUID.
+const uuidSchema = Schema.String.check(
+  Schema.isPattern(
+    /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/,
+    { expected: "a UUID" },
+  ),
+)
+
+// Keep calendar validation and UTC-only timestamps from the stored contract.
+
+const datePattern =
+  "(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|02-(?:0[1-9]|1\\d|2[0-8])))"
+
+const deletedAtSchema = Schema.String.check(
+  Schema.isPattern(
+    new RegExp(
+      `^${datePattern}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?Z$`,
+    ),
+  ),
+)
+
+const metadataSchema = Schema.Struct({
+  createdAt: timestampSchema,
+  pinned: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  archiveFrom: Schema.optional(pathSchema),
+  trashFrom: Schema.optional(pathSchema),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const deletedAssetSchema = Schema.Struct({
+  path: pathSchema,
+  name: nameSchema,
+  undoToken: uuidSchema,
+  deletedAt: deletedAtSchema,
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const stateSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  primaryNotesLocation: primarySchema,
+  notes: Schema.Record(pathSchema, Schema.mutableKey(metadataSchema)),
+  deletedAssets: Schema.Record(
+    uuidSchema,
+    Schema.mutableKey(deletedAssetSchema),
+  ),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const base64Schema = Schema.String.check(
+  Schema.isPattern(
+    /^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$/,
+  ),
+)
+
+const fileChangeSchema = Schema.Struct({
+  path: pathSchema,
+  before: Schema.NullOr(base64Schema),
+  after: Schema.NullOr(base64Schema),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const directoryChangeSchema = Schema.Struct({
+  path: pathSchema,
+  before: Schema.Boolean,
+  after: Schema.Boolean,
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const journalSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  files: Schema.mutable(Schema.Array(fileChangeSchema)).check(
+    Schema.isMaxLength(10000),
+  ),
+  directories: Schema.mutable(Schema.Array(directoryChangeSchema)).check(
+    Schema.isMaxLength(10000),
+  ),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const lockSchema = Schema.Struct({
+  pid: Schema.Int.check(
+    Schema.isGreaterThan(0),
+    Schema.isLessThanOrEqualTo(2147483647),
+  ),
+  token: uuidSchema,
+})
+
+const frontmatterSchema = Schema.Record(
+  Schema.String,
+  Schema.mutableKey(
+    Schema.Union([Schema.String, Schema.mutable(Schema.Array(Schema.String))]),
+  ),
+)
+
+const decodeError = Schema.decodeUnknownOption(errorSchema)
+
+const decodeArea = Schema.decodeUnknownSync(areaSchema)
+
+const decodeOptions = Schema.decodeUnknownSync(optionsSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeGuard = Schema.decodeUnknownSync(guardSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeConfirmation = Schema.decodeUnknownSync(confirmationSchema, {
+  onExcessProperty: "error",
+})
+
+const decodePath = Schema.decodeUnknownSync(pathSchema)
+
+const decodeName = Schema.decodeUnknownSync(nameSchema)
+
+const decodeState = Schema.decodeUnknownSync(stateSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeJournal = Schema.decodeUnknownSync(journalSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeLock = Schema.decodeUnknownSync(lockSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeDeletedAsset = Schema.decodeUnknownSync(deletedAssetSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeFrontmatter = Schema.decodeUnknownSync(frontmatterSchema)
+
+const decodeUuid = Schema.decodeUnknownSync(uuidSchema)
+
+const decodeNonEmptyString = Schema.decodeUnknownSync(Schema.NonEmptyString)
+
+const decodeString = Schema.decodeUnknownSync(Schema.String)
+
+const decodeBoolean = Schema.decodeUnknownSync(Schema.Boolean)
+
+const decodeBytes = Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))
+
+const decodePosition = Schema.decodeUnknownSync(
+  Schema.Literals(["start", "end"]),
+)
+
+const decodeNoteLimit = Schema.decodeUnknownSync(
+  Schema.Int.check(
+    Schema.isGreaterThan(0),
+    Schema.isLessThanOrEqualTo(noteLimit),
+  ),
+)
+
+export type NoteFolder = typeof areaSchema.Type
+
+export type VaultOptions = typeof optionsSchema.Type
+
+export type ExpectedContent = typeof guardSchema.Type
 
 export interface DeleteConfirmation {
   confirm: boolean
 }
 
-export type DeletedAsset = z.infer<typeof deletedAssetSchema>
+export type DeletedAsset = typeof deletedAssetSchema.Type
 
 export interface NoteRecord {
   id: string
@@ -189,20 +304,20 @@ export interface VaultChange {
   error?: Error
 }
 
-type State = z.infer<typeof stateSchema>
+type State = typeof stateSchema.Type
 
-type Journal = z.infer<typeof journalSchema>
+type Journal = typeof journalSchema.Type
 
-type FileChange = z.infer<typeof fileChangeSchema>
+type FileChange = typeof fileChangeSchema.Type
 
-type DirectoryChange = z.infer<typeof directoryChangeSchema>
+type DirectoryChange = typeof directoryChangeSchema.Type
 
 interface VaultTree {
   files: string[]
   directories: string[]
 }
 
-function missing(error: z.infer<typeof errorSchema> | undefined) {
+function missing(error: typeof errorSchema.Type | undefined) {
   return error?.code === "ENOENT"
 }
 
@@ -210,7 +325,7 @@ function fileStat(path: string) {
   try {
     return lstatSync(path)
   } catch (error) {
-    if (missing(errorSchema.safeParse(error).data)) return null
+    if (missing(Option.getOrUndefined(decodeError(error)))) return null
     throw error
   }
 }
@@ -270,7 +385,7 @@ function text(bytes: Uint8Array) {
 }
 
 function noteText(value: string) {
-  z.string().parse(value)
+  decodeString(value)
 
   if (Buffer.byteLength(value) > noteLimit)
     throw new Error("Note exceeds size limit")
@@ -363,7 +478,7 @@ function parseProperties(body: string) {
   }
 
   return {
-    frontmatter: frontmatterSchema.parse(Object.fromEntries(fields)),
+    frontmatter: decodeFrontmatter(Object.fromEntries(fields)),
     tags: [...tags],
   }
 }
@@ -408,8 +523,8 @@ export class Vault {
   private stateBytes = ""
 
   constructor(root: string, options: VaultOptions = {}) {
-    z.string().min(1).parse(root)
-    const parsed = optionsSchema.parse(options)
+    decodeNonEmptyString(root)
+    const parsed = decodeOptions(options)
     this.root = resolve(root)
     this.assertAbsoluteParents(this.root)
     mkdirSync(this.root, { recursive: true })
@@ -431,7 +546,7 @@ export class Vault {
         this.stateBytes = text(readBytes(this.safe(statePath), metadataLimit))
 
         try {
-          this.state = stateSchema.parse(JSON.parse(this.stateBytes))
+          this.state = decodeState(JSON.parse(this.stateBytes))
           this.validateState(this.state)
         } catch (error) {
           throw new Error(
@@ -480,7 +595,7 @@ export class Vault {
   }
 
   private safe(id: string, visible = false) {
-    pathSchema.parse(id)
+    decodePath(id)
 
     if (
       visible &&
@@ -522,9 +637,7 @@ export class Vault {
   }
 
   private readLock() {
-    return lockSchema.parse(
-      JSON.parse(text(readBytes(this.safe(lockPath), 4096))),
-    )
+    return decodeLock(JSON.parse(text(readBytes(this.safe(lockPath), 4096))))
   }
 
   private acquireLock() {
@@ -534,7 +647,8 @@ export class Vault {
       try {
         fd = openSync(this.safe(lockPath), "wx", 0o600)
       } catch (error) {
-        if (errorSchema.safeParse(error).data?.code === "EEXIST") return false
+        if (Option.getOrUndefined(decodeError(error))?.code === "EEXIST")
+          return false
         throw error
       }
 
@@ -553,7 +667,7 @@ export class Vault {
     }
 
     if (attempt()) return
-    let prior: z.infer<typeof lockSchema>
+    let prior: typeof lockSchema.Type
 
     try {
       prior = this.readLock()
@@ -567,7 +681,8 @@ export class Vault {
       process.kill(prior.pid, 0)
       throw new Error("Vault lock is held by another process")
     } catch (error) {
-      if (errorSchema.safeParse(error).data?.code !== "ESRCH") throw error
+      if (Option.getOrUndefined(decodeError(error))?.code !== "ESRCH")
+        throw error
     }
 
     const recoveryPath = this.safe(`${lockPath}.recovery`)
@@ -718,7 +833,7 @@ export class Vault {
     let journal: Journal
 
     try {
-      journal = journalSchema.parse(
+      journal = decodeJournal(
         JSON.parse(text(readBytes(this.safe(journalPath), transactionLimit))),
       )
     } catch (error) {
@@ -744,7 +859,7 @@ export class Vault {
   ) {
     this.assertWritable()
     this.validateState(next)
-    const nextBytes = JSON.stringify(stateSchema.parse(next))
+    const nextBytes = JSON.stringify(decodeState(next))
 
     if (Buffer.byteLength(nextBytes) > metadataLimit)
       throw new Error("Vault metadata exceeds limit")
@@ -821,7 +936,7 @@ export class Vault {
     }
 
     this.validateJournal(journal)
-    const bytes = JSON.stringify(journalSchema.parse(journal))
+    const bytes = JSON.stringify(decodeJournal(journal))
 
     if (Buffer.byteLength(bytes) > transactionLimit)
       throw new Error("Transaction exceeds size limit; use smaller folders")
@@ -851,7 +966,7 @@ export class Vault {
   }
 
   private nextState() {
-    return stateSchema.parse(this.state)
+    return decodeState(this.state)
   }
   private areaRoot(folder: NoteFolder) {
     return folder === "inbox" && this.state.primaryNotesLocation === "root"
@@ -859,10 +974,10 @@ export class Vault {
       : folder
   }
   private folderPath(folder: NoteFolder, subpath = "") {
-    areaSchema.parse(folder)
+    decodeArea(folder)
 
     if (subpath) {
-      pathSchema.parse(subpath)
+      decodePath(subpath)
 
       if (
         subpath.split("/").some(function hidden(part) {
@@ -912,7 +1027,7 @@ export class Vault {
     return id
   }
   private unique(id: string) {
-    pathSchema.parse(id)
+    decodePath(id)
     const extension = posix.extname(id)
     const stem = id.slice(0, id.length - extension.length)
     let candidate = id
@@ -924,7 +1039,7 @@ export class Vault {
     return candidate
   }
   private guard(bytes: Uint8Array, expected: ExpectedContent) {
-    const parsed = guardSchema.parse(expected)
+    const parsed = decodeGuard(expected)
 
     const expectedHash =
       "expectedHash" in parsed
@@ -1026,7 +1141,7 @@ export class Vault {
     body?: string,
   ) {
     this.assertWritable()
-    nameSchema.parse(title)
+    decodeName(title)
     const parent = this.folderPath(folder, subpath)
     const id = this.unique([parent, `${title}.md`].filter(Boolean).join("/"))
     this.notePath(id)
@@ -1044,7 +1159,7 @@ export class Vault {
   }
   importNote(source: string, folder: NoteFolder = "inbox", subpath = "") {
     this.assertOpen()
-    z.string().min(1).parse(source)
+    decodeNonEmptyString(source)
     this.assertAbsoluteParents(resolve(source))
 
     return this.createNote(
@@ -1073,7 +1188,7 @@ export class Vault {
   ) {
     const previous = this.readNote(id)
     this.guard(Buffer.from(previous.body), expected)
-    z.enum(["start", "end"]).parse(position)
+    decodePosition(position)
     const content = noteText(addition).trimEnd()
 
     if (!content) return previous
@@ -1092,7 +1207,7 @@ export class Vault {
     next.notes[id] = {
       ...next.notes[id],
       createdAt: note.createdAt,
-      pinned: z.boolean().parse(pinned),
+      pinned: decodeBoolean(pinned),
     }
     this.transaction(next, [])
 
@@ -1110,10 +1225,10 @@ export class Vault {
     try {
       disk = this.readNote(id)
     } catch (error) {
-      if (!missing(errorSchema.safeParse(error).data)) throw error
+      if (!missing(Option.getOrUndefined(decodeError(error)))) throw error
     }
 
-    const parsed = guardSchema.parse(expected)
+    const parsed = decodeGuard(expected)
 
     const expectedHash =
       "expectedHash" in parsed
@@ -1165,7 +1280,7 @@ export class Vault {
     return this.readNote(target)
   }
   renameNote(id: string, title: string) {
-    nameSchema.parse(title)
+    decodeName(title)
 
     return this.relocateNote(id, posix.join(posix.dirname(id), `${title}.md`))
   }
@@ -1238,7 +1353,7 @@ export class Vault {
     )
   }
   deleteNote(id: string, confirmation: DeleteConfirmation) {
-    confirmationSchema.parse(confirmation)
+    decodeConfirmation(confirmation)
 
     if (this.readNote(id).folder !== "trash")
       throw new Error("Permanent deletion requires a note in trash")
@@ -1247,7 +1362,7 @@ export class Vault {
     this.transaction(next, [{ path: id, bytes: null }])
   }
   emptyTrash(confirmation: DeleteConfirmation) {
-    confirmationSchema.parse(confirmation)
+    decodeConfirmation(confirmation)
 
     const deleted = this.listNotes()
       .filter(function inTrash(note) {
@@ -1395,7 +1510,7 @@ export class Vault {
     subpath: string,
     confirmation: DeleteConfirmation,
   ) {
-    confirmationSchema.parse(confirmation)
+    decodeConfirmation(confirmation)
     const tree = this.folderTree(folder, subpath)
 
     if (
@@ -1458,14 +1573,14 @@ export class Vault {
   }
   readAssetText(id: string, limit = noteLimit) {
     this.assertOpen()
-    z.number().int().positive().max(noteLimit).parse(limit)
+    decodeNoteLimit(limit)
 
     return text(readBytes(this.safe(this.assetPath(id), true), limit))
   }
   createAsset(name: string, bytes: Uint8Array, targetDir = "assets") {
     this.assertWritable()
-    nameSchema.parse(name)
-    z.instanceof(Uint8Array).parse(bytes)
+    decodeName(name)
+    decodeBytes(bytes)
 
     if (bytes.length > assetLimit)
       throw new Error("Attachment exceeds size limit")
@@ -1478,7 +1593,7 @@ export class Vault {
     return this.assetRecord(target)
   }
   importAsset(source: string, targetDir = "assets") {
-    z.string().min(1).parse(source)
+    decodeNonEmptyString(source)
     this.assertAbsoluteParents(resolve(source))
 
     return this.createAsset(
@@ -1490,7 +1605,7 @@ export class Vault {
   writeAsset(id: string, bytes: Uint8Array, expected: ExpectedContent) {
     const previous = this.readAsset(id)
     this.guard(previous, expected)
-    z.instanceof(Uint8Array).parse(bytes)
+    decodeBytes(bytes)
 
     if (bytes.length > assetLimit)
       throw new Error("Attachment exceeds size limit")
@@ -1516,7 +1631,7 @@ export class Vault {
     return this.assetRecord(target)
   }
   renameAsset(id: string, name: string) {
-    nameSchema.parse(name)
+    decodeName(name)
 
     return this.relocateAsset(id, posix.join(posix.dirname(id), name))
   }
@@ -1538,7 +1653,7 @@ export class Vault {
   deleteAsset(id: string) {
     const bytes = this.readAsset(id)
 
-    const record = deletedAssetSchema.parse({
+    const record = decodeDeletedAsset({
       path: id,
       name: basename(id),
       undoToken: randomUUID(),
@@ -1576,7 +1691,7 @@ export class Vault {
   }
   restoreDeletedAsset(token: string) {
     this.assertOpen()
-    z.uuid().parse(token)
+    decodeUuid(token)
     const stored = this.state.deletedAssets[token]
 
     if (!stored) throw new Error("Attachment restore metadata is missing")
@@ -1593,8 +1708,8 @@ export class Vault {
     return this.assetRecord(target)
   }
   purgeDeletedAsset(token: string, confirmation: DeleteConfirmation) {
-    confirmationSchema.parse(confirmation)
-    z.uuid().parse(token)
+    decodeConfirmation(confirmation)
+    decodeUuid(token)
 
     if (!this.state.deletedAssets[token])
       throw new Error("Attachment restore metadata is missing")
@@ -1605,7 +1720,7 @@ export class Vault {
     ])
   }
   emptyDeletedAssets(confirmation: DeleteConfirmation) {
-    confirmationSchema.parse(confirmation)
+    decodeConfirmation(confirmation)
 
     const deleted = this.listDeletedAssets().map(function token(entry) {
       return entry.undoToken
@@ -1728,7 +1843,7 @@ export class Vault {
           syncDirectory(this.safe(internal))
         }
       } catch (error) {
-        if (!missing(errorSchema.safeParse(error).data))
+        if (!missing(Option.getOrUndefined(decodeError(error))))
           console.warn("Vault lock retained; inspect it before removal", error)
       }
     }
