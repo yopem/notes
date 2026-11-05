@@ -419,14 +419,18 @@ describe("native Markdown vault", () => {
     test(`${primary} layout rejects case aliases without changing vault data`, () => {
       const directory = root()
       const vault = open(directory, primary)
+
       const active = Effect.runSync(
         vault.createNote("quick", "Keep", "", "keep"),
       )
+
       Effect.runSync(vault.setPinned(active.path, true))
       const trashed = Effect.runSync(vault.moveToTrash(active.path))
+
       const asset = Effect.runSync(
         vault.createAsset("keep.bin", Buffer.from("asset")),
       )
+
       Effect.runSync(vault.createFolder("root", "Work"))
       const statePath = join(directory, ".still-notes/state.json")
       const before = readFileSync(statePath, "utf8")
@@ -477,7 +481,9 @@ describe("native Markdown vault", () => {
             ).toBeInstanceOf(VaultNoteError)
           }
         }
+
         const id = `${alias}/Keep.md`
+
         for (const attempt of [
           () => Effect.runSync(Effect.flip(vault.readNote(id))),
           () =>
@@ -529,6 +535,7 @@ describe("native Markdown vault", () => {
           Effect.runSync(Effect.flip(vault.duplicateNote(id))),
         ).toBeInstanceOf(VaultNoteError)
       }
+
       for (const id of [
         "Assets/keep.bin",
         "ASSETS/keep.bin",
@@ -554,6 +561,7 @@ describe("native Markdown vault", () => {
         ])
           expect(attempt()).toBeInstanceOf(VaultAssetError)
       }
+
       expect(
         Effect.runSync(
           Effect.flip(
@@ -629,9 +637,11 @@ describe("native Markdown vault", () => {
 
       if (primary === "root") {
         Effect.runSync(vault.createFolder("inbox", "INBOX"))
+
         const note = Effect.runSync(
           vault.createNote("inbox", "Keep", "INBOX", "ordinary"),
         )
+
         expect(note.path).toBe("INBOX/Keep.md")
         expect(note.folder).toBe("inbox")
         expect(Effect.runSync(vault.listFolders())).toContainEqual({

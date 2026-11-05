@@ -1125,6 +1125,7 @@ export class Vault {
 
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       if (!hidden && entry.name.startsWith(".")) continue
+
       if (
         !id &&
         this.reservedRoot(entry.name) &&
