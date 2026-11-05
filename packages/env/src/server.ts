@@ -1,37 +1,62 @@
+import { Config, ConfigProvider, Effect, Option, Schema } from "effect"
 import { homedir } from "node:os"
 import { isAbsolute, join, resolve } from "node:path"
-import { z } from "zod"
 
-const environmentSchema = z.object({
-  dataDirectory: z.string().min(1).optional(),
-  launchDirectory: z
-    .string()
-    .min(1)
-    .refine(isAbsolute, "Use an absolute launch directory")
-    .optional(),
-  localAppData: z.string().min(1).optional(),
-  appData: z.string().min(1).optional(),
-  xdgDataHome: z.string().min(1).optional(),
-  background: z.boolean(),
-  width: z.coerce.number().int().min(640).max(3840).default(1360),
-  height: z.coerce.number().int().min(480).max(2160).default(900),
-  binary: z.string().min(1).optional(),
-  desktop: z.string().optional(),
+const launchDirectorySchema = Schema.NonEmptyString.check(
+  Schema.makeFilter(isAbsolute, { expected: "an absolute launch directory" }),
+)
+
+const widthSchema = Schema.Int.check(
+  Schema.isBetween({ minimum: 640, maximum: 3840 }),
+)
+
+const heightSchema = Schema.Int.check(
+  Schema.isBetween({ minimum: 480, maximum: 2160 }),
+)
+
+function optionalConfig<A>(config: Config.Config<A>) {
+  return config.pipe(Config.option, Config.map(Option.getOrUndefined))
+}
+
+const desktopConfig = Config.all({
+  dataDirectory: optionalConfig(
+    Config.schema(Schema.NonEmptyString, "STILL_NOTES_DATA_DIR"),
+  ),
+  launchDirectory: optionalConfig(
+    Config.schema(launchDirectorySchema, "STILL_NOTES_LAUNCH_DIRECTORY"),
+  ),
+  localAppData: optionalConfig(
+    Config.schema(Schema.NonEmptyString, "LOCALAPPDATA"),
+  ),
+  appData: optionalConfig(Config.schema(Schema.NonEmptyString, "APPDATA")),
+  xdgDataHome: optionalConfig(
+    Config.schema(Schema.NonEmptyString, "XDG_DATA_HOME"),
+  ),
+  background: optionalConfig(Config.String("GPUIX_BACKGROUND")).pipe(
+    Config.map((value) => value === "1"),
+  ),
+  width: Config.schema(widthSchema, "STILL_NOTES_WIDTH").pipe(
+    Config.withDefault(1360),
+  ),
+  height: Config.schema(heightSchema, "STILL_NOTES_HEIGHT").pipe(
+    Config.withDefault(900),
+  ),
+  binary: optionalConfig(
+    Config.schema(Schema.NonEmptyString, "STILL_NOTES_BINARY"),
+  ),
+  desktop: optionalConfig(Config.String("XDG_CURRENT_DESKTOP")),
 })
 
+export function loadDesktopEnvironment() {
+  return Effect.suspend(() =>
+    desktopConfig.parse(
+      ConfigProvider.fromUnknown(Bun.env, { preserveEmptyStrings: true }),
+    ),
+  )
+}
+
 export function readEnvironment() {
-  return environmentSchema.parse({
-    dataDirectory: process.env.STILL_NOTES_DATA_DIR,
-    launchDirectory: process.env.STILL_NOTES_LAUNCH_DIRECTORY,
-    localAppData: process.env.LOCALAPPDATA,
-    appData: process.env.APPDATA,
-    xdgDataHome: process.env.XDG_DATA_HOME,
-    background: process.env.GPUIX_BACKGROUND === "1",
-    width: process.env.STILL_NOTES_WIDTH,
-    height: process.env.STILL_NOTES_HEIGHT,
-    binary: process.env.STILL_NOTES_BINARY,
-    desktop: process.env.XDG_CURRENT_DESKTOP,
-  })
+  return Effect.runSync(loadDesktopEnvironment())
 }
 
 export function defaultDataDirectory() {
