@@ -1,24 +1,28 @@
 import type { App } from "@gpuix/react/automation"
 
+import { Schema } from "effect"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { readFileSync, rmSync } from "node:fs"
-import { z } from "zod"
 
-const compositorVersionSchema = z.string().regex(/Hyprland \d+\.\d+\./)
+const compositorVersionSchema = Schema.String.check(
+  Schema.isPattern(/Hyprland \d+\.\d+\./),
+)
 
-const clientSchema = z.object({
-  address: z.string().regex(/^0x[\da-f]+$/i),
-  title: z.string(),
-  pid: z.number().int().positive(),
-  at: z.tuple([z.number().int(), z.number().int()]),
-  size: z.tuple([z.number().int().positive(), z.number().int().positive()]),
-  mapped: z.boolean(),
-  hidden: z.boolean(),
-  stableId: z
-    .string()
-    .regex(/^[\da-f]+$/i)
-    .optional(),
+const clientSchema = Schema.Struct({
+  address: Schema.String.check(Schema.isPattern(/^0x[\da-f]+$/i)),
+  title: Schema.String,
+  pid: Schema.Int.check(Schema.isGreaterThan(0)),
+  at: Schema.Tuple([Schema.Int, Schema.Int]),
+  size: Schema.Tuple([
+    Schema.Int.check(Schema.isGreaterThan(0)),
+    Schema.Int.check(Schema.isGreaterThan(0)),
+  ]),
+  mapped: Schema.Boolean,
+  hidden: Schema.Boolean,
+  stableId: Schema.optional(
+    Schema.String.check(Schema.isPattern(/^[\da-f]+$/i)),
+  ),
 })
 
 function run(command: string, args: string[]) {
@@ -34,9 +38,9 @@ function run(command: string, args: string[]) {
 }
 
 function currentWindow(pid: number, requireActive = false) {
-  const clients = z
-    .array(clientSchema)
-    .parse(JSON.parse(run("hyprctl", ["-j", "clients"])))
+  const clients = Schema.decodeUnknownSync(Schema.Array(clientSchema))(
+    JSON.parse(run("hyprctl", ["-j", "clients"])),
+  )
 
   const matches = clients.filter((client) => client.title === "Still Notes")
 
@@ -58,7 +62,7 @@ function currentWindow(pid: number, requireActive = false) {
 
   if (!requireActive) return client
 
-  const active = clientSchema.parse(
+  const active = Schema.decodeUnknownSync(clientSchema)(
     JSON.parse(run("hyprctl", ["-j", "activewindow"])),
   )
 
@@ -99,7 +103,11 @@ export async function sizeTestWindow(
 ) {
   if (process.platform === "linux") {
     const client = currentWindow(pid)
-    const version = compositorVersionSchema.parse(run("hyprctl", ["version"]))
+
+    const version = Schema.decodeUnknownSync(compositorVersionSchema)(
+      run("hyprctl", ["version"]),
+    )
+
     const parts = version.match(/Hyprland (\d+)\.(\d+)\./)
     const luaDispatchers = Number(parts?.[1]) > 0 || Number(parts?.[2]) >= 57
 
