@@ -1188,3 +1188,29 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Pending. Source review found the action reads a rendered-note
     ref while edits first update a separate pending-draft ref; whether native
     event timing can expose an older value is unverified. QA-015 blocks capture.
+
+- [ ] **QA-047 — P0 — Protect reserved vault paths across case variants**
+  - **Purpose:** Prevent root aliases or note IDs with different letter case
+    from reaching protected folders on case-insensitive filesystems.
+  - **Prerequisites:** Isolated disposable vaults in both primary layouts. Run
+    focused vault tests on Linux and repeat on case-insensitive macOS and
+    Windows filesystems. Do not use a user vault.
+  - **Inputs:** Protected `trash`, `archive`, `quick`, `assets`, and applicable
+    `inbox` directories with test-owned notes or assets. Try `Trash`, `TRASH`,
+    `Archive`, `Quick`, `Assets` and `Inbox`, including nested paths.
+  - **Steps:**
+    1. Record hashes for protected test files and metadata in both layouts.
+    2. Run `bun test --timeout 30000 tests/vault.test.ts` from `apps/desktop`
+       using isolated temporary storage and inspect mixed-case mutation cases.
+    3. On each case-insensitive platform, repeat root-alias create, rename,
+       move, duplicate and confirmed-delete attempts with the inputs above.
+    4. Use the canonical system-area operations and inspect normal folder use.
+  - **Expected results:** Mixed-case aliases fail closed without changing any
+    protected file or metadata. Canonical system operations and valid normal
+    folders continue to work. Both layouts remain usable after reopening.
+  - **Evidence:** Save sanitized focused test output, platform and filesystem
+    details, hashes and tested revision under `docs/artifacts/vault/QA-047/`.
+  - **Cleanup:** Close test vaults and remove only isolated test data after
+    evidence review.
+  - **Status:** Pending. Source review identified a case-sensitive comparison;
+    no case-insensitive platform run has verified the defect or repair.
