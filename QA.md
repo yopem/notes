@@ -43,21 +43,21 @@ data.
 
 ## Coverage map
 
-| Requirement or workflow                                      | Cases                                                  |
-| ------------------------------------------------------------ | ------------------------------------------------------ |
-| Preserve local notes and failed-draft recovery               | QA-001, QA-007                                         |
-| Workspace ownership, dependency install and exports          | QA-002, QA-003                                         |
-| Native tooling, exact runtime, strict policy                 | QA-004, QA-005                                         |
-| Environment contracts and isolation                          | QA-006, QA-012                                         |
-| Native app, fonts, editor bridge and packaging paths         | QA-007, QA-008                                         |
-| Existing service behavior and desktop integration boundaries | QA-009                                                 |
-| Documentation and reproducible handoff                       | QA-010                                                 |
-| Platform-neutral Markdown and exact UTF-8 byte limits        | QA-005, QA-011                                         |
-| Zero-warning lint and Effect migration                       | QA-013, QA-014, QA-015                                 |
-| Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025 |
-| Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                         |
-| Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                 |
-| Reactive system appearance                                   | QA-022                                                 |
+| Requirement or workflow                                      | Cases                                                          |
+| ------------------------------------------------------------ | -------------------------------------------------------------- |
+| Preserve local notes and failed-draft recovery               | QA-001, QA-007                                                 |
+| Workspace ownership, dependency install and exports          | QA-002, QA-003                                                 |
+| Native tooling, exact runtime, strict policy                 | QA-004, QA-005                                                 |
+| Environment contracts and isolation                          | QA-006, QA-012                                                 |
+| Native app, fonts, editor bridge and packaging paths         | QA-007, QA-008                                                 |
+| Existing service behavior and desktop integration boundaries | QA-009                                                         |
+| Documentation and reproducible handoff                       | QA-010                                                         |
+| Platform-neutral Markdown and exact UTF-8 byte limits        | QA-005, QA-011                                                 |
+| Zero-warning lint and Effect migration                       | QA-013, QA-014, QA-015                                         |
+| Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025, QA-032 |
+| Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                                 |
+| Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                         |
+| Reactive system appearance                                   | QA-022                                                         |
 
 ## Storage and configuration
 
@@ -829,3 +829,31 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Restore only the isolated settings file, stop the test app, and
     remove test data after evidence review.
   - **Status:** Pending implementation and blocked by QA-015 screenshot capture.
+
+- [ ] **QA-032 — P0 — Recover lock failures and list safe folder entries**
+  - **Purpose:** Prevent a failed lock write from permanently blocking a vault,
+    and preserve correct folder discovery next to unrelated file names.
+  - **Prerequisites:** Shared isolated folder setup, Linux for the filename
+    case, and the focused cases in the existing vault test file. Tests must not
+    alter a real user folder or another process's lock.
+  - **Inputs:** A test-owned vault with `Books/A.md`, `Books/Nested/B.md`, and
+    an unrelated Linux file `unrelated:backup.txt`; a failed or partial lock
+    initialization using the test's isolated failure setup.
+  - **Steps:**
+    1. From `apps/desktop`, run
+       `../../node_modules/.bin/bun test tests/vault.test.ts` after the focused
+       cases and fixes are complete.
+    2. Inspect assertions for lock-write failure, an externally replaced lock,
+       retry, valid note listing and root/nested folder coordinates.
+    3. Inspect existing corruption, symlink and writable-recovery results.
+  - **Expected results:** A failed initialization removes only the lock it
+    created, preserves a replacement lock, and permits a safe retry. A valid
+    note beside the unrelated file remains visible, with accurate root and
+    nested folder coordinates. Existing path and recovery protections hold.
+  - **Evidence:** Save the tested revision, runtime, command and output to
+    `docs/artifacts/effect-migration/QA-032-vault-safety.txt`; inspect it.
+  - **Cleanup:** The test closes its vaults and removes only its temporary data.
+    Keep failed evidence before cleanup; never remove a user-owned lock.
+  - **Status:** Pending. Source review found lock initialization can leave a
+    partial lock, unsupported unrelated filenames can block listing, and root
+    folder coordinates can be incorrect.
