@@ -20,6 +20,7 @@ import { join, resolve } from "node:path"
 
 import {
   Vault,
+  VaultFolderError,
   VaultNoteError,
   VaultOpenError,
   VaultResource,
@@ -187,7 +188,9 @@ describe("native Markdown vault", () => {
   })
   test("root primary and nested folder IDs remain vault-relative POSIX", () => {
     const vault = open(root(), "root")
-    expect(vault.createFolder("inbox", "Work/研究").path).toBe("Work/研究")
+    const creation = vault.createFolder("inbox", "Work/研究")
+    expect(existsSync(join(vault.root, "Work"))).toBe(false)
+    expect(Effect.runSync(creation).path).toBe("Work/研究")
 
     const note = Effect.runSync(
       vault.createNote("inbox", "Café 😀", "Work/研究"),
@@ -200,7 +203,9 @@ describe("native Markdown vault", () => {
       "quick/Quick.md",
     )
     expect(
-      vault.listFolders().some((folder) => folder.path === "Work/研究"),
+      Effect.runSync(vault.listFolders()).some(
+        (folder) => folder.path === "Work/研究",
+      ),
     ).toBe(true)
     expect(Effect.runSync(vault.listNotes())).toHaveLength(2)
   })
@@ -365,25 +370,46 @@ describe("native Markdown vault", () => {
     Effect.runSync(vault.createNote("inbox", "Nested", "A/B", "exact"))
     mkdirSync(join(vault.root, "inbox/A/.hidden"))
     writeFileSync(join(vault.root, "inbox/A/.hidden/keep"), "private")
-    expect(vault.renameFolder("inbox", "A", "Moved").path).toBe("inbox/Moved")
+    const rename = vault.renameFolder("inbox", "A", "Moved")
+    expect(existsSync(join(vault.root, "inbox/A/B/Nested.md"))).toBe(true)
+    expect(Effect.runSync(rename).path).toBe("inbox/Moved")
     expect(Effect.runSync(vault.readNote("inbox/Moved/B/Nested.md")).body).toBe(
       "exact",
     )
-    expect(vault.duplicateFolder("inbox", "Moved").path).toBe(
-      "inbox/Moved copy",
-    )
+    const duplicate = vault.duplicateFolder("inbox", "Moved")
+    expect(existsSync(join(vault.root, "inbox/Moved copy"))).toBe(false)
+    expect(Effect.runSync(duplicate).path).toBe("inbox/Moved copy")
     expect(
       readFileSync(join(vault.root, "inbox/Moved copy/.hidden/keep"), "utf8"),
     ).toBe("private")
+
+    const failure = Effect.runSync(
+      vault.deleteFolder("inbox", "Moved", { confirm: true }).pipe(
+        Effect.match({
+          onFailure: (error) => error,
+          onSuccess: () => undefined,
+        }),
+      ),
+    )
+
+    expect(failure).toBeInstanceOf(VaultFolderError)
+    expect(failure?._tag).toBe("VaultFolderError")
+    expect(failure?.message).toMatch(/unknown|hidden/i)
+    expect(failure?.cause).toBeInstanceOf(Error)
     expect(() =>
-      vault.deleteFolder("inbox", "Moved", { confirm: true }),
-    ).toThrow(/unknown|hidden/i)
-    expect(() => vault.renameFolder("inbox", "Moved", "Moved/inside")).toThrow()
-    expect(() => vault.renameFolder("inbox", "Moved", "Moved copy")).toThrow()
+      Effect.runSync(vault.renameFolder("inbox", "Moved", "Moved/inside")),
+    ).toThrow()
+    expect(() =>
+      Effect.runSync(vault.renameFolder("inbox", "Moved", "Moved copy")),
+    ).toThrow()
     Effect.runSync(vault.createNote("inbox", "Delete", "Clean/Sub"))
-    vault.deleteFolder("inbox", "Clean", { confirm: true })
+    const deletion = vault.deleteFolder("inbox", "Clean", { confirm: true })
+    expect(existsSync(join(vault.root, "inbox/Clean/Sub/Delete.md"))).toBe(true)
+    Effect.runSync(deletion)
     expect(existsSync(join(vault.root, "inbox/Clean"))).toBe(false)
-    expect(() => vault.deleteFolder("inbox", "", { confirm: true })).toThrow()
+    expect(() =>
+      Effect.runSync(vault.deleteFolder("inbox", "", { confirm: true })),
+    ).toThrow()
   })
   test("empty trash deletes Markdown only, preserves unknown files and hidden folders", () => {
     const vault = open()
@@ -477,7 +503,7 @@ describe("native Markdown vault", () => {
   ]) {
     test(`rejects unsafe path ${JSON.stringify(value)}`, () => {
       const vault = open()
-      expect(() => vault.createFolder("inbox", value)).toThrow()
+      expect(() => Effect.runSync(vault.createFolder("inbox", value))).toThrow()
       expect(() => Effect.runSync(vault.readNote(value))).toThrow()
       expect(() => vault.createAsset(value, Uint8Array.of(1))).toThrow()
     })
@@ -497,7 +523,9 @@ describe("native Markdown vault", () => {
       Effect.runSync(vault.createNote("inbox", "outside", "link")),
     ).toThrow(/symlink/i)
     expect(Effect.runSync(vault.listNotes())).toEqual([])
-    expect(() => vault.duplicateFolder("inbox", "link")).toThrow()
+    expect(() =>
+      Effect.runSync(vault.duplicateFolder("inbox", "link")),
+    ).toThrow()
     vault.close()
     rmSync(join(directory, ".still-notes"), { recursive: true })
     symlinkSync(outside, join(directory, ".still-notes"))

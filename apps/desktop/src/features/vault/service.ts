@@ -1102,27 +1102,39 @@ export class Vault {
       })
       .map((id) => this.readNoteSync(id))
   }
-  listFolders(): FolderRecord[] {
-    this.assertOpen()
+  private folderIO<A>(operation: () => A) {
+    return Effect.try({
+      try: operation,
+      catch: (cause) =>
+        new VaultFolderError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    })
+  }
+  listFolders() {
+    return this.folderIO(() => {
+      this.assertOpen()
 
-    return this.walk()
-      .directories.filter(function noteDirectory(id) {
-        return id !== "assets" && !id.startsWith("assets/")
-      })
-      .map((path) => {
-        const folder = this.folderOf(path)
-        const root = this.areaRoot(folder)
+      return this.walk()
+        .directories.filter(function noteDirectory(id) {
+          return id !== "assets" && !id.startsWith("assets/")
+        })
+        .map((path): FolderRecord => {
+          const folder = this.folderOf(path)
+          const root = this.areaRoot(folder)
 
-        return {
-          path,
-          folder,
-          subpath: root
-            ? path === root
-              ? ""
-              : path.slice(root.length + 1)
-            : path,
-        }
-      })
+          return {
+            path,
+            folder,
+            subpath: root
+              ? path === root
+                ? ""
+                : path.slice(root.length + 1)
+              : path,
+          }
+        })
+    })
   }
   readNote(id: string) {
     return this.noteIO(() => this.readNoteSync(id))
@@ -1447,20 +1459,22 @@ export class Vault {
     })
   }
 
-  createFolder(folder: NoteFolder, subpath: string): FolderRecord {
-    this.assertWritable()
+  createFolder(folder: NoteFolder, subpath: string) {
+    return this.folderIO(() => {
+      this.assertWritable()
 
-    if (!subpath) throw new Error("Folder name is required")
-    const path = this.folderPath(folder, subpath)
+      if (!subpath) throw new Error("Folder name is required")
+      const path = this.folderPath(folder, subpath)
 
-    if (fileStat(this.safe(path))) throw new Error("Folder already exists")
-    this.transaction(
-      this.nextState(),
-      [],
-      [{ path, before: false, after: true }],
-    )
+      if (fileStat(this.safe(path))) throw new Error("Folder already exists")
+      this.transaction(
+        this.nextState(),
+        [],
+        [{ path, before: false, after: true }],
+      )
 
-    return { path, folder, subpath }
+      return { path, folder, subpath }
+    })
   }
   private folderTree(folder: NoteFolder, subpath: string) {
     this.assertOpen()
@@ -1550,58 +1564,64 @@ export class Vault {
     return { path: target, folder, subpath: destination }
   }
   renameFolder(folder: NoteFolder, subpath: string, destination: string) {
-    return this.relocateFolder(folder, subpath, destination, false)
+    return this.folderIO(() =>
+      this.relocateFolder(folder, subpath, destination, false),
+    )
   }
   duplicateFolder(folder: NoteFolder, subpath: string) {
-    const tree = this.folderTree(folder, subpath)
-    let target = `${tree.id} copy`
+    return this.folderIO(() => {
+      const tree = this.folderTree(folder, subpath)
+      let target = `${tree.id} copy`
 
-    for (let count = 2; fileStat(join(this.root, target)); count++)
-      target = `${tree.id} copy ${count}`
-    const root = this.areaRoot(folder)
+      for (let count = 2; fileStat(join(this.root, target)); count++)
+        target = `${tree.id} copy ${count}`
+      const root = this.areaRoot(folder)
 
-    return this.relocateFolder(
-      folder,
-      subpath,
-      root ? target.slice(root.length + 1) : target,
-      true,
-    )
+      return this.relocateFolder(
+        folder,
+        subpath,
+        root ? target.slice(root.length + 1) : target,
+        true,
+      )
+    })
   }
   deleteFolder(
     folder: NoteFolder,
     subpath: string,
     confirmation: DeleteConfirmation,
   ) {
-    decodeConfirmation(confirmation)
-    const tree = this.folderTree(folder, subpath)
+    return this.folderIO(() => {
+      decodeConfirmation(confirmation)
+      const tree = this.folderTree(folder, subpath)
 
-    if (
-      [...tree.files, ...tree.directories].some(function unknown(id) {
-        return id.split("/").some(function hidden(part) {
-          return part.startsWith(".")
+      if (
+        [...tree.files, ...tree.directories].some(function unknown(id) {
+          return id.split("/").some(function hidden(part) {
+            return part.startsWith(".")
+          })
+        }) ||
+        tree.files.some(function unknown(id) {
+          return !/\.md$/i.test(id)
         })
-      }) ||
-      tree.files.some(function unknown(id) {
-        return !/\.md$/i.test(id)
-      })
-    )
-      throw new Error(
-        "Folder contains hidden or unknown data; preserve it and remove explicitly outside the app",
       )
-    const next = this.nextState()
+        throw new Error(
+          "Folder contains hidden or unknown data; preserve it and remove explicitly outside the app",
+        )
+      const next = this.nextState()
 
-    for (const id of tree.files) delete next.notes[id]
-    this.transaction(
-      next,
-      tree.files.map(function removal(path) {
-        return { path, bytes: null }
-      }),
-      [tree.id, ...tree.directories].map(function removal(path) {
-        return { path, before: true, after: false }
-      }),
-    )
+      for (const id of tree.files) delete next.notes[id]
+      this.transaction(
+        next,
+        tree.files.map(function removal(path) {
+          return { path, bytes: null }
+        }),
+        [tree.id, ...tree.directories].map(function removal(path) {
+          return { path, before: true, after: false }
+        }),
+      )
 
-    return { deleted: tree.files }
+      return { deleted: tree.files }
+    })
   }
 
   listAssets() {
@@ -1913,6 +1933,14 @@ export class Vault {
     this.closed = true
   }
 }
+
+export class VaultFolderError extends Schema.TaggedError<VaultFolderError>()(
+  "VaultFolderError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
 
 export class VaultNoteError extends Schema.TaggedError<VaultNoteError>()(
   "VaultNoteError",
