@@ -128,6 +128,227 @@ type CloseGuardRenderer = NativeRenderer & {
   closeWindow?: () => void
 }
 
+type CloseOwnerRenderer = NativeRenderer & {
+  bindCloseOwnerV2?: (commandJson: string) => string
+  cancelCloseOwnerV2?: (commandJson: string) => string
+  releaseCloseOwnerV2?: (commandJson: string) => string
+  approveCloseOwnerV2?: (commandJson: string) => Promise<string>
+}
+
+const SafeNaturalSchema = Schema.Number.check(
+  Schema.makeFilter((value) => Number.isSafeInteger(value) && value >= 0),
+)
+
+const PositiveSafeIntegerSchema = Schema.Number.check(
+  Schema.makeFilter((value) => Number.isSafeInteger(value) && value > 0),
+)
+
+const CloseRequestSchema = Schema.Struct({
+  protocol: Schema.Literal(2),
+  owner: PositiveSafeIntegerSchema,
+  requestId: PositiveSafeIntegerSchema,
+})
+
+const CloseBindingSchema = Schema.Struct({
+  protocol: Schema.Literal(2),
+  owner: PositiveSafeIntegerSchema,
+  eventId: SafeNaturalSchema,
+  pendingRequest: Schema.NullOr(PositiveSafeIntegerSchema),
+  attached: Schema.Literal(true),
+  phase: Schema.Literal("armed"),
+})
+
+const CloseCancelSchema = Schema.Struct({
+  ...CloseRequestSchema.fields,
+  outcome: Schema.Literals(["cancelled", "stale"]),
+})
+
+const CloseApprovalSchema = Schema.Struct({
+  ...CloseRequestSchema.fields,
+  outcome: Schema.Literals(["closing", "stale"]),
+})
+
+const CloseReleaseSchema = Schema.Struct({
+  protocol: Schema.Literal(2),
+  owner: PositiveSafeIntegerSchema,
+  outcome: Schema.Literals(["released", "stale"]),
+})
+
+const decodeCloseId = Schema.decodeUnknownSync(PositiveSafeIntegerSchema)
+
+declare global {
+  var stillNotesCloseOwnersV2: WeakMap<NativeRenderer, object> | undefined
+}
+
+const closeOwners = (globalThis.stillNotesCloseOwnersV2 ??= new WeakMap())
+
+function decodeCloseResponse<S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  response: string | undefined,
+) {
+  return Schema.decodeUnknownSync(schema, { onExcessProperty: "error" })(
+    JSON.parse(decodeText(response)),
+  )
+}
+
+export function createNativeCloseOwner(
+  renderer: CloseOwnerRenderer | { native: CloseOwnerRenderer },
+  options: {
+    expectedOwner: number | null
+    onRequest: (requestId: number) => void
+  },
+) {
+  const native = "native" in renderer ? renderer.native : renderer
+
+  if (
+    !Predicate.isFunction(native.bindCloseOwnerV2) ||
+    !Predicate.isFunction(native.cancelCloseOwnerV2) ||
+    !Predicate.isFunction(native.releaseCloseOwnerV2) ||
+    !Predicate.isFunction(native.approveCloseOwnerV2)
+  )
+    throw new Error("Custom GPUix addon with close owner v2 is required")
+
+  const expectedOwner =
+    options.expectedOwner === null ? null : decodeCloseId(options.expectedOwner)
+
+  const state = createRendererState(native)
+  const binding = state.current()
+
+  if (!binding) throw new Error("Mount the GPUix root before guarding close")
+  const handlers = binding.eventHandlers
+
+  const eventId = Schema.decodeUnknownSync(SafeNaturalSchema)(
+    binding.windowKeyEventId,
+  )
+
+  const eventType = "windowCloseRequested"
+  const previous = handlers.get(eventId)?.get(eventType)
+  const token = {}
+  const seen = new Set<number>()
+  let owner = 0
+  let disposed = false
+
+  function isCurrent() {
+    return (
+      !disposed &&
+      closeOwners.get(native) === token &&
+      state.current() === binding &&
+      handlers.get(eventId)?.get(eventType) === receive
+    )
+  }
+
+  function deliver(requestId: number) {
+    if (!isCurrent() || seen.has(requestId)) return
+    seen.add(requestId)
+    options.onRequest(requestId)
+  }
+
+  function receive(event: EventPayload) {
+    if (
+      !isCurrent() ||
+      event.elementId !== eventId ||
+      event.eventType !== eventType ||
+      !Predicate.isString(event.value)
+    )
+      return
+    let request: typeof CloseRequestSchema.Type
+
+    try {
+      request = decodeCloseResponse(CloseRequestSchema, event.value)
+    } catch {
+      return
+    }
+
+    if (request.owner === owner) deliver(request.requestId)
+  }
+
+  registerEventHandler(handlers, eventId, eventType, receive)
+  let bound: typeof CloseBindingSchema.Type
+
+  try {
+    bound = decodeCloseResponse(
+      CloseBindingSchema,
+      native.bindCloseOwnerV2(
+        JSON.stringify({ protocol: 2, eventId, expectedOwner }),
+      ),
+    )
+
+    if (bound.eventId !== eventId || bound.owner === expectedOwner)
+      throw new Error("Invalid close binding identity")
+  } catch (error) {
+    if (handlers.get(eventId)?.get(eventType) === receive) {
+      if (previous) registerEventHandler(handlers, eventId, eventType, previous)
+      else unregisterEventHandler(handlers, eventId, eventType)
+    }
+
+    throw error
+  }
+
+  owner = bound.owner
+  closeOwners.set(native, token)
+
+  if (bound.pendingRequest !== null) {
+    const pending = bound.pendingRequest
+    queueMicrotask(function replayPending() {
+      deliver(pending)
+    })
+  }
+
+  function cancel(requestId: number) {
+    const id = decodeCloseId(requestId)
+
+    const response = decodeCloseResponse(
+      CloseCancelSchema,
+      native.cancelCloseOwnerV2?.(
+        JSON.stringify({ protocol: 2, owner, requestId: id }),
+      ),
+    )
+
+    if (response.owner !== owner || response.requestId !== id)
+      throw new Error("Invalid close cancellation identity")
+    seen.add(id)
+
+    return response
+  }
+
+  async function approve(requestId: number) {
+    const id = decodeCloseId(requestId)
+    seen.add(id)
+
+    const pending = native.approveCloseOwnerV2?.(
+      JSON.stringify({ protocol: 2, owner, requestId: id }),
+    )
+
+    if (!(pending instanceof Promise))
+      throw new Error("Close approval must return a Promise")
+    const response = decodeCloseResponse(CloseApprovalSchema, await pending)
+
+    if (response.owner !== owner || response.requestId !== id)
+      throw new Error("Invalid close approval identity")
+
+    return response
+  }
+
+  function dispose() {
+    disposed = true
+
+    if (handlers.get(eventId)?.get(eventType) === receive)
+      unregisterEventHandler(handlers, eventId, eventType)
+
+    const response = decodeCloseResponse(
+      CloseReleaseSchema,
+      native.releaseCloseOwnerV2?.(JSON.stringify({ protocol: 2, owner })),
+    )
+
+    if (response.owner !== owner)
+      throw new Error("Invalid close release identity")
+
+    return response
+  }
+
+  return { owner, cancel, approve, dispose }
+}
+
 type NativeEditorCommand =
   | { type: "getState" | "getSnapshot" }
   | { type: "setMode"; mode: NativeEditorMode }

@@ -1,9 +1,11 @@
 import { methods, PROTOCOL_VERSION } from "@gpuix/native/automation"
 import { createRendererState } from "@gpuix/native/host"
 import { describe, expect, test } from "bun:test"
+import { Schema } from "effect"
 
 import {
   createNativeCloseGuard,
+  createNativeCloseOwner,
   createNativeEditor,
   type NativeEditorState,
   readNativeEditorEvent,
@@ -503,5 +505,356 @@ describe("native font completion boundary", function fontCompletion() {
     await expect(registerFonts(native)).rejects.toThrow(
       "both application fonts",
     )
+  })
+})
+
+describe("native close owner v2", function closeOwnerV2() {
+  const decodeCommand = Schema.decodeUnknownSync(
+    Schema.Struct({
+      protocol: Schema.Number,
+      eventId: Schema.optionalKey(Schema.Number),
+      expectedOwner: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+      owner: Schema.optionalKey(Schema.Number),
+      requestId: Schema.optionalKey(Schema.Number),
+    }),
+  )
+
+  function host() {
+    const calls: unknown[] = []
+    let owner = 0
+    let pending: number | null = null
+
+    const native = {
+      applyBatch() {
+        return []
+      },
+      bindCloseOwnerV2(command: string) {
+        expect(this).toBe(native)
+        const input = decodeCommand(JSON.parse(command))
+        calls.push(["bind", input])
+
+        if (input.expectedOwner !== (owner || null))
+          throw new Error("stale owner")
+        owner++
+
+        return JSON.stringify({
+          protocol: 2,
+          owner,
+          eventId: input.eventId,
+          pendingRequest: pending,
+          attached: true,
+          phase: "armed",
+        })
+      },
+      cancelCloseOwnerV2(command: string) {
+        expect(this).toBe(native)
+        const input = decodeCommand(JSON.parse(command))
+        calls.push(["cancel", input])
+
+        const outcome =
+          input.owner === owner && input.requestId === pending
+            ? "cancelled"
+            : "stale"
+
+        if (outcome === "cancelled") pending = null
+
+        return JSON.stringify({ ...input, outcome })
+      },
+      releaseCloseOwnerV2(command: string) {
+        expect(this).toBe(native)
+        const input = decodeCommand(JSON.parse(command))
+        calls.push(["release", input])
+
+        return JSON.stringify({
+          ...input,
+          outcome: input.owner === owner ? "released" : "stale",
+        })
+      },
+      approveCloseOwnerV2(command: string) {
+        expect(this).toBe(native)
+        const input = decodeCommand(JSON.parse(command))
+        calls.push(["approve", input])
+
+        return Promise.resolve(
+          JSON.stringify({
+            ...input,
+            outcome:
+              input.owner === owner && input.requestId === pending
+                ? "closing"
+                : "stale",
+          }),
+        )
+      },
+    }
+
+    return {
+      native,
+      calls,
+      request(id: number) {
+        pending = id
+      },
+    }
+  }
+
+  function event(eventId: number, owner: number, requestId: number) {
+    return {
+      elementId: eventId,
+      eventType: "windowCloseRequested",
+      value: JSON.stringify({ protocol: 2, owner, requestId }),
+    }
+  }
+
+  test("binds with the real receiver and routes structured requests", async function firstBind() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const binding = dispatcher.attach()
+    const requests: number[] = []
+
+    const controller = createNativeCloseOwner(
+      { native: fake.native },
+      { expectedOwner: null, onRequest: (id) => requests.push(id) },
+    )
+
+    expect(fake.calls).toEqual([
+      [
+        "bind",
+        { protocol: 2, eventId: binding.windowKeyEventId, expectedOwner: null },
+      ],
+    ])
+    fake.request(7)
+    expect(
+      dispatcher.dispatch(event(binding.windowKeyEventId, controller.owner, 7)),
+    ).toBe(true)
+    dispatcher.dispatch(event(binding.windowKeyEventId, controller.owner, 7))
+    dispatcher.dispatch(
+      event(binding.windowKeyEventId + 1, controller.owner, 8),
+    )
+    dispatcher.dispatch(
+      event(binding.windowKeyEventId, controller.owner + 1, 8),
+    )
+    dispatcher.dispatch({
+      elementId: binding.windowKeyEventId,
+      eventType: "windowCloseRequested",
+      value: "{",
+    })
+    expect(requests).toEqual([7])
+    expect(await controller.approve(7)).toEqual({
+      protocol: 2,
+      owner: controller.owner,
+      requestId: 7,
+      outcome: "closing",
+    })
+    expect(controller.dispose()).toEqual({
+      protocol: 2,
+      owner: controller.owner,
+      outcome: "released",
+    })
+    binding.detach()
+  })
+  test("replays pending once and isolates same-root replacement and cancellation", async function retarget() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const binding = dispatcher.attach()
+
+    const first = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: unexpectedClose,
+    })
+
+    fake.request(9)
+    const requests: number[] = []
+
+    const second = createNativeCloseOwner(fake.native, {
+      expectedOwner: first.owner,
+      onRequest: (id) => requests.push(id),
+    })
+
+    dispatcher.dispatch(event(binding.windowKeyEventId, second.owner, 9))
+    await Promise.resolve()
+    expect(requests).toEqual([9])
+    expect(first.dispose().outcome).toBe("stale")
+    dispatcher.dispatch(event(binding.windowKeyEventId, first.owner, 10))
+    expect(second.cancel(9).outcome).toBe("cancelled")
+    dispatcher.dispatch(event(binding.windowKeyEventId, second.owner, 9))
+    expect(requests).toEqual([9])
+    expect(second.cancel(9).outcome).toBe("stale")
+    expect((await second.approve(9)).outcome).toBe("stale")
+    expect(second.dispose().outcome).toBe("released")
+
+    const third = createNativeCloseOwner(fake.native, {
+      expectedOwner: second.owner,
+      onRequest: unexpectedClose,
+    })
+
+    expect(third.owner).toBe(3)
+    third.dispose()
+    binding.detach()
+  })
+  test("does not deliver replay or clear a replacement root", async function replacedRoot() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const oldBinding = dispatcher.attach()
+    fake.request(11)
+
+    const old = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: unexpectedClose,
+    })
+
+    oldBinding.detach()
+    const binding = dispatcher.attach()
+    const requests: number[] = []
+
+    const next = createNativeCloseOwner(fake.native, {
+      expectedOwner: old.owner,
+      onRequest: (id) => requests.push(id),
+    })
+
+    old.dispose()
+    await Promise.resolve()
+    expect(requests).toEqual([11])
+    dispatcher.dispatch(event(binding.windowKeyEventId, next.owner, 12))
+    expect(requests).toEqual([11, 12])
+    next.dispose()
+    binding.detach()
+  })
+  test("restores the exact previous callback on bind failure", function restoreHandler() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const binding = dispatcher.attach()
+
+    function previous() {
+      return undefined
+    }
+
+    binding.eventHandlers.set(
+      binding.windowKeyEventId,
+      new Map([["windowCloseRequested", previous]]),
+    )
+    expect(() =>
+      createNativeCloseOwner(fake.native, {
+        expectedOwner: 99,
+        onRequest: unexpectedClose,
+      }),
+    ).toThrow()
+    expect(
+      binding.eventHandlers
+        .get(binding.windowKeyEventId)
+        ?.get("windowCloseRequested"),
+    ).toBe(previous)
+    binding.detach()
+  })
+  test("rejects legacy hosts before replacing a handler", function legacy() {
+    const native = {
+      applyBatch() {
+        return []
+      },
+    }
+
+    const binding = createRendererState(native).attach()
+
+    function previous() {
+      return undefined
+    }
+
+    binding.eventHandlers.set(
+      binding.windowKeyEventId,
+      new Map([["windowCloseRequested", previous]]),
+    )
+    expect(() =>
+      createNativeCloseOwner(native, {
+        expectedOwner: null,
+        onRequest: unexpectedClose,
+      }),
+    ).toThrow()
+    expect(
+      binding.eventHandlers
+        .get(binding.windowKeyEventId)
+        ?.get("windowCloseRequested"),
+    ).toBe(previous)
+    binding.detach()
+  })
+  test("rejects malformed and mismatched bind replies", function invalidBind() {
+    for (const reply of [
+      "{",
+      JSON.stringify({
+        protocol: 2,
+        owner: 1,
+        eventId: 0,
+        pendingRequest: null,
+        attached: true,
+        phase: "armed",
+        extra: true,
+      }),
+      JSON.stringify({
+        protocol: 2,
+        owner: 0,
+        eventId: 0,
+        pendingRequest: null,
+        attached: true,
+        phase: "armed",
+      }),
+    ]) {
+      const fake = host()
+      const binding = createRendererState(fake.native).attach()
+      Object.defineProperty(fake.native, "bindCloseOwnerV2", {
+        value: () => reply,
+      })
+      expect(() =>
+        createNativeCloseOwner(fake.native, {
+          expectedOwner: null,
+          onRequest: unexpectedClose,
+        }),
+      ).toThrow()
+      binding.detach()
+    }
+  })
+  test("rejects malformed, mismatched and non-Promise replies", async function invalidReplies() {
+    const fake = host()
+    const binding = createRendererState(fake.native).attach()
+
+    const controller = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: unexpectedClose,
+    })
+
+    Object.defineProperty(fake.native, "cancelCloseOwnerV2", {
+      value: () =>
+        JSON.stringify({
+          protocol: 2,
+          owner: controller.owner,
+          requestId: 8,
+          outcome: "cancelled",
+          extra: 1,
+        }),
+    })
+    expect(() => controller.cancel(7)).toThrow()
+    Object.defineProperty(fake.native, "approveCloseOwnerV2", {
+      configurable: true,
+      value: () => "{}",
+    })
+    await expect(controller.approve(7)).rejects.toThrow("Promise")
+    Object.defineProperty(fake.native, "approveCloseOwnerV2", {
+      value: () =>
+        Promise.resolve(
+          JSON.stringify({
+            protocol: 2,
+            owner: controller.owner + 1,
+            requestId: 7,
+            outcome: "closing",
+          }),
+        ),
+    })
+    await expect(controller.approve(7)).rejects.toThrow()
+    Object.defineProperty(fake.native, "releaseCloseOwnerV2", {
+      value: () =>
+        JSON.stringify({
+          protocol: 2,
+          owner: controller.owner + 1,
+          outcome: "released",
+        }),
+    })
+    expect(() => controller.dispose()).toThrow()
+    binding.detach()
   })
 })
