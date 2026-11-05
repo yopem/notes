@@ -860,9 +860,11 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/effect-migration/QA-032-vault-safety.txt`; inspect it.
   - **Cleanup:** The test closes its vaults and removes only its temporary data.
     Keep failed evidence before cleanup; never remove a user-owned lock.
-  - **Status:** Pending. Source review found lock initialization can leave a
-    partial lock, unsupported unrelated filenames can block listing, and root
-    folder coordinates can be incorrect.
+  - **Status:** Pending. Unrelated non-Markdown files are now skipped. The
+    focused run at `e263e17` had three 5-second timeouts on project-backed
+    temporary storage; see
+    `docs/artifacts/effect-migration/QA-032-vault-safety.txt`. Lock
+    initialization and root-folder coordinates remain under repair.
 
 - [ ] **QA-033 — P1 — Browse a folder without editing its files**
   - **Purpose:** Open and leave an explicitly selected read-only folder without
