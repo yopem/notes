@@ -1,3 +1,5 @@
+import { getIconStyle } from "@/components/ui/control-styles"
+
 const paths = {
   book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 3H20v19H6.5A2.5 2.5 0 0 1 4 19.5v-14A2.5 2.5 0 0 1 6.5 3Z"/>',
   notes:
@@ -40,9 +42,11 @@ export function Icon({
 }) {
   return (
     <svg
+      // GPUix renders raw SVG through its typed source prop, not DOM children.
+      // eslint-disable-next-line react-doctor/no-unknown-property
       source={`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`}
       role="presentation"
-      style={{ width: size, height: size, color, flexShrink: 0 }}
+      style={getIconStyle({ size, color })}
     />
   )
 }

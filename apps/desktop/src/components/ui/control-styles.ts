@@ -14,6 +14,15 @@ function rememberStyle(key: string, style: StyleDesc) {
   return style
 }
 
+export function getIconStyle({ color, size }: { color: string; size: number }) {
+  const key = `icon:${size}:${color}`
+  const cached = styles.get(key)
+
+  if (cached) return cached
+
+  return rememberStyle(key, { width: size, height: size, color, flexShrink: 0 })
+}
+
 export function getLabelStyle({
   color,
   size,
