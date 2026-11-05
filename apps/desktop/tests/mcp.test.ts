@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Schema } from "effect"
 import {
   mkdirSync,
   mkdtempSync,
@@ -9,7 +10,6 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { z } from "zod"
 
 import {
   MCP_TOOL_SCHEMAS,
@@ -205,10 +205,16 @@ describe("MCP client config integration", () => {
   })
 })
 
-const replySchema = z.object({
-  id: z.union([z.string(), z.number(), z.null()]),
-  result: z.unknown().optional(),
-  error: z.object({ code: z.number(), message: z.string() }).optional(),
+const replySchema = Schema.Struct({
+  id: Schema.Union([Schema.String, Schema.Finite, Schema.Null]),
+  result: Schema.optional(Schema.Unknown),
+  error: Schema.optional(
+    Schema.Struct({ code: Schema.Finite, message: Schema.String }),
+  ),
+})
+
+const listedToolsSchema = Schema.Struct({
+  tools: Schema.Array(Schema.Struct({ name: Schema.String })),
 })
 
 describe("MCP real stdio child", () => {
@@ -311,7 +317,7 @@ describe("MCP real stdio child", () => {
     const replies = stdout
       .trim()
       .split("\n")
-      .map((line) => replySchema.parse(JSON.parse(line)))
+      .map((line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)))
 
     expect(
       replies
@@ -324,9 +330,9 @@ describe("MCP real stdio child", () => {
       serverInfo: { name: "still-notes" },
     })
 
-    const listed = z
-      .object({ tools: z.array(z.object({ name: z.string() })) })
-      .parse(replies.find((reply) => reply.id === 2)?.result)
+    const listed = Schema.decodeUnknownSync(listedToolsSchema)(
+      replies.find((reply) => reply.id === 2)?.result,
+    )
 
     expect(listed.tools.map((tool) => tool.name)).toContain("read_note")
     expect(listed.tools.map((tool) => tool.name)).toContain("list_comments")
@@ -397,11 +403,14 @@ describe("MCP real stdio child", () => {
         },
       },
     })
-    const replies = output.map((line) => replySchema.parse(JSON.parse(line)))
 
-    const listed = z
-      .object({ tools: z.array(z.object({ name: z.string() })) })
-      .parse(replies.find((reply) => reply.id === 2)?.result)
+    const replies = output.map((line) =>
+      Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
+    )
+
+    const listed = Schema.decodeUnknownSync(listedToolsSchema)(
+      replies.find((reply) => reply.id === 2)?.result,
+    )
 
     expect(listed.tools.map((tool) => tool.name)).not.toContain("write_note")
     expect(replies.find((reply) => reply.id === 3)?.result).toMatchObject({
@@ -436,7 +445,10 @@ describe("MCP real stdio child", () => {
         },
       })
       expect(
-        output.map((line) => replySchema.parse(JSON.parse(line)).error?.code),
+        output.map(
+          (line) =>
+            Schema.decodeUnknownSync(replySchema)(JSON.parse(line)).error?.code,
+        ),
       ).toEqual([code])
       expect(calls).toBe(0)
     }
@@ -452,13 +464,13 @@ describe("MCP real stdio child", () => {
       ".still-notes/state.json",
       "a\u0000b",
     ])
-      expect(MCP_TOOL_SCHEMAS.read_note.safeParse({ path }).success).toBe(false)
+      expect(Schema.is(MCP_TOOL_SCHEMAS.read_note)({ path })).toBe(false)
     expect(
-      MCP_TOOL_SCHEMAS.insert_at_line.safeParse({
+      Schema.is(MCP_TOOL_SCHEMAS.insert_at_line)({
         path: "a.md",
         lineNumber: -1,
         text: "x",
-      }).success,
+      }),
     ).toBe(false)
   })
 })
