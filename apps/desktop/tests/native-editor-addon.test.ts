@@ -77,6 +77,7 @@ test("built addon rejects an empty font asynchronously", async function emptyFon
   const reply: unknown = bridge.registerFontsAsyncV1.call(renderer, [
     Buffer.alloc(0),
   ])
+
   expect(isPromise(reply)).toBe(true)
   await expect(reply).rejects.toThrow("Invalid font batch size")
 })
@@ -85,6 +86,7 @@ test("built addon rejects font work without a UI", async function unavailableFon
   const reply: unknown = bridge.registerFontsAsyncV1.call(renderer, [
     Buffer.from("Owned boundary input"),
   ])
+
   expect(isPromise(reply)).toBe(true)
   await expect(reply).rejects.toThrow("not initialized")
 })

@@ -391,12 +391,18 @@ describe("native font completion boundary", function fontCompletion() {
   test("shares pending work and waits for native success", async function pendingBatch() {
     const reply = Promise.withResolvers<number>()
     const batches: Uint8Array[][] = []
+
     const native = {
+      applyBatch() {
+        return []
+      },
       registerFontsAsyncV1(fonts: Uint8Array[]) {
         batches.push(fonts)
+
         return reply.promise
       },
     }
+
     const first = registerFonts(native)
     const second = registerFonts(native)
     let completed = false
@@ -407,6 +413,7 @@ describe("native font completion boundary", function fontCompletion() {
     expect(second).toBe(first)
     expect(batches).toHaveLength(1)
     expect(batches[0]).toHaveLength(2)
+
     for (const font of batches[0] ?? [])
       expect(font.byteLength).toBeGreaterThan(0)
     expect(completed).toBe(false)
@@ -419,13 +426,19 @@ describe("native font completion boundary", function fontCompletion() {
 
   test("uses one native receiver across host wrappers", async function nativeReceiver() {
     let calls = 0
+
     const native = {
+      applyBatch() {
+        return []
+      },
       registerFontsAsyncV1() {
         expect(this).toBe(native)
         calls++
+
         return Promise.resolve(2)
       },
     }
+
     const first = registerFonts({ native })
     expect(registerFonts({ native })).toBe(first)
     expect(registerFonts(native)).toBe(first)
@@ -435,12 +448,18 @@ describe("native font completion boundary", function fontCompletion() {
 
   test("retains failed work without replay", async function failedBatch() {
     let calls = 0
+
     const native = {
+      applyBatch() {
+        return []
+      },
       registerFontsAsyncV1() {
         calls++
+
         return Promise.reject(new Error("Owned font reply failed"))
       },
     }
+
     const first = registerFonts(native)
     await expect(first).rejects.toThrow("Owned font reply failed")
     expect(registerFonts(native)).toBe(first)
@@ -451,18 +470,35 @@ describe("native font completion boundary", function fontCompletion() {
   })
 
   test("refuses legacy and synchronous font hosts", async function invalidHost() {
-    await expect(registerFonts({})).rejects.toThrow("registerFontsAsyncV1")
+    const native = {
+      applyBatch() {
+        return []
+      },
+      registerFontsAsyncV1() {
+        return Promise.resolve(2)
+      },
+    }
     await expect(
-      registerFonts({ registerFontsAsyncV1: () => 2 }),
-    ).rejects.toThrow("Promise")
+      registerFonts({ applyBatch: native.applyBatch }),
+    ).rejects.toThrow("registerFontsAsyncV1")
+    Object.defineProperty(native, "registerFontsAsyncV1", {
+      value: function synchronousReply() {
+        return 2
+      },
+    })
+    await expect(registerFonts(native)).rejects.toThrow("Promise")
   })
 
   test("requires confirmation for both fonts", async function incompleteReply() {
     const native = {
+      applyBatch() {
+        return []
+      },
       registerFontsAsyncV1() {
         return Promise.resolve(1)
       },
     }
+
     await expect(registerFonts(native)).rejects.toThrow(
       "both application fonts",
     )

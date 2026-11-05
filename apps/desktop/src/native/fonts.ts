@@ -1,9 +1,17 @@
+import type { NativeRenderer } from "@gpuix/native/host"
+
 import { Predicate, Schema } from "effect"
 import { readFileSync } from "node:fs"
 import { isPromise } from "node:util/types"
 
 import monoPath from "@/assets/IBMPlexMono-Regular.ttf" with { type: "file" }
 import interPath from "@/assets/Inter.ttf" with { type: "file" }
+
+interface NativeFontHost extends NativeRenderer {
+  registerFontsAsyncV1?: (fonts: Uint8Array[]) => Promise<number>
+}
+
+type FontRenderer = NativeFontHost | { native: NativeFontHost }
 
 interface FontRegistration {
   status: "pending" | "ready" | "failed"
@@ -12,16 +20,16 @@ interface FontRegistration {
 
 declare global {
   var stillNotesFontRegistrationV2:
-    WeakMap<object, FontRegistration> | undefined
+    WeakMap<NativeFontHost, FontRegistration> | undefined
 }
 
 const registrations = (globalThis.stillNotesFontRegistrationV2 ??= new WeakMap<
-  object,
+  NativeFontHost,
   FontRegistration
 >())
 
-async function requestNativeFontBatch(renderer: object) {
-  const register: unknown = Reflect.get(renderer, "registerFontsAsyncV1")
+async function requestNativeFontBatch(renderer: NativeFontHost) {
+  const register = renderer.registerFontsAsyncV1
 
   if (!Predicate.isFunction(register))
     throw new Error(
@@ -42,12 +50,8 @@ async function requestNativeFontBatch(renderer: object) {
     throw new Error("The native host did not confirm both application fonts.")
 }
 
-export function registerFonts(renderer: object) {
-  const native =
-    Predicate.hasProperty(renderer, "native") &&
-    Predicate.isObjectKeyword(renderer.native)
-      ? renderer.native
-      : renderer
+export function registerFonts(renderer: FontRenderer) {
+  const native = "native" in renderer ? renderer.native : renderer
   const previous = registrations.get(native)
 
   if (previous) return previous.completion
@@ -57,7 +61,9 @@ export function registerFonts(renderer: object) {
     status: "pending",
     completion: reply.promise,
   }
+
   registrations.set(native, registration)
+
   void requestNativeFontBatch(native).then(
     function ready() {
       registration.status = "ready"
