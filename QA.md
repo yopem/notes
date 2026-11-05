@@ -727,7 +727,7 @@ mark those cases passed until capture works and the evidence is inspected.
     nor `secret-test` appears in the response. Invalid requests still fail and
     do not invoke the adapter. Existing protocol tests continue to pass.
   - **Evidence:** Save the tested revision, command and output to
-    `docs/artifacts/effect-migration/QA-026-mcp-errors.txt` and inspect it.
+    `docs/artifacts/effect-migration/QA-026-027-mcp.txt` and inspect it.
   - **Cleanup:** Close test-owned streams and child processes. Remove only
     disposable test data; no other cleanup is needed.
   - **Status:** Passed at `81e7bbd` on 2026-11-05, Linux x86_64, Bun
@@ -752,7 +752,7 @@ mark those cases passed until capture works and the evidence is inspected.
     one or separate chunks. The oversized message is rejected without invoking a
     tool, and incomplete input is bounded. Existing protocol cases pass.
   - **Evidence:** Save the tested revision, command and output to
-    `docs/artifacts/effect-migration/QA-027-mcp-frames.txt` and inspect it.
+    `docs/artifacts/effect-migration/QA-026-027-mcp.txt` and inspect it.
   - **Cleanup:** Close test-owned streams and child processes. Remove only
     disposable test data; no other cleanup is needed.
   - **Status:** Passed at `81e7bbd` on 2026-11-05, Linux x86_64, Bun
