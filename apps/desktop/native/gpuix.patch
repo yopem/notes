@@ -1322,7 +1322,7 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a307
      pub fn set_live_image(
          &mut self,
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1dc5911c9 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..6c498990c5ea3151a17347f86ade84ab61f64ee4 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -1344,7 +1344,15 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      ZoomWindow,
      ToggleFullscreen,
      SetWindowTitle(String),
-@@ -485,6 +488,11 @@ enum UiCommand {
+@@ -481,10 +484,19 @@ enum UiCommand {
+         bytes: Vec<u8>,
+         response: SyncSender<std::result::Result<(), String>>,
+     },
++    RegisterFontBatch {
++        fonts: Vec<Vec<u8>>,
++        response: SyncSender<std::result::Result<u32, String>>,
++    },
+     RegisterFont {
          bytes: Vec<u8>,
          response: SyncSender<std::result::Result<(), String>>,
      },
@@ -1356,7 +1364,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      GetScrollOffset {
          id: u64,
          response: SyncSender<Option<[f64; 2]>>,
-@@ -493,6 +501,9 @@ enum UiCommand {
+@@ -493,6 +505,9 @@ enum UiCommand {
          id: u64,
          response: SyncSender<Option<[f64; 3]>>,
      },
@@ -1366,7 +1374,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      GetAutomationBounds {
          response: SyncSender<HashMap<u64, crate::automation::ElementBounds>>,
      },
-@@ -567,6 +578,9 @@ async fn run_ui_commands(
+@@ -567,6 +582,9 @@ async fn run_ui_commands(
              UiCommand::MinimizeWindow => {
                  window.update(cx, |_view, window, _cx| window.minimize_window())
              }
@@ -1376,7 +1384,17 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
              UiCommand::ZoomWindow => window.update(cx, |_view, window, _cx| window.zoom_window()),
              UiCommand::ToggleFullscreen => {
                  window.update(cx, |_view, window, _cx| window.toggle_fullscreen())
-@@ -683,6 +697,21 @@ async fn run_ui_commands(
+@@ -678,11 +696,31 @@ async fn run_ui_commands(
+                     .send(view.set_encoded_image(id, bytes, window, cx))
+                     .ok();
+             }),
++            UiCommand::RegisterFontBatch { fonts, response } => {
++                window.update(cx, move |view, window, cx| {
++                    response.send(view.register_fonts(fonts, window, cx)).ok();
++                })
++            }
+             UiCommand::RegisterFont { bytes, response } => {
+                 window.update(cx, move |view, window, cx| {
                      response.send(view.register_font(bytes, window, cx)).ok();
                  })
              }
@@ -1398,7 +1416,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
              UiCommand::GetScrollOffset { id, response } => {
                  let offset = VIRTUAL_LIST_STATES
                      .with(|cell| {
-@@ -733,6 +762,16 @@ async fn run_ui_commands(
+@@ -733,6 +771,16 @@ async fn run_ui_commands(
                          .ok();
                  })
              }
@@ -1415,7 +1433,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
              UiCommand::GetAutomationBounds { response } => {
                  window.update(cx, move |_view, window, cx| {
                      cx.notify();
-@@ -962,6 +1001,8 @@ pub fn is_terminal() -> bool {
+@@ -962,6 +1010,8 @@ pub fn is_terminal() -> bool {
  #[napi]
  pub struct GpuixRenderer {
      event_callback: Mutex<Option<Arc<ThreadsafeFunction<EventPayload>>>>,
@@ -1424,7 +1442,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      tree: Arc<Mutex<RetainedTree>>,
      initialized: Arc<Mutex<bool>>,
      /// Shared with GpuixView so napi methods can read the live selection
-@@ -977,6 +1018,85 @@ pub struct GpuixRenderer {
+@@ -977,6 +1027,85 @@ pub struct GpuixRenderer {
      ui_running: Arc<AtomicBool>,
  }
 
@@ -1510,7 +1528,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
  #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
  #[napi]
  impl GpuixRenderer {
-@@ -1174,7 +1294,9 @@ impl GpuixRenderer {
+@@ -1174,7 +1303,9 @@ impl GpuixRenderer {
      pub fn new(event_callback: Option<ThreadsafeFunction<EventPayload>>) -> Self {
          let _ = env_logger::try_init();
          Self {
@@ -1520,7 +1538,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
              tree: Arc::new(Mutex::new(RetainedTree::new())),
              initialized: Arc::new(Mutex::new(false)),
              selection: SharedSelection::default(),
-@@ -1245,6 +1367,7 @@ impl GpuixRenderer {
+@@ -1245,6 +1376,7 @@ impl GpuixRenderer {
 
          let tree = self.tree.clone();
          let callback = self.event_callback_for_view();
@@ -1528,7 +1546,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
 
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
-@@ -1274,7 +1397,8 @@ impl GpuixRenderer {
+@@ -1274,7 +1406,8 @@ impl GpuixRenderer {
 
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
@@ -1538,7 +1556,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
                      cx.new(|_| {
                          GpuixView::new(tree.clone(), callback.clone(), title, selection.clone())
                      })
-@@ -1377,6 +1501,7 @@ impl GpuixRenderer {
+@@ -1377,6 +1510,7 @@ impl GpuixRenderer {
          let tree = self.tree.clone();
          let selection = self.selection.clone();
          let callback = self.event_callback_for_view();
@@ -1546,7 +1564,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
          let (command_sender, command_receiver) = mpsc::unbounded();
          let (startup_sender, startup_receiver) = sync_channel(1);
          let exit_startup_sender = startup_sender.clone();
-@@ -1434,7 +1559,8 @@ impl GpuixRenderer {
+@@ -1434,7 +1568,8 @@ impl GpuixRenderer {
                              };
                              let window = match cx.open_window(
                                  to_gpui_window_options(&window_options, bounds),
@@ -1556,7 +1574,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
                                      cx.new(|_| GpuixView::new(tree, callback, title, selection))
                                  },
                              ) {
-@@ -1573,7 +1699,6 @@ impl GpuixRenderer {
+@@ -1573,7 +1708,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
 
@@ -1564,7 +1582,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2257,88 @@ impl GpuixRenderer {
+@@ -2132,6 +2266,88 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
 
@@ -1653,8 +1671,79 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      // ── Selection API ────────────────────────────────────────────────
 
      /// The current text selection joined in document order, or null.
-@@ -2469,12 +2676,24 @@ impl GpuixRenderer {
+@@ -2467,14 +2683,95 @@ impl GpuixRenderer {
+         Err(Error::from_reason("Unsupported operating system"))
+     }
 
++    #[napi(js_name = "registerFontsAsyncV1")]
++    pub fn register_fonts_async_v1(&self, data: Vec<Buffer>) -> AsyncTask<FontBatchTask> {
++        let result = (|| {
++            if data.is_empty() || data.len() > MAX_FONT_BATCH_COUNT {
++                return Err(Error::from_reason("Invalid font batch count"));
++            }
++            let mut size = 0usize;
++            for font in &data {
++                size = size
++                    .checked_add(font.len())
++                    .ok_or_else(|| Error::from_reason("Font batch is too large"))?;
++                if font.is_empty() || size > MAX_FONT_BATCH_BYTES {
++                    return Err(Error::from_reason("Invalid font batch size"));
++                }
++            }
++            let fonts: Vec<Vec<u8>> = data.into_iter().map(|font| font.to_vec()).collect();
++            let (response, receiver) = std::sync::mpsc::sync_channel(1);
++            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++            {
++                let sender = self.ui_commands.lock().unwrap();
++                send_font_batch(sender.as_ref(), fonts, response)?;
++            }
++            #[cfg(target_os = "macos")]
++            {
++                let window = GPUI_WINDOW
++                    .with(|window| *window.borrow())
++                    .ok_or_else(|| Error::from_reason("GPUI window is not initialized"))?;
++                GPUI_APP.with(|app| {
++                    let app = app.borrow();
++                    let app = app
++                        .as_ref()
++                        .ok_or_else(|| Error::from_reason("GPUI application is not initialized"))?;
++                    app.update(|cx| {
++                        cx.spawn(async move |cx| {
++                            let result = window
++                                .update(cx, move |view, window, cx| {
++                                    view.register_fonts(fonts, window, cx)
++                                })
++                                .unwrap_or_else(|error| Err(error.to_string()));
++                            response.send(result).ok();
++                        })
++                        .detach();
++                    });
++                    Ok::<(), Error>(())
++                })?;
++            }
++            #[cfg(not(any(
++                target_os = "macos",
++                target_os = "windows",
++                target_os = "linux",
++                target_os = "freebsd"
++            )))]
++            {
++                let _ = (fonts, response);
++                return Err(Error::from_reason("Unsupported operating system"));
++            }
++            #[cfg(any(
++                target_os = "macos",
++                target_os = "windows",
++                target_os = "linux",
++                target_os = "freebsd"
++            ))]
++            Ok(receiver)
++        })();
++        AsyncTask::new(FontBatchTask {
++            receiver: Some(result),
++        })
++    }
++
      #[napi]
      pub fn get_automation_tree(&self) -> Result<String> {
 -        self.request_invalidate()?;
@@ -1684,7 +1773,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      }
 
      #[napi]
-@@ -3428,11 +3647,7 @@ impl WebGpuixRenderer {
+@@ -3428,11 +3725,7 @@ impl WebGpuixRenderer {
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
      pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
          notify_web();
@@ -1697,7 +1786,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      }
 
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
-@@ -3820,8 +4035,12 @@ pub(crate) fn emit_key_event(
+@@ -3820,8 +4113,12 @@ pub(crate) fn emit_key_event(
      });
  }
 
@@ -1712,7 +1801,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
  }
 
  fn window_key_events(
-@@ -3869,7 +4088,13 @@ fn window_key_events(
+@@ -3869,7 +4166,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -1727,7 +1816,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
                  }
              });
          },
-@@ -3957,6 +4182,32 @@ fn resolve_highlight(
+@@ -3957,6 +4260,32 @@ fn resolve_highlight(
  }
 
  impl GpuixView {
@@ -1760,7 +1849,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -4041,10 +4292,8 @@ impl GpuixView {
+@@ -4041,10 +4370,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -1773,7 +1862,32 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
          self.set_live_image(id, image, window, cx)
      }
 
-@@ -4314,7 +4563,9 @@ impl GpuixView {
+@@ -4066,6 +4393,24 @@ impl GpuixView {
+         Ok(())
+     }
+
++    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++    fn register_fonts(
++        &mut self,
++        fonts: Vec<Vec<u8>>,
++        window: &mut gpui::Window,
++        cx: &mut gpui::Context<Self>,
++    ) -> std::result::Result<u32, String> {
++        validate_font_batch(&fonts)?;
++        let count = fonts.len() as u32;
++        window
++            .text_system()
++            .add_fonts(fonts.into_iter().map(std::borrow::Cow::Owned).collect())
++            .map_err(|error| error.to_string())?;
++        cx.notify();
++        window.refresh();
++        Ok(count)
++    }
++
+     pub(crate) fn scroll_element_into_view(&self, id: u64) -> bool {
+         let Some((scroller_id, child_index)) = self.scroll_target(id) else {
+             return false;
+@@ -4314,7 +4659,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -1784,7 +1898,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
              }
              current = parent_id;
          };
-@@ -4764,7 +5015,12 @@ impl VirtualListEntry {
+@@ -4764,7 +5111,12 @@ impl VirtualListEntry {
  }
 
  impl GpuixView {
@@ -1798,7 +1912,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -6731,10 +6987,7 @@ fn report_layout(
+@@ -6731,10 +7083,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -1810,6 +1924,143 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
+@@ -8329,3 +8678,136 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
+     }
+     Ok(())
+ }
++
++#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
++mod async_font_tests {
++    use super::*;
++    use std::sync::mpsc::sync_channel;
++    use std::time::{Duration, Instant};
++
++    #[test]
++    fn waits_for_delayed_font_reply() {
++        let (sender, receiver) = sync_channel(1);
++        let start = Instant::now();
++        let worker = std::thread::spawn(move || await_font_result(receiver));
++        std::thread::sleep(Duration::from_millis(2100));
++        assert!(!worker.is_finished());
++        sender.send(Ok(2)).unwrap();
++        assert_eq!(worker.join().unwrap().unwrap(), 2);
++        assert!(start.elapsed() >= Duration::from_secs(2));
++    }
++
++    #[test]
++    fn reports_font_failure_and_disconnect() {
++        let (sender, receiver) = sync_channel(1);
++        sender.send(Err("backend failed".to_string())).unwrap();
++        assert!(await_font_result(receiver)
++            .unwrap_err()
++            .to_string()
++            .contains("backend failed"));
++        let (sender, receiver) = sync_channel(1);
++        drop(sender);
++        assert!(await_font_result(receiver)
++            .unwrap_err()
++            .to_string()
++            .contains("stopped"));
++    }
++
++    #[test]
++    fn rejects_font_batch_bounds_and_invalid_fonts() {
++        assert!(validate_font_batch(&[]).is_err());
++        assert!(validate_font_batch(&[vec![]]).is_err());
++        assert!(validate_font_batch(&vec![vec![1]; MAX_FONT_BATCH_COUNT + 1]).is_err());
++        assert!(validate_font_batch(&[vec![1; MAX_FONT_BATCH_BYTES + 1]]).is_err());
++        assert!(validate_font_batch(&[vec![1, 2, 3, 4]]).is_err());
++    }
++
++    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++    #[test]
++    fn rejects_closed_font_command_queue() {
++        let (sender, receiver) = mpsc::unbounded();
++        drop(receiver);
++        let (response, reply) = sync_channel(1);
++        assert!(send_font_batch(Some(&sender), vec![vec![1]], response).is_err());
++        assert!(await_font_result(reply).is_err());
++        let (response, reply) = sync_channel(1);
++        assert!(send_font_batch(None, vec![vec![1]], response).is_err());
++        assert!(await_font_result(reply).is_err());
++    }
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++const MAX_FONT_BATCH_COUNT: usize = 64;
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++const MAX_FONT_BATCH_BYTES: usize = 32 * 1024 * 1024;
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn validate_font_batch(fonts: &[Vec<u8>]) -> std::result::Result<(), String> {
++    if fonts.is_empty() || fonts.len() > MAX_FONT_BATCH_COUNT {
++        return Err("Invalid font batch count".to_string());
++    }
++    let mut size = 0usize;
++    for font in fonts {
++        size = size
++            .checked_add(font.len())
++            .ok_or("Font batch is too large")?;
++        if font.is_empty() || size > MAX_FONT_BATCH_BYTES {
++            return Err("Invalid font batch size".to_string());
++        }
++    }
++    for font in fonts {
++        check_font(font)?;
++    }
++    Ok(())
++}
++
++#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++fn send_font_batch(
++    sender: Option<&mpsc::UnboundedSender<UiCommand>>,
++    fonts: Vec<Vec<u8>>,
++    response: SyncSender<std::result::Result<u32, String>>,
++) -> Result<()> {
++    sender
++        .ok_or_else(|| Error::from_reason("GPUI application is not initialized"))?
++        .unbounded_send(UiCommand::RegisterFontBatch { fonts, response })
++        .map_err(|_| Error::from_reason("The GPUI UI thread is not running"))
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn await_font_result(
++    receiver: std::sync::mpsc::Receiver<std::result::Result<u32, String>>,
++) -> Result<u32> {
++    match receiver.recv_timeout(Duration::from_secs(60)) {
++        Ok(result) => result.map_err(Error::from_reason),
++        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(Error::from_reason(
++            "The GPUI UI thread stopped during font registration",
++        )),
++        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(Error::from_reason(
++            "Font registration timed out; its outcome is unknown and it may still complete",
++        )),
++    }
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++pub struct FontBatchTask {
++    receiver: Option<Result<std::sync::mpsc::Receiver<std::result::Result<u32, String>>>>,
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++#[napi]
++impl Task for FontBatchTask {
++    type Output = u32;
++    type JsValue = u32;
++
++    fn compute(&mut self) -> Result<Self::Output> {
++        let receiver = self
++            .receiver
++            .take()
++            .ok_or_else(|| Error::from_reason("Font batch was already awaited"))??;
++        await_font_result(receiver)
++    }
++
++    fn resolve(&mut self, _env: Env, count: u32) -> Result<Self::JsValue> {
++        Ok(count)
++    }
++}
 diff --git a/packages/native/src/retained_tree.rs b/packages/native/src/retained_tree.rs
 index ee95967b03f85d493980ca95b520ad7fdda48dc8..8c12986f489a1a21ea1dc215bd6d9db76046893c 100644
 --- a/packages/native/src/retained_tree.rs
