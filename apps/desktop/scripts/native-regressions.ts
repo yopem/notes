@@ -297,8 +297,8 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   )
   await app.getByTestId("search").fill("")
   await app.getByTestId("nav-all").click()
-  await createNote(app, dataDirectory, "Sort note 2", "Sort order regression")
   await createNote(app, dataDirectory, "Sort note 10", "Sort order regression")
+  await createNote(app, dataDirectory, "Sort note 2", "Sort order regression")
   await createNote(
     app,
     dataDirectory,
@@ -308,6 +308,21 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await app.getByTestId("pin-note").click()
   await app.getByTestId("search").fill("Sort order regression")
   await textIs(app, "note-count", "3 notes")
+  await app.getByTestId("settings-open").click()
+  await app.getByTestId("settings-tab-navigation").click()
+  await app.getByTestId("setting-noteSortOrder-none").click()
+  await app.getByTestId("settings-close").click()
+
+  const [workspacePinned, workspaceTen, workspaceTwo] = await Promise.all([
+    app.getByText("Sort note pinned").bounds(),
+    app.getByText("Sort note 10").bounds(),
+    app.getByText("Sort note 2").bounds(),
+  ])
+
+  assert(
+    workspacePinned.y < workspaceTen.y && workspaceTen.y < workspaceTwo.y,
+    "Workspace order follows creation order within the pin group",
+  )
   await app.getByTestId("settings-open").click()
   await app.getByTestId("settings-tab-navigation").click()
   await app.getByTestId("setting-noteSortOrder-name-asc").click()
@@ -360,6 +375,14 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     writeFileSync(settingsPath, settingsBytes)
   }
 
+  await app.getByTestId("settings-close").click()
+  assert(
+    (await app.getByText("Sort note 20").bounds()).y <
+      (await app.getByText("Sort note 10").bounds()).y,
+    "Failed preference save preserves the displayed order",
+  )
+  await app.getByTestId("settings-open").click()
+  await app.getByTestId("settings-tab-navigation").click()
   await app.getByTestId("setting-noteSortOrder-name-asc").click()
   await textIs(app, "setting-current-noteSortOrder", "name-asc")
 
