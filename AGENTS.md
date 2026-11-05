@@ -1594,5 +1594,8 @@ applicable category into concrete cases with the details required above.
   runtime revision. Do not replace the user's global Bun installation.
 - Preserve existing `workspace.json`, backup, lock and settings contracts during
   source moves. Keep generated native binaries and QA artifacts ignored.
+- Mount application and recovery text only after bundled font setup succeeds.
+  Keep font outcomes per native renderer across root remounts. After a native
+  font request fails, require a restart. Do not replay an uncertain command.
 - Before writing Effect code, read `node_modules/effect/AGENTS.md` completely.
   Follow its linked guidance and inspect the pinned v4-or-higher source APIs.

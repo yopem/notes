@@ -1559,37 +1559,47 @@ mark those cases passed until capture works and the evidence is inspected.
 - [ ] **QA-058 — P1 — Keep font setup failures out of React commit errors**
   - **Purpose:** Keep cold native font setup and slow UI commands from leaving
     an unusable partial editor or an unhandled render error.
-  - **Prerequisites:** QA-056 private compositor, verified addon, full system
-    font profile, a fresh private font/cache directory, and immutable source. Do
-    not change global fonts or use a host display. Use only synthetic data.
-  - **Inputs:** Bundled Inter and IBM Plex Mono. Preserve the native command
-    timeout diagnostic instead of replacing it with an unrelated tree timeout.
+  - **Prerequisites:** QA-056 private compositor, verified addon, fresh private
+    font/cache directories and immutable source. Do not change global fonts or
+    use a host display. Use only synthetic data.
+  - **Inputs:** Bundled Inter and IBM Plex Mono. The controlled fixture throws
+    at the second registration boundary after a real Inter registration. It does
+    not represent a physical native delay or prove the original cause.
   - **Steps:**
     1. From repository root, run
-       `python3 docs/artifacts/native-isolation/app-sandbox.py "$(date -u +%Y%m%dT%H%M%SZ)-$$" wide`.
-    2. Inspect native startup logs, font-registration timing, the first usable
-       tree and a private screenshot before settings or note actions.
-    3. If setup fails, inspect the implemented startup error/retry path. Define
-       a child-only reproducible delayed-font scenario before changing code. The
-       fault adapter and exact replay command remain a discovery task.
-    4. Repeat the source launch after the fix. Keep normal-font startup results
-       separate from workflow runs with an explicit bundled-font QA profile.
-  - **Expected results:** Fonts load before their first text layout, or the app
-    reports a specific recoverable setup failure. A root ref exception must not
-    replace the workspace with an unrelated React error. Retry cannot create a
-    second native host or lose notes. A font fixture must not change global
-    configuration or be presented as proof of normal-font startup performance.
-  - **Evidence:** Save stable source/addon hashes, native timing/errors, exact
-    command, tree, private screenshot and cleanup under
-    `docs/artifacts/native-isolation/`. The initial failure is
+       `python3 docs/artifacts/native-isolation/app-sandbox.py wide system`.
+       Inspect startup, the first usable tree and a private screenshot before
+       settings or note actions. Preserve any native timeout diagnostic.
+    2. Run
+       `python3 docs/artifacts/native-isolation/app-sandbox.py font-failure bundled`.
+       Check the specific font failure, no mounted editor, and no generic React
+       error. The existing controlled fixture was defined before the fix.
+    3. Inspect its same-window root-remount check: one native initialization,
+       two registration attempts, no automatic replay, and unchanged exact
+       workspace bytes from before the first font call through the remount.
+    4. Repeat successful source launch and inspect both requested font families.
+       Keep bundled-font workflow evidence separate from normal-font startup.
+       Missing, unreadable or invalid asset cases still need a defined fixture.
+  - **Expected results:** Fonts load before their first application text layout,
+    or the app reports a specific setup failure requiring restart. A failed
+    native command is not assumed canceled or automatically repeated. A root ref
+    exception must not trigger the generic React overlay or lose saved notes.
+    The font fixture must not change global configuration or be claimed as proof
+    of normal-font startup performance.
+  - **Evidence:** Save stable source/addon hashes, timing/errors, exact command,
+    counters, before/after workspace bytes, tree, private screenshot and cleanup
+    under `docs/artifacts/native-isolation/`. The original failure is
     `app-run-20261105T131052Z-1562454`.
   - **Cleanup:** Stop only owned app/compositor groups, check the lock is gone
     and remove private runtimes. Keep sanitized artifacts and fault scripts.
-  - **Status:** Failed on 2026-11-05 at ba271a3. The real leaf start script
-    reached font registration, which threw its two-second native timeout during
-    `registerRoot`. React reported a runtime error and tree queries timed out.
-    No settings/regression case ran. Owned processes stopped and the lock was
-    removed. The underlying wait location and a controlled fault are pending.
+  - **Status:** Pending acceptance after 34aa28b, bd0af2a and 5e4c187. Native
+    fonts now precede application/recovery text; failures have a specific
+    boundary and renderer outcomes survive remounts without replay. Scoped
+    native zero-warning lint passed. The prior run failed at ba271a3 on the
+    second registration's two-second timeout; the underlying wait is unknown.
+    Bundled-font wide execution reached settings and later safety scenarios,
+    then failed an ambiguous Trash fixture target, corrected in ba1e947. Neither
+    that partial run nor the startup boundary proves normal-font reliability.
 
 - [ ] **QA-059 — P0 — Preserve failed drafts across native root remounts**
   - **Purpose:** Protect pending notes when hot reload or an explicit root
