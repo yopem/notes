@@ -27,7 +27,7 @@ import {
 import { basename, extname, join, resolve } from "node:path"
 
 import { NotesError } from "@/features/notes/errors"
-import { atomicWrite, syncDirectory } from "@/platform/files"
+import { atomicWrite, AtomicWriteError, syncDirectory } from "@/platform/files"
 
 export type Notebook = typeof notebookSchema.Type
 
@@ -438,6 +438,11 @@ export class NotesStore {
   private readonly owner: ProcessLock
   private snapshot: Workspace
   private diskBytes: string | null = null
+  private pendingWrite: {
+    workspace: Workspace
+    bytes: string
+    error: AtomicWriteError
+  } | null = null
   private closed = false
   private readonly listeners = new Set<() => void>()
 
@@ -499,6 +504,37 @@ export class NotesStore {
     return this.snapshot
   }
 
+  readonly getWriteRecoveryState = (): "ready" | "uncertain" =>
+    this.pendingWrite === null ? "ready" : "uncertain"
+
+  recoverWrite(): Effect.Effect<void, NotesError> {
+    return Effect.try({
+      try: () => {
+        this.ensureOpen()
+        const pending = this.pendingWrite
+
+        if (pending === null) return
+        this.ensureOwner()
+        const current = readBytes(this.path, fileLimit)
+
+        if (
+          current === null ||
+          !current.equals(Buffer.from(pending.bytes, "utf8"))
+        )
+          throw new Error(
+            `Workspace changed after an uncertain save. Preserve ${this.path}, backup ${this.backupPath}, and export your drafts before you close or reopen the store. Recovery did not overwrite any files.`,
+            { cause: pending.error },
+          )
+        syncDirectory(this.directory)
+        this.diskBytes = pending.bytes
+        this.snapshot = pending.workspace
+        this.pendingWrite = null
+        this.notifyListeners()
+      },
+      catch: (cause) => NotesError.fromCause("recoverWrite", cause),
+    })
+  }
+
   subscribe(listener: () => void): () => void {
     this.ensureOpen()
     Schema.decodeUnknownSync(subscriberSchema)(listener)
@@ -512,7 +548,7 @@ export class NotesStore {
   createNotebook(name: string): Effect.Effect<Notebook, NotesError> {
     return Effect.try({
       try: () => {
-        this.ensureOpen()
+        this.ensureWritable()
 
         const notebook = {
           id: randomUUID(),
@@ -533,7 +569,7 @@ export class NotesStore {
   renameNotebook(id: string, name: string): Effect.Effect<void, NotesError> {
     return Effect.try({
       try: () => {
-        this.ensureOpen()
+        this.ensureWritable()
         const notebook = this.notebook(id)
         const nextName = nonempty(name, "Notebook name").trim()
 
@@ -553,7 +589,7 @@ export class NotesStore {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
         try: () => {
-          this.ensureOpen()
+          this.ensureWritable()
 
           const note = makeNote(
             this.notebook(notebookId ?? this.snapshot.notebooks[0]?.id).id,
@@ -580,7 +616,7 @@ export class NotesStore {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
         try: () => {
-          this.ensureOpen()
+          this.ensureWritable()
           const source = this.note(nonempty(id, "Note ID"))
 
           if (source.trashedAt !== null)
@@ -632,7 +668,7 @@ export class NotesStore {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
         try: () => {
-          this.ensureOpen()
+          this.ensureWritable()
           const note = this.note(id)
 
           const parsed = Schema.decodeUnknownSync(notePatchSchema, {
@@ -671,7 +707,7 @@ export class NotesStore {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
         try: () => {
-          this.ensureOpen()
+          this.ensureWritable()
           const note = this.note(id)
           this.replaceNote({
             ...note,
@@ -688,7 +724,7 @@ export class NotesStore {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
         try: () => {
-          this.ensureOpen()
+          this.ensureWritable()
           const note = this.note(id)
 
           if (note.trashedAt !== null) return
@@ -709,7 +745,7 @@ export class NotesStore {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
         try: () => {
-          this.ensureOpen()
+          this.ensureWritable()
           const note = this.note(id)
 
           if (note.trashedAt === null) return
@@ -727,7 +763,7 @@ export class NotesStore {
   deleteNote(id: string): Effect.Effect<void, NotesError> {
     return Effect.try({
       try: () => {
-        this.ensureOpen()
+        this.ensureWritable()
 
         if (this.note(id).trashedAt === null)
           throw new Error(
@@ -749,7 +785,7 @@ export class NotesStore {
   selectNote(id: string | null): Effect.Effect<void, NotesError> {
     return Effect.try({
       try: () => {
-        this.ensureOpen()
+        this.ensureWritable()
 
         if (id !== null) this.note(id)
 
@@ -763,7 +799,7 @@ export class NotesStore {
   setTheme(theme: "light" | "dark"): Effect.Effect<void, NotesError> {
     return Effect.try({
       try: () => {
-        this.ensureOpen()
+        this.ensureWritable()
         Schema.decodeUnknownSync(themeSchema)(theme)
 
         if (this.snapshot.theme === theme) return
@@ -780,7 +816,7 @@ export class NotesStore {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
         try: () => {
-          this.ensureOpen()
+          this.ensureWritable()
           const parsedPaths = Schema.decodeUnknownSync(importPathsSchema)(paths)
 
           const notebook = this.notebook(
@@ -913,6 +949,16 @@ export class NotesStore {
       )
   }
 
+  private ensureWritable() {
+    this.ensureOpen()
+
+    if (this.pendingWrite !== null)
+      throw new Error(
+        "A workspace replacement awaits directory synchronization. Export your drafts if needed, then call recoverWrite() explicitly. Do not repeat the failed mutation; recovery will publish its intended result.",
+        { cause: this.pendingWrite.error },
+      )
+  }
+
   private notebook(id: string | undefined) {
     const notebook = this.snapshot.notebooks.find((entry) => entry.id === id)
 
@@ -943,6 +989,8 @@ export class NotesStore {
   }
 
   private commit(workspace: Workspace) {
+    this.ensureWritable()
+
     const validated = freezeWorkspace(
       Schema.decodeUnknownSync(workspaceSchema, {
         onExcessProperty: "error",
@@ -952,15 +1000,18 @@ export class NotesStore {
 
     this.persist(validated)
     this.snapshot = validated
-    const listenersAtCommit = [...this.listeners]
+    this.notifyListeners()
+  }
 
-    for (const listener of listenersAtCommit) {
+  private notifyListeners() {
+    const listenersAtTransition = [...this.listeners]
+
+    for (const listener of listenersAtTransition) {
       try {
         listener()
       } catch (error) {
-        // A subscriber failure must not report a completed disk commit as a failed save.
         console.error(
-          "NotesStore subscriber failed after a successful save:",
+          "NotesStore subscriber failed after a state change:",
           error,
         )
       }
@@ -976,10 +1027,7 @@ export class NotesStore {
       )
 
     try {
-      const lock = readLock(this.lockPath)
-
-      if (lock?.token !== this.owner.token || lock.pid !== this.owner.pid)
-        throw new Error("Workspace lock changed; close and reopen the store")
+      this.ensureOwner()
       const current = readText(this.path, fileLimit)
 
       if (current !== this.diskBytes)
@@ -996,11 +1044,34 @@ export class NotesStore {
       atomicWrite(this.path, bytes, this.directory)
       this.diskBytes = bytes
     } catch (error) {
+      if (
+        error instanceof AtomicWriteError &&
+        error.path === this.path &&
+        error.replacementCompleted
+      ) {
+        this.pendingWrite = { workspace, bytes, error }
+        this.notifyListeners()
+      }
+
+      const recovery =
+        this.pendingWrite === null
+          ? `The saved snapshot is unchanged. Inspect ${this.path} and backup ${this.backupPath} before you retry; either file may have changed.`
+          : "The workspace was replaced, but durability is not confirmed. The saved snapshot is unchanged. Keep or export your drafts, then call recoverWrite() explicitly. Do not repeat the failed mutation."
+
       throw new Error(
-        `Cannot save ${this.path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}. Your in-memory notes are unchanged. Inspect ${this.path} and backup ${this.backupPath} before recovery.`,
+        `Cannot save ${this.path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}. ${recovery}`,
         { cause: error },
       )
     }
+  }
+
+  private ensureOwner() {
+    const lock = readLock(this.lockPath)
+
+    if (lock?.token !== this.owner.token || lock.pid !== this.owner.pid)
+      throw new Error(
+        "Workspace lock changed. Export your drafts before you close and reopen the store.",
+      )
   }
 
   private releaseLock() {

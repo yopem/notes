@@ -16,6 +16,7 @@ const operationSchema = Schema.Literals([
   "setTheme",
   "importMarkdown",
   "exportMarkdown",
+  "recoverWrite",
 ])
 
 export class NotesError extends Schema.TaggedError<NotesError>()("NotesError", {

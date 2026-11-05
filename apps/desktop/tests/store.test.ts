@@ -225,19 +225,25 @@ describe("NotesStore real disk integration", () => {
     const before = store.getSnapshot()
     const bytes = readFileSync(primary(root))
     mkdirSync(backup(root))
+
     const error = Effect.runSync(
-      Effect.flip(store.updateNote(before.selectedNoteId ?? "", { body: "Unsaved Ω" })),
+      Effect.flip(
+        store.updateNote(before.selectedNoteId ?? "", { body: "Unsaved Ω" }),
+      ),
     )
+
     expect(error).toBeInstanceOf(NotesError)
     expect(store.getWriteRecoveryState()).toBe("ready")
     expect(store.getSnapshot()).toBe(before)
     expect(readFileSync(primary(root))).toEqual(bytes)
     expect(Effect.runSync(store.recoverWrite())).toBeUndefined()
+
     const exported = Effect.runSync(
       store.exportMarkdown(before.selectedNoteId ?? "", join(root, "exports"), {
         body: "Unsaved Ω",
       }),
     )
+
     expect(readFileSync(exported, "utf8")).toBe("Unsaved Ω")
     expect(readFileSync(primary(root))).toEqual(bytes)
   })
