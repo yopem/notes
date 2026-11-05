@@ -14,9 +14,9 @@ import {
   builtinTemplates,
   createFromTemplate,
   insertTemplate,
+  type NoteTemplate,
   renderTemplate,
   TemplateLibrary,
-  type NoteTemplate,
 } from "@/services/templates"
 
 // Enumerate before implementation: built-ins and overrides, hidden/reset state,

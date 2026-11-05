@@ -1,10 +1,8 @@
+import { Button as NativeButton } from "@gpuix/react/button"
 import type { ReactNode } from "react"
 
-import { Button as NativeButton } from "@gpuix/react/button"
-
-import type { Palette } from "@/utils/theme"
-
 import { Icon, type IconName } from "@/components/ui/icons"
+import type { Palette } from "@/utils/theme"
 
 export function Label({
   children,

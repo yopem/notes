@@ -1,9 +1,8 @@
+import { Button, Label } from "@/components/ui/controls"
+import { Icon } from "@/components/ui/icons"
 import type { Preferences } from "@/settings"
 import type { Note } from "@/store"
 import type { Palette } from "@/utils/theme"
-
-import { Button, Label } from "@/components/ui/controls"
-import { Icon } from "@/components/ui/icons"
 import { nativeTheme } from "@/utils/theme"
 
 export type EditorMode = "edit" | "preview" | "split"

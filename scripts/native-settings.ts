@@ -1,8 +1,8 @@
-import type { App } from "@gpuix/react/automation"
-
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
+
+import type { App } from "@gpuix/react/automation"
 import { z } from "zod"
 
 const savedPreferencesSchema = z.object({

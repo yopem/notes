@@ -1,4 +1,4 @@
-import { useGpuixRequired, type PublicInstance } from "@gpuix/react"
+import { type PublicInstance, useGpuixRequired } from "@gpuix/react"
 import * as Dialog from "@gpuix/react/dialog"
 import { useRef, useState } from "react"
 

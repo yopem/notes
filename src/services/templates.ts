@@ -3,11 +3,12 @@ import {
   existsSync,
   lstatSync,
   openSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   unlinkSync,
 } from "node:fs"
 import { basename, dirname } from "node:path"
+
 import { z } from "zod"
 
 import { sourceDateFormat } from "@/services/periodic"

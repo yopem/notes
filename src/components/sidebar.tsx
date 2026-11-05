@@ -1,8 +1,7 @@
-import type { Notebook, Note } from "@/store"
-import type { Palette } from "@/utils/theme"
-
 import { Button, Label, NavItem } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
+import type { Note, Notebook } from "@/store"
+import type { Palette } from "@/utils/theme"
 
 export type View =
   | { kind: "all" | "pinned" | "trash" }

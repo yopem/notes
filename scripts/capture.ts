@@ -1,8 +1,8 @@
-import type { App } from "@gpuix/react/automation"
-
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { readFileSync, rmSync } from "node:fs"
+
+import type { App } from "@gpuix/react/automation"
 import { z } from "zod"
 
 const compositorVersionSchema = z.string().regex(/Hyprland \d+\.\d+\./)

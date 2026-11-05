@@ -1,10 +1,9 @@
 import type { EventPayload } from "@gpuix/native"
-
 import {
   createRendererState,
+  type NativeRenderer,
   registerEventHandler,
   unregisterEventHandler,
-  type NativeRenderer,
 } from "@gpuix/native/host"
 import { z } from "zod"
 

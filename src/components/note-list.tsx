@@ -1,10 +1,9 @@
 import { Button as NativeButton } from "@gpuix/react/button"
 
-import type { Note } from "@/store"
-import type { Palette } from "@/utils/theme"
-
 import { Button, Label } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
+import type { Note } from "@/store"
+import type { Palette } from "@/utils/theme"
 
 export function NoteList({
   color,

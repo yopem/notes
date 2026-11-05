@@ -4,9 +4,9 @@ import { z } from "zod"
 
 import { Button, Label } from "@/components/ui/controls"
 import {
-  preferenceNames,
-  preferenceInputSchema,
   type PreferenceInput,
+  preferenceInputSchema,
+  preferenceNames,
   type Preferences,
   type SettingsStore,
 } from "@/settings"

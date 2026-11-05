@@ -10,8 +10,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import {
-  completeTask,
   completeNoteTask,
+  completeTask,
   computeReminders,
   editTask,
   forwardTask,
@@ -20,8 +20,8 @@ import {
   parseTasks,
   ReminderLedger,
   selectTasks,
-  taskProgress,
   type TaskNote,
+  taskProgress,
 } from "@/services/tasks"
 
 // Source edits need isolation: enumerate byte preservation, stale records,

@@ -3,7 +3,7 @@ import { render } from "@gpuix/react"
 import { App } from "@/components/app"
 import { RecoveryScreen } from "@/components/recovery-screen"
 import { SettingsStore } from "@/settings"
-import { NotesStore, defaultDataDirectory } from "@/store"
+import { defaultDataDirectory, NotesStore } from "@/store"
 import { readEnvironment } from "@/utils/env"
 
 declare global {

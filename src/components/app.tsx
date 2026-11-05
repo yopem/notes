@@ -1,15 +1,13 @@
-import {
-  useGpuixRequired,
-  useWindowSize,
-  type KeyEvent,
-  type PublicInstance,
-} from "@gpuix/react"
 import { spawn } from "node:child_process"
 import { homedir } from "node:os"
-import { useRef, useState, useSyncExternalStore } from "react"
 
-import type { SettingsStore } from "@/settings"
-import type { NotesStore } from "@/store"
+import {
+  type KeyEvent,
+  type PublicInstance,
+  useGpuixRequired,
+  useWindowSize,
+} from "@gpuix/react"
+import { useRef, useState, useSyncExternalStore } from "react"
 
 import { AppDialog, type DialogState } from "@/components/dialog"
 import { Editor, type EditorMode } from "@/components/editor"
@@ -18,8 +16,10 @@ import { SettingsPanel } from "@/components/settings-panel"
 import { Sidebar, type View } from "@/components/sidebar"
 import { Button, Label } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
+import type { SettingsStore } from "@/settings"
+import type { NotesStore } from "@/store"
 import { registerFonts } from "@/utils/fonts"
-import { palettes, inputStyle } from "@/utils/theme"
+import { inputStyle, palettes } from "@/utils/theme"
 
 interface Draft {
   title?: string

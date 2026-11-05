@@ -3,18 +3,18 @@ import {
   closeSync,
   constants,
   fstatSync,
+  type FSWatcher,
   fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
-  readSync,
   readdirSync,
+  readSync,
   realpathSync,
   rmdirSync,
   unlinkSync,
   watch,
   writeFileSync,
-  type FSWatcher,
 } from "node:fs"
 import {
   basename,
@@ -26,6 +26,7 @@ import {
   resolve,
   sep,
 } from "node:path"
+
 import { z } from "zod"
 
 import { atomicWrite, syncDirectory } from "@/utils/files"

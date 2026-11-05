@@ -4,17 +4,18 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
 import { dirname, join, parse, resolve } from "node:path"
+
 import { z } from "zod"
 
 import {
-  mcpPathSchema,
   MCP_TOOL_SCHEMAS,
+  mcpPathSchema,
   type McpToolName,
 } from "@/services/mcp"
 import { atomicWrite } from "@/utils/files"

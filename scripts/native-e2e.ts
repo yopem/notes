@@ -1,15 +1,16 @@
-import { connectStdio, launch, type App } from "@gpuix/react/automation"
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import {
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+
+import { type App, connectStdio, launch } from "@gpuix/react/automation"
 
 import { readEnvironment } from "@/utils/env"
 

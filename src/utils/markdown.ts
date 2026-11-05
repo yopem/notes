@@ -1,5 +1,4 @@
 import type { Nodes, Root } from "mdast"
-
 import { toString } from "mdast-util-to-string"
 import remarkFrontmatter from "remark-frontmatter"
 import remarkGfm from "remark-gfm"
@@ -208,7 +207,9 @@ export function analyzeMarkdown(input: string): MarkdownDocument {
       }
     } else if (
       node.type === "text" &&
-      !parents.some((parent) => parent.type === "link" || parent.type === "linkReference")
+      !parents.some(
+        (parent) => parent.type === "link" || parent.type === "linkReference",
+      )
     ) {
       const span = range(node)
       const raw = source.slice(span.start, span.end)

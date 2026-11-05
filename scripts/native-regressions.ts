@@ -1,9 +1,9 @@
-import type { App } from "@gpuix/react/automation"
-
 import assert from "node:assert/strict"
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+
+import type { App } from "@gpuix/react/automation"
 import { z } from "zod"
 
 const regressionWorkspaceSchema = z.object({

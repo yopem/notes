@@ -1,6 +1,6 @@
-import type { NativeRenderer } from "@gpuix/react"
-
 import { readFileSync } from "node:fs"
+
+import type { NativeRenderer } from "@gpuix/react"
 
 import monoPath from "@/assets/IBMPlexMono-Regular.ttf" with { type: "file" }
 import interPath from "@/assets/Inter.ttf" with { type: "file" }

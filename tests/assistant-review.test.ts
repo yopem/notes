@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test"
 import {
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,

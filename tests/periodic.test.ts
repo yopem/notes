@@ -4,9 +4,9 @@ import {
   classifyPeriodic,
   inferDailyDue,
   periodicLocation,
+  type PeriodicPattern,
   rolloverDailyTasks,
   sourceDateFormat,
-  type PeriodicPattern,
 } from "@/services/periodic"
 import { parseTasks, type TaskNote } from "@/services/tasks"
 

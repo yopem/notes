@@ -1,11 +1,12 @@
-import { createRendererState } from "@gpuix/native/host"
 import { describe, expect, test } from "bun:test"
+
+import { createRendererState } from "@gpuix/native/host"
 
 import {
   createNativeEditor,
+  type NativeEditorState,
   readNativeEditorEvent,
   readNativeEditorKeyEvent,
-  type NativeEditorState,
 } from "@/native/editor"
 
 const state = {
