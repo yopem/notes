@@ -261,8 +261,7 @@ export function PreferenceChoice({
   return (
     <NativeButton
       testId={`setting-${name}-${option}`}
-      aria-label={`${name}: ${option}`}
-      aria-selected={selected}
+      aria-label={`${name}: ${option}${selected ? " (selected)" : ""}`}
       onClick={selectOption}
       style={getButtonStyle({
         color,
@@ -276,7 +275,7 @@ export function PreferenceChoice({
           selected ? color.primaryForeground : color.foreground,
         )}
       >
-        {option}
+        {selected ? `${option} (selected)` : option}
       </text>
     </NativeButton>
   )
