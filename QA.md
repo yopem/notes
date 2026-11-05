@@ -60,13 +60,13 @@ data.
 | Note duplication and unsaved-draft safety                    | QA-038, QA-039, QA-041, QA-046                                                         |
 | Read-only task discovery and draft safety                    | QA-043, QA-044, QA-045                                                                 |
 | Reactive system appearance                                   | QA-022                                                                                 |
-
-| Atomic write reconciliation and vault finalization | QA-040, QA-050, QA-052,
-QA-053 | | Reserved path aliases and distinct legacy folders | QA-047, QA-049 |
-| Development startup and shutdown | QA-048 | | Actual native input, verified
-addon and private capture | QA-051, QA-054, QA-055, QA-056 | | Native action,
-font setup and remount draft safety | QA-057, QA-058, QA-059 | | Typed folder
-entry and picker-independent access | QA-060 |
+| Atomic write reconciliation and vault finalization           | QA-040, QA-050, QA-052, QA-053                                                         |
+| Reserved path aliases and distinct legacy folders            | QA-047, QA-049                                                                         |
+| Development startup and shutdown                             | QA-048                                                                                 |
+| Actual native input, verified addon and private capture      | QA-051, QA-054, QA-055, QA-056                                                         |
+| Native action, font setup and remount draft safety           | QA-057, QA-058, QA-059                                                                 |
+| Typed folder entry and picker-independent access             | QA-060                                                                                 |
+| Window close binding lifetime across root replacement        | QA-061                                                                                 |
 
 ## Storage and configuration
 
@@ -1665,3 +1665,39 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Pending implementation. Existing preview requires a native
     picker and its current scenario needs an external picker driver. Native
     picker acceptance remains separate from this explicit-path case.
+
+- [ ] **QA-061 — P0 — Retarget a close guard without opening a close gap**
+  - **Purpose:** Keep the native veto valid when the same window receives a new
+    GPUix root and event binding. A disposer alone does not retarget it.
+  - **Prerequisites:** The verified pinned native source/build cache and
+    existing native editor/protocol test files. Use only an isolated addon
+    artifact for builds. Parent owns default addon publication and live QA.
+  - **Inputs:** Old and new binding targets `1101` and `2202`, stale target
+    `3303`, a pending close request, and overlapping old/new JS controllers.
+  - **Steps:**
+    1. Before implementation, add lifecycle cases to the existing native bridge
+       test files and native patch test modules. Define a separate
+       compare-and-retarget operation; do not reset an armed guard implicitly.
+    2. Arm target `1101`, request close and retarget from `1101` to `2202`.
+       Check that the current owner receives the pending request and the veto
+       remains armed throughout. Reject a stale expected target.
+    3. Dispose the old controller after binding the new one. Check fresh event
+       routing, old controller rejection, idempotent cleanup, and a fail-closed
+       interval without a JS listener. Keep unguarded native behavior unchanged.
+    4. Run the affected existing native editor/addon tests and isolated native
+       build checks. Record exact commands and hashes in the handoff. Do not
+       publish the addon or claim live close safety from non-GUI tests.
+  - **Expected results:** No disarm interval, lost pending request or stale
+    controller close is permitted. Callback cleanup removes only its owner. Root
+    replacement does not create a second native host. Cancellation, if added,
+    clears only the pending request and keeps the native veto active. Input
+    reconciliation and draft decisions remain separate requirements.
+  - **Evidence:** Save typed protocol cases, build/patch checks, addon/source
+    hashes and ownership results under `docs/artifacts/native-close-lifecycle/`.
+    Live native evidence also needs the QA-056 private compositor and QA-025
+    acceptance workflow.
+  - **Cleanup:** Stop only owned build/test processes and remove owned data.
+    Preserve the installed addon and all user app processes.
+  - **Status:** Pending implementation. The current native arm is single-use and
+    tied to a root-generation event ID. Native input quiescence, remount draft
+    handoff and actual window-close decisions remain unverified.
