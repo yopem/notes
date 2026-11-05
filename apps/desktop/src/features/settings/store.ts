@@ -437,7 +437,10 @@ function readSettings(path: string) {
     if (bytes.length > 1024 * 1024)
       throw new Error(`Settings file is too large: ${path}`)
 
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+    return new TextDecoder("utf-8", {
+      fatal: true,
+      ignoreBOM: true,
+    }).decode(bytes)
   } finally {
     closeSync(fd)
   }
@@ -476,7 +479,11 @@ export class SettingsStore {
           : Schema.decodeUnknownSync(settingsFileSchema, {
               onExcessProperty: "error",
               errors: "all",
-            })(JSON.parse(existing)).preferences
+            })(
+              JSON.parse(
+                existing.startsWith("\uFEFF") ? existing.slice(1) : existing,
+              ),
+            ).preferences
     } catch (cause) {
       throw new Error(
         `Cannot load settings: ${this.path}. Preserve this file before recovery.`,
