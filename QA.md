@@ -1604,7 +1604,8 @@ mark those cases passed until capture works and the evidence is inspected.
     private namespace; no physical DRM open occurred, owned processes exited
     successfully, and the store lock and private runtime were removed. All
     active fixtures use normal package entrypoints inside the immutable desktop
-    snapshot. Font source hashes still match current code. The initial real
+    snapshot. Those hashes identify the previous synchronous implementation;
+    they do not prove acceptance of the new asynchronous batch. The initial real
     two-second timeout's cause, normal system-font startup, unreadable or
     invalid assets, OS composition and screen-reader output remain unverified. A
     later fresh bundled-font run at 7f0eca1 still hit the second real native
@@ -1761,7 +1762,17 @@ mark those cases passed until capture works and the evidence is inspected.
     evidence is protocol-only and which exercises the native UI thread.
   - **Cleanup:** Stop only owned children and compositor groups. Remove isolated
     data, verify store-lock release, and preserve the installed addon.
-  - **Status:** Pending implementation. The current blocking API times out after
-    two seconds without canceling queued UI work. A real timeout remains
-    reproduced after the startup boundary fix. This case does not establish
-    normal-font latency, root cause, OS composition or platform parity.
+  - **Status:** Pending native integration acceptance. The producer landed in
+    66725ba, and the typed consumer and verifier are implemented. At e45f0f0,
+    desktop typecheck passed 90 files; all six affected TypeScript files passed
+    native zero-warning lint and format checks. The existing
+    `tests/native-editor.test.ts` passed 18 cases and 62 assertions. Four
+    focused native protocol tests passed, including an actual reply delayed
+    beyond two seconds. Inspected evidence is in `consumer-checks.txt` and
+    `native-protocol-tests.txt` under this case's artifact directory. The native
+    batch has a 60-second asynchronous deadline; timeout means an unknown
+    outcome, not cancellation. The consumer retains terminal failure without
+    replay. The isolated release build and real compiled-addon boundary checks
+    remain pending, as do native pending-root, event-loop and screenshot
+    acceptance. This case does not establish normal-font latency, root cause, OS
+    composition or platform parity.
