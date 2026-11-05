@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import {
   mkdirSync,
   mkdtempSync,
@@ -194,14 +194,14 @@ describe("MCP client config integration", () => {
   test("instructions are atomic, independent defaults, and restart-safe", () => {
     const root = directory()
     const store = new McpInstructions(root)
-    const defaults = store.read()
+    const defaults = Effect.runSync(store.read())
     expect(defaults.custom).toBeNull()
-    store.write("Preserve my words.")
-    expect(new McpInstructions(root).read().effective).toBe(
+    Effect.runSync(store.write("Preserve my words."))
+    expect(Effect.runSync(new McpInstructions(root).read()).effective).toBe(
       "Preserve my words.\n",
     )
-    store.write(null)
-    expect(store.read()).toEqual(defaults)
+    Effect.runSync(store.write(null))
+    expect(Effect.runSync(store.read())).toEqual(defaults)
   })
 })
 

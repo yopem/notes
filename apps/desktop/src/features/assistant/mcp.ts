@@ -1,4 +1,5 @@
 import {
+  Effect,
   Option,
   Predicate,
   Result,
@@ -97,6 +98,18 @@ const receiptSchema = Schema.Struct({
 const errorSchema = Schema.Struct({ code: Schema.String })
 
 const decodeError = Schema.decodeUnknownOption(errorSchema)
+
+export class McpConfigError extends Schema.TaggedError<McpConfigError>()(
+  "McpConfigError",
+  { message: Schema.String, cause: Schema.Defect() },
+) {}
+
+function configError(cause: unknown) {
+  return new McpConfigError({
+    message: cause instanceof Error ? cause.message : "Config operation failed",
+    cause,
+  })
+}
 
 const decodeClient = Schema.decodeUnknownSync(clientSchema)
 
@@ -575,24 +588,32 @@ export class McpInstructions {
     this.path = join(resolve(directory), "mcp-instructions.md")
   }
   read() {
-    const raw = readOptional(this.path)
-    decodeInstruction(raw)
-    const custom = raw?.trim() ? raw : null
+    return Effect.try({
+      try: () => {
+        const raw = readOptional(this.path)
+        decodeInstruction(raw)
+        const custom = raw?.trim() ? raw : null
 
-    return {
-      custom,
-      effective: custom ?? MCP_DEFAULT_INSTRUCTIONS,
-      defaults: MCP_DEFAULT_INSTRUCTIONS,
-    }
+        return {
+          custom,
+          effective: custom ?? MCP_DEFAULT_INSTRUCTIONS,
+          defaults: MCP_DEFAULT_INSTRUCTIONS,
+        }
+      },
+      catch: configError,
+    })
   }
   write(value: string | null) {
-    const next = decodeInstruction(value)
-    save(
-      this.path,
-      next?.trim() ? (next.endsWith("\n") ? next : `${next}\n`) : "",
-    )
-
-    return this.read()
+    return Effect.try({
+      try: () => {
+        const next = decodeInstruction(value)
+        save(
+          this.path,
+          next?.trim() ? (next.endsWith("\n") ? next : `${next}\n`) : "",
+        )
+      },
+      catch: configError,
+    }).pipe(Effect.flatMap(() => this.read()))
   }
 }
 
