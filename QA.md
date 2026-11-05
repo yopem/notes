@@ -1619,9 +1619,11 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Steps:**
     1. Create the note and force the existing isolated save failure. Check the
        native field, draft notice and unchanged saved bytes.
-    2. Define an owned remount action through the pinned renderer or hot entry
-       before implementation. Record its exact command/protocol; this action
-       remains a discovery task, not an invented executable payload.
+    2. From the repository root, run the private same-host fixture:
+       `python3 docs/artifacts/native-isolation/app-sandbox.py "$(date -u +%Y%m%dT%H%M%SZ)-$$" draft-remount bundled`.
+       Its owned preload replaces the actual React root with public `render()`
+       and records root identity, native initialization and font calls. It uses
+       package entrypoints and checks fixture types before app execution.
     3. Remount on the same native host and runtime. Inspect the active note,
        pending count, native fields, rescue export and ordinary-close policy.
     4. Check incompatible runtime contracts refuse unsafe reuse without
@@ -1635,10 +1637,14 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/native-isolation/QA-059/`.
   - **Cleanup:** Restore only fixture permissions/paths and stop owned groups.
     Check the store lock is released. Keep evidence and remove isolated data.
-  - **Status:** Pending. Installed GPUix `render()` explicitly unmounts the
-    previous root on remount. Failed drafts currently live in hook state and
-    refs, while the application runtime is reused globally. No live remount or
-    compatibility-preservation acceptance has run.
+  - **Status:** Pending native acceptance. Commits c05e6d9 and 6452ab7 retain
+    delivered drafts in a NotesStore-owned external state across root remounts
+    and module evaluation. Scoped zero-warning lint, formatting and desktop
+    typecheck passed; 82 existing store tests passed. The committed native
+    scenario checks original bytes, exact rescue exports before and after a real
+    root replacement, retained fields, and successful retry. Native input not
+    yet delivered to JavaScript, legacy hook-held drafts, incompatible runtime
+    handling and ordinary-close protection remain separate open risks.
 
 - [ ] **QA-060 — P1 — Open a read-only folder with an explicit path**
   - **Purpose:** Support keyboard-only folder entry and systems without a usable
