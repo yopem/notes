@@ -1567,11 +1567,11 @@ mark those cases passed until capture works and the evidence is inspected.
     not represent a physical native delay or prove the original cause.
   - **Steps:**
     1. From repository root, run
-       `python3 docs/artifacts/native-isolation/app-sandbox.py wide system`.
+       `python3 docs/artifacts/native-isolation/app-sandbox.py "$(date -u +%Y%m%dT%H%M%SZ)-$$" wide system`.
        Inspect startup, the first usable tree and a private screenshot before
        settings or note actions. Preserve any native timeout diagnostic.
     2. Run
-       `python3 docs/artifacts/native-isolation/app-sandbox.py font-failure bundled`.
+       `python3 docs/artifacts/native-isolation/app-sandbox.py "$(date -u +%Y%m%dT%H%M%SZ)-$$" font-failure bundled`.
        Check the specific font failure, no mounted editor, and no generic React
        error. The existing controlled fixture was defined before the fix.
     3. Inspect its same-window root-remount check: one native initialization,
