@@ -68,6 +68,8 @@ data.
 | Typed folder entry and picker-independent access             | QA-060                                                                                 |
 | Window close binding lifetime across root replacement        | QA-061                                                                                 |
 | Painted native note selection after wheel navigation         | QA-063                                                                                 |
+| Guard normal menu/keyboard quit                              | QA-064                                                                                 |
+| Fence each asynchronous close attempt                        | QA-065                                                                                 |
 
 ## Storage and configuration
 
@@ -1854,3 +1856,65 @@ mark those cases passed until capture works and the evidence is inspected.
     failure changed directory before a root-relative redirect and launched no
     app; its error is retained in `native-isolation/sort-qa-cli-error.txt`. The
     corrected pinned private rerun remains pending.
+
+- [ ] **QA-064 — P0 — Guard normal menu and keyboard quit**
+  - **Purpose:** A normal application quit must not bypass an active close owner
+    through the global menu action while a draft needs a decision.
+  - **Prerequisites:** Isolated macOS desktop QA, a rebuilt owned-close host,
+    close-decision UI and native input handoff. No user data or windows.
+  - **Inputs:** One note with body `Saved quit baseline`; retain failed draft
+    `Pending quit draft Ω`. Keep the same host during root replacement.
+  - **Steps:**
+    1. Open the note and retain the exact failed draft in isolated data.
+    2. Use the application's Quit menu action and the normal `cmd-q` binding.
+       Inspect the request and choose Cancel without closing the window.
+    3. Replace the React root, repeat the normal quit action, and inspect the
+       new owner's request. Confirm no old controller can approve it.
+    4. After successful save and explicit approval, inspect actual application
+       exit and lock release, not only a queued command or Promise response.
+  - **Expected results:** Normal menu/keyboard quit uses the guarded request
+    independently of a transient React root. Cancel preserves the exact draft
+    and veto. Only a current confirmed approval can begin removal. Native input
+    handoff must complete before save/close. Forced process termination and OS
+    shutdown remain outside this case; Dock quit needs a separate verified
+    platform path before an all-quit guarantee is made.
+  - **Evidence:** Save sanitized private native trees, screenshots, request
+    identities, exit/lock observations and source hashes under
+    `docs/artifacts/native-close-lifecycle/QA-064/`.
+  - **Cleanup:** Stop only the isolated owned app and remove its test data after
+    evidence review. Do not change host menu or session settings.
+  - **Status:** Pending implementation; runtime is blocked on isolated macOS
+    access and the close/input UI. Source inspection found the current global
+    Quit action calls `App.quit()` directly, outside the owned window callback.
+    Linux window-close tests do not prove that this path is guarded.
+
+- [ ] **QA-065 — P1 — Keep a newer close approval after an old reply fails**
+  - **Purpose:** An old approval's timeout, disconnect or late revocation must
+    not cancel a newer approval for the same owner and pending request.
+  - **Prerequisites:** Pinned Rust 1.97.1 and the patched isolated source at
+    `docs/tmp/native-async-release/source`. No renderer initialization or GUI.
+  - **Inputs:** Event ID 41, one owner and pending request, approval A, a failed
+    UI update that revokes A, then approval B for that same pending request. Use
+    independent non-reused attempt identities; test identity exhaustion.
+  - **Steps:**
+    1. From the repository root, run the focused existing native test module
+       with
+       `RUSTUP_TOOLCHAIN=1.97.1 cargo test --manifest-path docs/tmp/native-async-release/source/packages/native/Cargo.toml --locked --no-default-features --lib renderer::close_guard_tests`.
+    2. Hold A's reply after revocation, queue B, and deliver A's disconnected or
+       timed-out reply. Inspect the complete ownership state before/after.
+    3. Run the focused `window_close::tests` module with the same command
+       options. Exercise stale execution/revocation and attempt-ID exhaustion.
+  - **Expected results:** A cannot execute, revoke or cancel B. B stays queued
+    with its current request, and only B can begin removal. Attempt identities
+    never repeat; exhaustion fails closed without partial changes. Ordinary
+    current-owner request cancellation remains available.
+  - **Evidence:** Save baseline/repaired results, stable source and patch
+    hashes, Rust version and exact commands under
+    `docs/artifacts/native-close-lifecycle/v2/`. These source/protocol checks do
+    not establish live UI or other-platform acceptance.
+  - **Cleanup:** No windows or data directories are created. Keep sanitized
+    reports and remove only owned scratch outputs when no longer needed.
+  - **Status:** Pending repair. A read-only source review identified that A and
+    B currently have identical `(owner, request_id)` tokens. An old asynchronous
+    cleanup can cancel B; no old-command window removal was established by the
+    review. The existing passing cases do not cover this interleaving.
