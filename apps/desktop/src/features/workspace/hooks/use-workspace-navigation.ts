@@ -69,26 +69,66 @@ export function useWorkspaceNavigation({
   const visibleIds = new Set(selection.notes.map((note) => note.id))
   const visibleNotes = workspace.notes.filter((note) => visibleIds.has(note.id))
 
+  const contextKey = JSON.stringify([view, query])
+
   const listKey = JSON.stringify([
-    view,
-    query,
+    contextKey,
     sortOrder,
     visibleNotes.map((note) => [note.id, note.pinned]),
   ])
 
-  const [list, setList] = useState(() => ({
+  const [list, setList] = useState<{
+    key: string
+    contextKey: string
+    selectedId: string | null
+    ids: string[]
+  }>(() => ({
     key: listKey,
+    contextKey,
+    selectedId: null,
     ids: sortNotes(visibleNotes, sortOrder).map((note) => note.id),
   }))
 
+  const notesById = new Map(visibleNotes.map((note) => [note.id, note]))
+
+  const previousNotes = list.ids.flatMap((id) => {
+    const note = notesById.get(id)
+
+    return note ? [note] : []
+  })
+
+  const selectedBeforeSort =
+    workspace.notes.find(
+      (note) =>
+        note.id === activeNoteId &&
+        Boolean(note.trashedAt) === (view.kind === "trash"),
+    ) ??
+    notesById.get(workspace.selectedNoteId ?? "") ??
+    previousNotes[0]
+
   let ids = list.ids
 
-  if (list.key !== listKey) {
+  if (
+    list.key !== listKey ||
+    list.selectedId !== (selectedBeforeSort?.id ?? null)
+  ) {
     ids = sortNotes(visibleNotes, sortOrder).map((note) => note.id)
-    setList({ key: listKey, ids })
-  }
 
-  const notesById = new Map(visibleNotes.map((note) => [note.id, note]))
+    if (
+      list.key !== listKey &&
+      list.contextKey === contextKey &&
+      activeNoteId === null &&
+      selectedBeforeSort
+    )
+      setActiveNoteId(selectedBeforeSort.id)
+
+    setList({
+      key: listKey,
+      contextKey,
+      selectedId: selectedBeforeSort?.id ?? null,
+      ids,
+    })
+  }
 
   const notes = ids.flatMap((id) => {
     const note = notesById.get(id)

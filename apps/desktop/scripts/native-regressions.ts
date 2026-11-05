@@ -424,11 +424,13 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     fallbackEditor.id,
   )
   await app.getByTestId("note-body").fill("Apple fallback after sort")
+
   const fallbackSaved = await savedNoteIs(
     dataDirectory,
     "Apple fallback",
     "Apple fallback after sort",
   )
+
   assert.equal(
     fallbackSaved.notes.find((note) => note.title === "Apricot fallback")?.body,
     "Apricot fallback body",
