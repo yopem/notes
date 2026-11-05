@@ -43,16 +43,22 @@ async function requestNativeFontBatch(renderer: object) {
 }
 
 export function registerFonts(renderer: object) {
-  const previous = registrations.get(renderer)
+  const native =
+    Predicate.hasProperty(renderer, "native") &&
+    Predicate.isObjectKeyword(renderer.native)
+      ? renderer.native
+      : renderer
+  const previous = registrations.get(native)
 
   if (previous) return previous.completion
+
   const reply = Promise.withResolvers<void>()
   const registration: FontRegistration = {
     status: "pending",
     completion: reply.promise,
   }
-  registrations.set(renderer, registration)
-  void requestNativeFontBatch(renderer).then(
+  registrations.set(native, registration)
+  void requestNativeFontBatch(native).then(
     function ready() {
       registration.status = "ready"
       reply.resolve()
