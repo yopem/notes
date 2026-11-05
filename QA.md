@@ -1350,3 +1350,59 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Pending implementation. The stock native tree omits input
     values; QA-043 stopped on this assertion, not an established source-note
     navigation defect. Visual and screen-reader QA remain separate.
+
+- [ ] **QA-052 — P0 — Keep vault finalization out of unjournaled rollback**
+  - **Purpose:** Prevent a failed directory sync after journal removal from
+    starting rollback without a durable recovery record.
+  - **Prerequisites:** Shared isolated setup, Linux parent-child ptrace support
+    from QA-040, and a private vault created with the existing API examples in
+    `apps/desktop/tests/vault.test.ts`. No user vault may be used.
+  - **Inputs:** `vault.createNote("inbox", "A", "", "original")`, followed by
+    `vault.writeNote(note.id, "changed", { expectedContent: "original" })`. The
+    journal is `.still-notes/transaction.json`.
+  - **Steps:**
+    1. Define a child-only fault scenario before changing transaction code. Save
+       hashes of the original note, metadata and recovery record.
+    2. Fail the first directory `fsync` after the commit journal unlink. Trace
+       subsequent file replacements, unlinks and directory syncs.
+    3. Try another mutation on the same instance. Use the implemented explicit
+       recovery or reopen procedure, then inspect note and metadata bytes.
+    4. Run `bun test --timeout 30000 tests/vault.test.ts` from `apps/desktop`
+       with project-local Bun and private temporary storage.
+  - **Expected results:** The failed finalization never starts unjournaled
+    rollback. Uncertainty is explicit, and the instance rejects further writes
+    until reconciliation. Recovery does not overwrite unrelated edits or repeat
+    the original mutation. Errors do not claim that a missing journal exists.
+  - **Evidence:** Save traced syscall boundaries, source hashes, exact safe file
+    hashes, mutation results and cleanup proof under
+    `docs/artifacts/storage/QA-052/`.
+  - **Cleanup:** Reap only owned tracees and remove their private vaults after
+    evidence inspection. Retain sanitized reports and harness copies locally.
+  - **Status:** Pending. Source review found unconditional rollback after
+    successful journal unlink and failed sync. The fault is not yet reproduced.
+
+- [ ] **QA-053 — P0 — Retain vault recovery state after rollback failure**
+  - **Purpose:** Prevent continued mutation or false recovery instructions after
+    a rollback or rollback-finalization failure.
+  - **Prerequisites:** QA-052 isolated setup and its child-only fault adapter.
+    Define failure cases before implementation. Never reuse user files.
+  - **Inputs:** The QA-052 `A.md` note and a folder mutation based on
+    `vault.renameFolder("root", "Books/New", "Books/Renamed")` from the existing
+    vault tests. Create those folders and their synthetic notes first.
+  - **Steps:**
+    1. Inject one failure after a forward file replacement and another during
+       rollback. Repeat with failure after rollback journal removal.
+    2. Inspect all affected notes, metadata, directory paths and journal bytes.
+       Attempt an ordinary mutation and a no-op mutation on the failed instance.
+    3. Follow the implemented recovery/reopen procedure and check all original
+       bytes. Repeat with an unrelated external edit; recovery must refuse it.
+  - **Expected results:** An incomplete rollback retains a usable recovery
+    record and blocks further mutation. A removed journal is never described as
+    present. Finalization errors cannot silently clear failed-transaction state.
+    Recovery preserves unrelated edits and restores a consistent vault, or fails
+    with accurate instructions without additional file changes.
+  - **Evidence:** Save fault traces, before/after hashes, errors, lock ownership
+    and owned-process cleanup under `docs/artifacts/storage/QA-053/`.
+  - **Cleanup:** Follow QA-052 cleanup. Do not delete another process's lock.
+  - **Status:** Pending. Transaction-stage handling and fault acceptance are not
+    implemented. Existing rollback tests do not cover these syscall points.
