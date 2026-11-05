@@ -1054,12 +1054,16 @@ mark those cases passed until capture works and the evidence is inspected.
     app state and file hashes under `docs/artifacts/storage/QA-040/`.
   - **Cleanup:** Stop only test-owned processes and remove only isolated fault
     resources and data after evidence review.
-  - **Status:** Failed. A verified child-only syscall probe reproduced the
-    post-replacement error in both NotesStore and SettingsStore: disk held the
-    new value, memory held the old value, and retry failed the external-change
-    guard. Reopening read the new value. Evidence and replay prerequisites are
-    in `docs/artifacts/storage/QA-040/README.md`. Explicit reconciliation and
-    native draft-recovery checks remain incomplete.
+  - **Status:** Pending acceptance after implementation. The original stale
+    Notes/Settings state was reproduced with child-only post-rename directory
+    `fsync` failure; keep that failed-run evidence under
+    `docs/artifacts/storage/QA-040/`. Notes now pass 13 real fault/control cases
+    including mutation blocking and exact-byte recovery. Settings at `a923982`
+    pass nine real fault/control cases and 309 assertions, with stable source
+    hashes and no repeat rename during recovery. Evidence: `notes-recovery/` and
+    `settings-recovery/run-20261105T110834/` below that directory. Native
+    recovery controls and other atomic-write callers remain unverified. No
+    power-loss or external-writer race guarantee is claimed.
 
 - [ ] **QA-041 — P0 — Duplicate a pending draft without clearing it**
   - **Purpose:** Copy the displayed draft while preserving the original draft as
@@ -1309,12 +1313,15 @@ mark those cases passed until capture works and the evidence is inspected.
     trees under `docs/artifacts/storage/QA-040/settings-recovery/`.
   - **Cleanup:** Reap only test-owned processes and remove their temporary data
     after evidence review. Restore no user settings.
-  - **Status:** Pending. Settings now retain uncertain preferences and expose
-    explicit recovery in the dialog and workspace. At `97efda6`, eight settings
-    tests and 32 assertions passed. The later shared recovery UI passed
-    zero-warning lint, formatting and typechecks at `d32ffce`. Evidence:
-    `docs/artifacts/storage/QA-040/` and `docs/artifacts/recovery-milestone/`.
-    Real fault-recovery acceptance and native control validation remain unrun.
+  - **Status:** Pending native acceptance. At `a923982`, nine settings tests and
+    37 assertions passed, with scoped zero-warning native lint, formatting and
+    desktop typecheck. The inspected child-only fault run
+    `settings-recovery/run-20261105T110834/` passed all nine cases and 309
+    assertions. It verifies sync-only recovery, blocked saves, external edits
+    before and during recovery, subscriber failures and pre-replacement errors.
+    Source/baseline hashes stayed stable; owned processes and data were cleaned
+    up. Evidence is under `docs/artifacts/storage/QA-040/`. Shared native
+    recovery controls, focus behavior and restart acceptance remain unverified.
 
 - [ ] **QA-051 — P1 — Read actual native input values in automation**
   - **Purpose:** Verify editor selection, task-source navigation and retained
