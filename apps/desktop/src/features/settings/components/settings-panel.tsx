@@ -343,12 +343,7 @@ export function PreferenceControl({
             {boolean.data ? "On" : "Off"}
           </Button>
         ) : (
-          <text
-            // GPUix needs testId for native automation; this is not a DOM host.
-            // eslint-disable-next-line react-doctor/no-unknown-property
-            testId={`setting-current-${name}`}
-            style={styles.currentValue}
-          >
+          <text testId={`setting-current-${name}`} style={styles.currentValue}>
             {currentPreferenceValue(value)}
           </text>
         )}
@@ -370,8 +365,6 @@ export function PreferenceControl({
         ) : (
           <div style={settingsStyles.editor}>
             <input
-              // GPUix needs testId for native automation; this is not a DOM host.
-              // eslint-disable-next-line react-doctor/no-unknown-property
               testId={`setting-${name}`}
               aria-label={name}
               value={input}
@@ -456,12 +449,7 @@ export function SettingsPanel({
       <Dialog.Portal>
         <Dialog.Backdrop style={settingsStyles.backdrop} />
         <Dialog.Popup initialFocus aria-label="Settings" style={styles.popup}>
-          <div
-            // GPUix needs testId for native automation; this is not a DOM host.
-            // eslint-disable-next-line react-doctor/no-unknown-property
-            testId="settings-panel"
-            style={settingsStyles.panel}
-          >
+          <div testId="settings-panel" style={settingsStyles.panel}>
             <div style={settingsStyles.heading}>
               <Dialog.Title>
                 <Label color={color} size={22} weight={600}>
@@ -497,13 +485,7 @@ export function SettingsPanel({
               style={styles.search}
             />
             {error && (
-              <text
-                // GPUix needs testId for native automation; this is not a DOM host.
-                // eslint-disable-next-line react-doctor/no-unknown-property
-                testId="settings-error"
-                role="alert"
-                style={styles.error}
-              >
+              <text testId="settings-error" role="alert" style={styles.error}>
                 {error}
               </text>
             )}

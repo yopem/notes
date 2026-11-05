@@ -66,8 +66,6 @@ export function DialogForm({
       </Label>
       <input
         ref={inputRef}
-        // GPUix needs testId for native automation; this is not a DOM host.
-        // eslint-disable-next-line react-doctor/no-unknown-property
         testId="dialog-input"
         aria-label={fields.label}
         value={value}

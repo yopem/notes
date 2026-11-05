@@ -238,13 +238,7 @@ export function AppDialog({
             />
           )}
           {error && (
-            <text
-              // GPUix needs testId for native automation; this is not a DOM host.
-              // eslint-disable-next-line react-doctor/no-unknown-property
-              testId="dialog-error"
-              role="alert"
-              style={styles.error}
-            >
+            <text testId="dialog-error" role="alert" style={styles.error}>
               {error}
             </text>
           )}
