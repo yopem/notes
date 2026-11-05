@@ -2,7 +2,7 @@ import { Predicate, Schema } from "effect"
 import assert from "node:assert/strict"
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { isAbsolute, resolve } from "node:path"
+import { dirname, isAbsolute, resolve } from "node:path"
 
 const release = "2e31b47ff6432ceebe70e7fc7b0f51a76d7d30cf"
 
@@ -12,10 +12,20 @@ const root = resolve(import.meta.dir, "..")
 
 const source = process.argv[2] ?? "/tmp/still-notes-gpuix-build"
 
+const binaryOutput =
+  process.argv[3] ?? resolve(root, "native/gpuix-native.node")
+
+const scratch = resolve(root, "../../docs/tmp")
+
 assert(
-  isAbsolute(source) && source.startsWith("/tmp/"),
-  "Keep native source and build in /tmp",
+  isAbsolute(source) &&
+    (source.startsWith("/tmp/") ||
+      source.startsWith("/var/tmp/") ||
+      source.startsWith(`${scratch}/`)),
+  "Keep native source and build in temporary storage",
 )
+
+assert(isAbsolute(binaryOutput), "Use an absolute native output path")
 
 const patch = resolve(root, "native/gpuix.patch")
 
@@ -52,7 +62,7 @@ if (!existsSync(source)) {
       "https://github.com/remorses/gpuix.git",
       source,
     ],
-    "/tmp",
+    dirname(source),
   )
   run(["git", "checkout", "--detach", release])
 }
@@ -286,10 +296,10 @@ Schema.decodeUnknownSync(
   }),
 )(prototype)
 
-mkdirSync(resolve(root, "native"), { recursive: true })
+mkdirSync(dirname(binaryOutput), { recursive: true })
 
-copyFileSync(binary, resolve(root, "native/gpuix-native.node"))
+copyFileSync(binary, binaryOutput)
 
-console.info(`Built native/gpuix-native.node from GPUix ${release}`)
+console.info(`Built ${binaryOutput} from GPUix ${release}`)
 
 console.info(`Generated declarations: ${resolve(native, "index.d.ts")}`)

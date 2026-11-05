@@ -12,7 +12,7 @@ index fac0b7513be093df518555c4e0dff25e1cb3ceb4..24c2c5251c16d3b7e89976f18a84ade8
 +  editorPath?: string
 +
  }
- 
+
  export interface TextareaProps extends InputProps {
 diff --git a/packages/native/src/custom_elements/editor_protocol.rs b/packages/native/src/custom_elements/editor_protocol.rs
 new file mode 100644
@@ -232,13 +232,13 @@ index 0000000000000000000000000000000000000000..da6f81e119a7dd6106f36389d8cae3b8
 +    }
 +}
 diff --git a/packages/native/src/custom_elements/input.rs b/packages/native/src/custom_elements/input.rs
-index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346d306ffd8 100644
+index 7be2d2501320f75b30ab3f697a16cdde19c64dca..e0cad7a52303e6c24d7ad0d9412d7a6d6189f394 100644
 --- a/packages/native/src/custom_elements/input.rs
 +++ b/packages/native/src/custom_elements/input.rs
 @@ -23,6 +23,7 @@ use gpui::{
  use unicode_segmentation::UnicodeSegmentation;
  use web_time::Instant;
- 
+
 +use super::editor_protocol::*;
  use super::{CustomElement, CustomElementFactory, CustomRenderContext};
  use crate::renderer::{emit_event_full, emit_key_event, EventCallback};
@@ -246,7 +246,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 @@ -136,6 +137,35 @@ fn drag_scroll_delta(
      distance.signum() * (distance.abs() * 0.2).clamp(1.0, line_height)
  }
- 
+
 +fn underline_marked_runs(runs: Vec<TextRun>, marked: &Range<usize>) -> Vec<TextRun> {
 +    let mut result = Vec::new();
 +    let mut at = 0;
@@ -293,7 +293,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 +        .map(|context| KeyBinding::new("ctrl-c", gpui::NoAction, Some(context))),
      );
  }
- 
+
 @@ -321,10 +355,14 @@ struct TextEditorElement {
      value: String,
      placeholder: String,
@@ -308,7 +308,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 +    path: Option<String>,
      state: Option<Entity<TextEditorState>>,
  }
- 
+
 @@ -335,13 +373,39 @@ impl TextEditorElement {
              value: String::new(),
              placeholder: String::new(),
@@ -347,7 +347,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 +        self.last_prop_value = Some(self.value.clone());
 +    }
  }
- 
+
  impl CustomElement for TextEditorElement {
 @@ -371,6 +435,9 @@ impl CustomElement for TextEditorElement {
                  let min_rows = self.min_rows;
@@ -377,7 +377,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
                  })
              })
              .clone();
- 
+
 -        let prop_changed = self.last_prop_value.as_ref() != Some(&self.value);
          state.update(cx, |state, cx| {
 +            if state.key_subscription.is_none() {
@@ -447,7 +447,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 +            self.sync_state_props(state, cx);
          });
 -        self.last_prop_value = Some(self.value.clone());
- 
+
          let element_id = gpui::SharedString::from(format!("__gpuix_editor_{}", ctx.id));
          let mut editor = div()
 @@ -529,6 +638,13 @@ impl CustomElement for TextEditorElement {
@@ -483,15 +483,19 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              "minRows",
              "maxRows",
              "theme",
-@@ -554,10 +675,25 @@ impl CustomElement for TextEditorElement {
- 
+@@ -554,10 +675,29 @@ impl CustomElement for TextEditorElement {
+
      fn supported_events(&self) -> &'static [&'static str] {
          &[
 -            "change", "submit", "click", "keyDown", "keyUp", "focus", "blur", "fileDrop",
 +            "change", "submit", "click", "keyDown", "keyUp", "focus", "blur", "fileDrop", "editorState",
          ]
      }
- 
+
++    fn automation_text(&self, cx: &App) -> Option<String> {
++        Some(self.state.as_ref()?.read(cx).content.clone())
++    }
++
 +    fn editor_command(
 +        &mut self,
 +        command: EditorCommand,
@@ -510,9 +514,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
      fn destroy(&mut self) {
          self.state = None;
      }
-@@ -637,12 +773,40 @@ fn edits_coalesce(
+@@ -637,12 +777,40 @@ fn edits_coalesce(
  }
- 
+
  fn push_undo_snapshot(history: &mut VecDeque<EditSnapshot>, snapshot: EditSnapshot) {
 -    if history.len() == UNDO_LIMIT {
 -        history.pop_front();
@@ -531,7 +535,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
      }
      history.push_back(snapshot);
  }
- 
+
 +#[derive(PartialEq)]
 +struct StateStamp {
 +    revision: u64,
@@ -553,7 +557,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
  struct TextEditorState {
      element_id: u64,
      callback: Option<EventCallback>,
-@@ -680,11 +844,253 @@ struct TextEditorState {
+@@ -680,11 +848,253 @@ struct TextEditorState {
      blink_task: Option<Task<()>>,
      pending_values: VecDeque<String>,
      undo_stack: VecDeque<EditSnapshot>,
@@ -569,7 +573,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 +    key_subscription: Option<gpui::Subscription>,
 +    last_reported: Option<StateStamp>,
  }
- 
+
  impl TextEditorState {
 +    fn public_snapshot(snapshot: &EditSnapshot) -> TextSnapshot {
 +        TextSnapshot {
@@ -808,7 +812,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
      fn reset_blink(&mut self, cx: &Context<Self>) {
          self.blink_anchor = cx.background_executor().now();
      }
-@@ -734,6 +1140,7 @@ impl TextEditorState {
+@@ -734,6 +1144,7 @@ impl TextEditorState {
              return;
          }
          self.content = value;
@@ -816,33 +820,33 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
          let end = self.content.len();
          self.selected_range = end..end;
          self.selection_reversed = false;
-@@ -749,6 +1156,7 @@ impl TextEditorState {
+@@ -749,6 +1160,7 @@ impl TextEditorState {
      }
- 
+
      fn emit_change(&mut self) {
 +        self.revision += 1;
          if self.emits_change {
              self.pending_values.push_back(self.content.clone());
              while self.pending_values.len() > 32 {
-@@ -888,7 +1296,7 @@ impl TextEditorState {
+@@ -888,7 +1300,7 @@ impl TextEditorState {
      }
- 
+
      fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -902,7 +1310,7 @@ impl TextEditorState {
+@@ -902,7 +1314,7 @@ impl TextEditorState {
      }
- 
+
      fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1026,7 +1434,7 @@ impl TextEditorState {
+@@ -1026,7 +1438,7 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -851,7 +855,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1041,7 +1449,7 @@ impl TextEditorState {
+@@ -1041,7 +1453,7 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -860,7 +864,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1056,7 +1464,7 @@ impl TextEditorState {
+@@ -1056,7 +1468,7 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -869,7 +873,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1075,7 +1483,7 @@ impl TextEditorState {
+@@ -1075,7 +1487,7 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -878,27 +882,27 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1097,7 +1505,7 @@ impl TextEditorState {
+@@ -1097,7 +1509,7 @@ impl TextEditorState {
      }
- 
+
      fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only || self.selected_range.is_empty() {
 +        if self.read_only || self.mode == EditorMode::ReadOnly || self.selected_range.is_empty() {
              return;
          }
          self.copy(&Copy, window, cx);
-@@ -1105,7 +1513,7 @@ impl TextEditorState {
+@@ -1105,7 +1517,7 @@ impl TextEditorState {
      }
- 
+
      fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              cx.propagate();
              return;
          }
-@@ -1117,20 +1525,21 @@ impl TextEditorState {
+@@ -1117,20 +1529,21 @@ impl TextEditorState {
      }
- 
+
      fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -911,7 +915,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              self.restore(previous, cx);
          }
      }
- 
+
      fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -922,16 +926,16 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              let snapshot = self.snapshot();
              push_undo_snapshot(&mut self.undo_stack, snapshot);
              self.restore(next, cx);
-@@ -1138,7 +1547,7 @@ impl TextEditorState {
+@@ -1138,7 +1551,7 @@ impl TextEditorState {
      }
- 
+
      fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.multiline && !self.read_only {
 +        if self.multiline && !self.read_only && self.mode.accepts_text() {
              self.replace_text_in_range(None, "\n", window, cx);
          }
      }
-@@ -1410,28 +1819,34 @@ impl TextEditorState {
+@@ -1410,28 +1823,34 @@ impl TextEditorState {
          } else {
              style.color
          };
@@ -986,7 +990,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
          };
          let wrap_width = self.multiline.then_some(width);
          let lines = window
-@@ -1539,7 +1954,7 @@ impl EntityInputHandler for TextEditorState {
+@@ -1539,7 +1958,7 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -995,7 +999,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              return;
          }
          let range = range_utf16
-@@ -1575,7 +1990,7 @@ impl EntityInputHandler for TextEditorState {
+@@ -1575,7 +1994,7 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1004,16 +1008,16 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
              return;
          }
          let range = range_utf16
-@@ -1656,7 +2071,7 @@ impl EntityInputHandler for TextEditorState {
+@@ -1656,7 +2075,7 @@ impl EntityInputHandler for TextEditorState {
      }
- 
+
      fn accepts_text_input(&self, _: &mut Window, _: &mut Context<Self>) -> bool {
 -        !self.read_only
 +        !self.read_only && self.mode.accepts_text()
      }
  }
- 
-@@ -1726,7 +2141,13 @@ impl gpui::Render for TextEditorState {
+
+@@ -1726,7 +2145,13 @@ impl gpui::Render for TextEditorState {
              })
              .when(self.emits_key_up, move |editor| {
                  editor.on_key_up(move |event, _window, _cx| {
@@ -1028,7 +1032,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
                  })
              })
              .w_full()
-@@ -1803,6 +2224,7 @@ impl gpui::Element for EditorTextElement {
+@@ -1803,6 +2228,7 @@ impl gpui::Element for EditorTextElement {
          self.input.update(cx, |input, _| {
              input.last_bounds = Some(bounds);
              input.clamp_scroll(f32::from(bounds.size.width), f32::from(bounds.size.height));
@@ -1036,10 +1040,46 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
          });
          let input = self.input.read(cx);
          let origin = point(
-@@ -1945,6 +2367,203 @@ impl gpui::IntoElement for EditorTextElement {
+@@ -1945,6 +2371,219 @@ impl gpui::IntoElement for EditorTextElement {
  mod tests {
      use super::*;
- 
+
++    #[cfg(feature = "test-support")]
++    struct ReadbackInput(std::rc::Rc<std::cell::RefCell<TextEditorElement>>);
++
++    #[cfg(feature = "test-support")]
++    impl CustomElement for ReadbackInput {
++        fn render(
++            &mut self,
++            ctx: CustomRenderContext,
++            window: &mut Window,
++            cx: &mut Context<crate::renderer::GpuixView>,
++        ) -> gpui::AnyElement {
++            self.0.borrow_mut().render(ctx, window, cx)
++        }
++
++        fn set_prop(&mut self, key: &str, value: serde_json::Value) {
++            self.0.borrow_mut().set_prop(key, value);
++        }
++
++        fn supported_props(&self) -> &'static [&'static str] {
++            self.0.borrow().supported_props()
++        }
++
++        fn supported_events(&self) -> &'static [&'static str] {
++            self.0.borrow().supported_events()
++        }
++
++        fn automation_text(&self, cx: &App) -> Option<String> {
++            self.0.borrow().automation_text(cx)
++        }
++
++        fn destroy(&mut self) {
++            self.0.borrow_mut().destroy();
++        }
++    }
++
++    #[cfg(feature = "test-support")]
 +    #[gpui::test]
 +    fn automation_tree_reads_native_text_without_editing(cx: &mut gpui::TestAppContext) {
 +        use crate::renderer::GpuixView;
@@ -1076,50 +1116,23 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 +            ]);
 +            crate::renderer::apply_batch_to_tree(&mut tree, batch.to_string().as_bytes()).unwrap();
 +            let tree = Arc::new(Mutex::new(tree));
++            let input = std::rc::Rc::new(std::cell::RefCell::new(TextEditorElement::new(multiline)));
 +            let handle = cx.add_window(|_, _| {
-+                GpuixView::new(
-+                    tree.clone(),
-+                    None,
-+                    "Native editor test".into(),
-+                    Default::default(),
-+                )
++                let mut view = GpuixView::new(
++                    tree.clone(), None, "Native editor test".into(), Default::default(),
++                );
++                view.custom_registry.instances.insert(2, super::super::CustomElementEntry {
++                    element_type: kind.into(), element: Box::new(ReadbackInput(input.clone())),
++                    applied_props: HashMap::new(),
++                });
++                view
 +            });
 +            cx.update_window(handle.into(), |root, window, cx| {
 +                root.downcast::<GpuixView>()
 +                    .unwrap()
 +                    .update(cx, |view, cx| {
-+                        let mut input = TextEditorElement::new(multiline);
-+                        input.set_prop("value", serde_json::json!(original));
-+                        input.set_prop("placeholder", serde_json::json!("Placeholder"));
-+                        let events = Default::default();
-+                        let props = HashMap::new();
-+                        input.render(
-+                            CustomRenderContext {
-+                                id: 2,
-+                                events: &events,
-+                                event_callback: &None,
-+                                focus_handle: None,
-+                                keyboard_focus: None,
-+                                style: None,
-+                                children: Vec::new(),
-+                                selection: Default::default(),
-+                                selectable: true,
-+                                selection_wash: gpui::rgba(0).into(),
-+                                highlight_set: None,
-+                                props: &props,
-+                            },
-+                            window,
-+                            cx,
-+                        );
-+                        let state = input.state.clone().unwrap();
-+                        view.custom_registry.instances.insert(
-+                            2,
-+                            super::super::CustomElementEntry {
-+                                element_type: kind.into(),
-+                                element: Box::new(input),
-+                                applied_props: HashMap::new(),
-+                            },
-+                        );
++                        view.custom_registry.destroy(4);
++                        let state = input.borrow().state.clone().unwrap();
 +                        let read = |view: &GpuixView, cx: &App, expected: &str| {
 +                            let before = state.read(cx).public_state();
 +                            let history = |state: &TextEditorState| {
@@ -1205,9 +1218,16 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
 +                        assert!(view.automation_tree(cx)["children"][0]
 +                            .get("text")
 +                            .is_none());
++                        view.tree.lock().unwrap().root_id = None;
++                        view.custom_registry.destroy_all();
++                        cx.notify();
++                        window.refresh();
 +                    });
 +            })
 +            .unwrap();
++            cx.run_until_parked();
++            cx.update_window(handle.into(), |_, window, _| window.remove_window())
++                .unwrap();
 +        }
 +    }
 +
@@ -1241,7 +1261,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346
          let keystroke = gpui::Keystroke::parse(keystroke).unwrap();
          bindings.iter().any(|binding| {
 diff --git a/packages/native/src/custom_elements/mod.rs b/packages/native/src/custom_elements/mod.rs
-index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..4996ac76398257254fad2ca5681c7ccbeadda019 100644
+index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a3077e3a43c7 100644
 --- a/packages/native/src/custom_elements/mod.rs
 +++ b/packages/native/src/custom_elements/mod.rs
 @@ -16,6 +16,7 @@ use crate::renderer::EventCallback;
@@ -1252,10 +1272,14 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..4996ac76398257254fad2ca5681c7ccb
  pub mod img;
  pub mod input;
  pub mod markdown;
-@@ -227,6 +228,16 @@ pub trait CustomElement: 'static {
+@@ -227,6 +228,20 @@ pub trait CustomElement: 'static {
      /// Clean up resources (GPUI entities, subscriptions, etc.)
      fn destroy(&mut self);
- 
+
++    fn automation_text(&self, _cx: &gpui::App) -> Option<String> {
++        None
++    }
++
 +    fn editor_command(
 +        &mut self,
 +        _command: editor_protocol::EditorCommand,
@@ -1269,10 +1293,14 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..4996ac76398257254fad2ca5681c7ccb
      /// Current live GPU image on `<img>`, if any.
      fn live_image(&self) -> Option<std::sync::Arc<gpui::RenderImage>> {
          None
-@@ -387,6 +398,23 @@ impl CustomElementRegistry {
+@@ -387,6 +402,27 @@ impl CustomElementRegistry {
          entry.element.render(ctx, window, cx)
      }
- 
+
++    pub fn automation_text(&self, id: u64, cx: &gpui::App) -> Option<String> {
++        self.instances.get(&id)?.element.automation_text(cx)
++    }
++
 +    pub fn editor_command(
 +        &mut self,
 +        id: u64,
@@ -1294,7 +1322,7 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..4996ac76398257254fad2ca5681c7ccb
      pub fn set_live_image(
          &mut self,
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9fda08c85c 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..e8e35463c11b9d0b000fd9a25ed4c7c1dc5911c9 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -1328,7 +1356,17 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
      GetScrollOffset {
          id: u64,
          response: SyncSender<Option<[f64; 2]>>,
-@@ -567,6 +575,9 @@ async fn run_ui_commands(
+@@ -493,6 +501,9 @@ enum UiCommand {
+         id: u64,
+         response: SyncSender<Option<[f64; 3]>>,
+     },
++    GetAutomationTree {
++        response: SyncSender<String>,
++    },
+     GetAutomationBounds {
+         response: SyncSender<HashMap<u64, crate::automation::ElementBounds>>,
+     },
+@@ -567,6 +578,9 @@ async fn run_ui_commands(
              UiCommand::MinimizeWindow => {
                  window.update(cx, |_view, window, _cx| window.minimize_window())
              }
@@ -1338,7 +1376,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
              UiCommand::ZoomWindow => window.update(cx, |_view, window, _cx| window.zoom_window()),
              UiCommand::ToggleFullscreen => {
                  window.update(cx, |_view, window, _cx| window.toggle_fullscreen())
-@@ -683,6 +694,21 @@ async fn run_ui_commands(
+@@ -683,6 +697,21 @@ async fn run_ui_commands(
                      response.send(view.register_font(bytes, window, cx)).ok();
                  })
              }
@@ -1360,7 +1398,24 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
              UiCommand::GetScrollOffset { id, response } => {
                  let offset = VIRTUAL_LIST_STATES
                      .with(|cell| {
-@@ -962,6 +988,8 @@ pub fn is_terminal() -> bool {
+@@ -733,6 +762,16 @@ async fn run_ui_commands(
+                         .ok();
+                 })
+             }
++            UiCommand::GetAutomationTree { response } => {
++                window.update(cx, move |_view, window, cx| {
++                    let view = cx.entity();
++                    cx.notify();
++                    window.refresh();
++                    window.on_next_frame(move |_window, cx| {
++                        response.send(view.read(cx).automation_tree(cx).to_string()).ok();
++                    });
++                })
++            }
+             UiCommand::GetAutomationBounds { response } => {
+                 window.update(cx, move |_view, window, cx| {
+                     cx.notify();
+@@ -962,6 +1001,8 @@ pub fn is_terminal() -> bool {
  #[napi]
  pub struct GpuixRenderer {
      event_callback: Mutex<Option<Arc<ThreadsafeFunction<EventPayload>>>>,
@@ -1369,10 +1424,10 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
      tree: Arc<Mutex<RetainedTree>>,
      initialized: Arc<Mutex<bool>>,
      /// Shared with GpuixView so napi methods can read the live selection
-@@ -977,6 +1005,85 @@ pub struct GpuixRenderer {
+@@ -977,6 +1018,85 @@ pub struct GpuixRenderer {
      ui_running: Arc<AtomicBool>,
  }
- 
+
 +#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 +const WINDOW_CLOSE_STARTED: u64 = u64::MAX;
 +
@@ -1455,7 +1510,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
  #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
  #[napi]
  impl GpuixRenderer {
-@@ -1174,7 +1281,9 @@ impl GpuixRenderer {
+@@ -1174,7 +1294,9 @@ impl GpuixRenderer {
      pub fn new(event_callback: Option<ThreadsafeFunction<EventPayload>>) -> Self {
          let _ = env_logger::try_init();
          Self {
@@ -1465,16 +1520,16 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
              tree: Arc::new(Mutex::new(RetainedTree::new())),
              initialized: Arc::new(Mutex::new(false)),
              selection: SharedSelection::default(),
-@@ -1245,6 +1354,7 @@ impl GpuixRenderer {
- 
+@@ -1245,6 +1367,7 @@ impl GpuixRenderer {
+
          let tree = self.tree.clone();
          let callback = self.event_callback_for_view();
 +        let close_guard = self.close_guard.clone();
- 
+
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
-@@ -1274,7 +1384,8 @@ impl GpuixRenderer {
- 
+@@ -1274,7 +1397,8 @@ impl GpuixRenderer {
+
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
 -                |_window, cx| {
@@ -1483,7 +1538,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
                      cx.new(|_| {
                          GpuixView::new(tree.clone(), callback.clone(), title, selection.clone())
                      })
-@@ -1377,6 +1488,7 @@ impl GpuixRenderer {
+@@ -1377,6 +1501,7 @@ impl GpuixRenderer {
          let tree = self.tree.clone();
          let selection = self.selection.clone();
          let callback = self.event_callback_for_view();
@@ -1491,7 +1546,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
          let (command_sender, command_receiver) = mpsc::unbounded();
          let (startup_sender, startup_receiver) = sync_channel(1);
          let exit_startup_sender = startup_sender.clone();
-@@ -1434,7 +1546,8 @@ impl GpuixRenderer {
+@@ -1434,7 +1559,8 @@ impl GpuixRenderer {
                              };
                              let window = match cx.open_window(
                                  to_gpui_window_options(&window_options, bounds),
@@ -1501,18 +1556,18 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
                                      cx.new(|_| GpuixView::new(tree, callback, title, selection))
                                  },
                              ) {
-@@ -1573,7 +1686,6 @@ impl GpuixRenderer {
+@@ -1573,7 +1699,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
- 
+
 -
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2244,88 @@ impl GpuixRenderer {
+@@ -2132,6 +2257,88 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
- 
+
 +    #[napi]
 +    pub fn arm_close_guard(&self, event_id: f64) -> Result<()> {
 +        let event_id = to_element_id(event_id)?;
@@ -1596,12 +1651,56 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 +    }
 +
      // ── Selection API ────────────────────────────────────────────────
- 
+
      /// The current text selection joined in document order, or null.
-@@ -3820,8 +4014,12 @@ pub(crate) fn emit_key_event(
+@@ -2469,12 +2676,24 @@ impl GpuixRenderer {
+
+     #[napi]
+     pub fn get_automation_tree(&self) -> Result<String> {
+-        self.request_invalidate()?;
+-        let bounds = self.automation_bounds()?;
+-        let tree = self.tree.lock().unwrap();
+-        let json = tree.to_automation_json(&bounds);
+-        serde_json::to_string(&json)
+-            .map_err(|e| Error::from_reason(format!("JSON serialization failed: {}", e)))
++        #[cfg(target_os = "macos")]
++        {
++            self.request_invalidate()?;
++            return update_window(|view, _, cx| view.automation_tree(cx).to_string());
++        }
++        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++        {
++            let (response, receiver) = sync_channel(1);
++            self.send_ui_command(UiCommand::GetAutomationTree { response })?;
++            return recv_ui_response(receiver, "the automation tree query");
++        }
++        #[cfg(not(any(
++            target_os = "macos",
++            target_os = "windows",
++            target_os = "linux",
++            target_os = "freebsd"
++        )))]
++        Err(Error::from_reason("Unsupported operating system"))
+     }
+
+     #[napi]
+@@ -3428,11 +3647,7 @@ impl WebGpuixRenderer {
+     #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
+     pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
+         notify_web();
+-        let bounds = crate::automation::all_bounds();
+-        let tree = self.tree.lock().unwrap();
+-        serde_json::to_string(&tree.to_automation_json(&bounds)).map_err(|error| {
+-            wasm_bindgen::JsValue::from_str(&format!("JSON serialization failed: {error}"))
+-        })
++        update_web_window(|view, _, cx| view.automation_tree(cx).to_string())
+     }
+
+     #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
+@@ -3820,8 +4035,12 @@ pub(crate) fn emit_key_event(
      });
  }
- 
+
 -fn next_keystroke_id() {
 -    KEYSTROKE_ID.with(|id| id.set(id.get() + 1));
 +pub(crate) fn next_keystroke_id() -> f64 {
@@ -1611,9 +1710,9 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 +        next as f64
 +    })
  }
- 
+
  fn window_key_events(
-@@ -3869,7 +4067,13 @@ fn window_key_events(
+@@ -3869,7 +4088,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -1628,10 +1727,17 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
                  }
              });
          },
-@@ -3957,6 +4161,25 @@ fn resolve_highlight(
+@@ -3957,6 +4182,32 @@ fn resolve_highlight(
  }
- 
+
  impl GpuixView {
++    pub(crate) fn automation_tree(&self, cx: &gpui::App) -> serde_json::Value {
++        self.tree.lock().unwrap().to_automation_json_with_text(
++            &crate::automation::all_bounds(),
++            &|id| self.custom_registry.automation_text(id, cx),
++        )
++    }
++
 +    fn editor_command(
 +        &mut self,
 +        id: u64,
@@ -1654,7 +1760,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -4041,10 +4264,8 @@ impl GpuixView {
+@@ -4041,10 +4292,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -1666,8 +1772,8 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 +            crate::custom_elements::img::render_image_from_encoded(bytes, cx.svg_renderer())?;
          self.set_live_image(id, image, window, cx)
      }
- 
-@@ -4314,7 +4535,9 @@ impl GpuixView {
+
+@@ -4314,7 +4563,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -1678,9 +1784,9 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
              }
              current = parent_id;
          };
-@@ -4764,7 +4987,12 @@ impl VirtualListEntry {
+@@ -4764,7 +5015,12 @@ impl VirtualListEntry {
  }
- 
+
  impl GpuixView {
 -    pub(crate) fn request_focus(&mut self, id: u64, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
 +    pub(crate) fn request_focus(
@@ -1692,7 +1798,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -6731,10 +6959,7 @@ fn report_layout(
+@@ -6731,10 +6987,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -1704,3 +1810,98 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
+diff --git a/packages/native/src/retained_tree.rs b/packages/native/src/retained_tree.rs
+index ee95967b03f85d493980ca95b520ad7fdda48dc8..8c12986f489a1a21ea1dc215bd6d9db76046893c 100644
+--- a/packages/native/src/retained_tree.rs
++++ b/packages/native/src/retained_tree.rs
+@@ -583,7 +583,7 @@ impl RetainedTree {
+         &self,
+         bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
+     ) -> serde_json::Value {
+-        self.to_json_detail(bounds, true)
++        self.to_json_detail(bounds, true, None)
+     }
+
+     /// Locator tree. Skip style maps so a 5k-row list is not 100ms of JSON.
+@@ -591,7 +591,15 @@ impl RetainedTree {
+         &self,
+         bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
+     ) -> serde_json::Value {
+-        self.to_json_detail(bounds, false)
++        self.to_json_detail(bounds, false, None)
++    }
++
++    pub(crate) fn to_automation_json_with_text(
++        &self,
++        bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
++        editor_text: &dyn Fn(u64) -> Option<String>,
++    ) -> serde_json::Value {
++        self.to_json_detail(bounds, false, Some(editor_text))
+     }
+
+     /// The elements whose painted box holds the point, topmost first: the DOM's
+@@ -706,9 +714,10 @@ impl RetainedTree {
+         &self,
+         bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
+         include_details: bool,
++        editor_text: Option<&dyn Fn(u64) -> Option<String>>,
+     ) -> serde_json::Value {
+         match self.root_id {
+-            Some(root_id) => element_to_json(root_id, self, bounds, include_details),
++            Some(root_id) => element_to_json(root_id, self, bounds, include_details, editor_text),
+             None => serde_json::Value::Null,
+         }
+     }
+@@ -719,6 +728,7 @@ fn element_to_json(
+     tree: &RetainedTree,
+     bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
+     include_details: bool,
++    editor_text: Option<&dyn Fn(u64) -> Option<String>>,
+ ) -> serde_json::Value {
+     let Some(element) = tree.elements.get(&id) else {
+         return serde_json::Value::Null;
+@@ -738,10 +748,14 @@ fn element_to_json(
+         );
+     }
+
+-    if let Some(ref content) = element.content {
++    let content = match editor_text {
++        Some(read) if matches!(element.element_type.as_str(), "input" | "textarea") => read(id),
++        _ => element.content.clone(),
++    };
++    if let Some(content) = content {
+         obj.insert(
+             "text".to_string(),
+-            serde_json::Value::String(content.clone()),
++            serde_json::Value::String(content),
+         );
+     }
+
+@@ -796,7 +810,7 @@ fn element_to_json(
+         let children: Vec<serde_json::Value> = element
+             .children
+             .iter()
+-            .map(|&cid| element_to_json(cid, tree, bounds, include_details))
++            .map(|&cid| element_to_json(cid, tree, bounds, include_details, editor_text))
+             .filter(|v| !v.is_null())
+             .collect();
+         if !children.is_empty() {
+diff --git a/packages/native/src/test_renderer.rs b/packages/native/src/test_renderer.rs
+index fe530846d1800c2755cb35840e56ef11f2ce13ff..68d4a15db8205a0b29a093445f9b199061bb4a82 100644
+--- a/packages/native/src/test_renderer.rs
++++ b/packages/native/src/test_renderer.rs
+@@ -1138,10 +1138,10 @@ impl TestGpuixRenderer {
+     #[napi]
+     pub fn get_automation_tree(&self) -> Result<String> {
+         self.flush()?;
+-        let tree = self.tree.lock().unwrap();
+-        let json = tree.to_automation_json(&crate::automation::all_bounds());
+-        serde_json::to_string(&json)
+-            .map_err(|e| Error::from_reason(format!("JSON serialization failed: {}", e)))
++        with_test_state(|cx, window, view| {
++            cx.update_window(window, |_, _, cx| view.read(cx).automation_tree(cx).to_string())
++                .map_err(|error| Error::from_reason(error.to_string()))
++        })
+     }
+
+     /// Last painted bounds for an element, or null if it was not painted.

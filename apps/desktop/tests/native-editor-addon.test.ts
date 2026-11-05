@@ -5,8 +5,12 @@ import { fileURLToPath } from "node:url"
 
 const require = createRequire(import.meta.url)
 
+const nativeAddonArgument = process.argv.find((argument) =>
+  argument.startsWith("--native-addon="),
+)
+
 const binding: unknown = require(
-  Bun.env.STILL_NOTES_NATIVE_TEST_ADDON ??
+  nativeAddonArgument?.slice("--native-addon=".length) ??
     fileURLToPath(new URL("../native/gpuix-native.node", import.meta.url)),
 )
 

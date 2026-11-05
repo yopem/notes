@@ -12,6 +12,7 @@ import {
 
 test("installed automation schema preserves exact optional editor text", function treeTextContract() {
   expect(PROTOCOL_VERSION).toBe(1)
+
   const tree = {
     id: 1,
     type: "div",
@@ -23,6 +24,7 @@ test("installed automation schema preserves exact optional editor text", functio
       { id: 6, type: "textarea", text: "中😀é" },
     ],
   }
+
   expect(methods.getTree.result.parse({ tree })).toEqual({ tree })
   expect(methods.getTree.result.parse({ tree: null })).toEqual({ tree: null })
   expect(function invalidText() {
