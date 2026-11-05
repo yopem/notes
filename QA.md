@@ -446,9 +446,10 @@ synchronous calculations in ordinary TypeScript.
     compositor cannot provide its required DRM allocator. The named core tests
     passed with 81 tests and 343 assertions. Scoped core lint passed with zero
     warnings. Native QA reached the welcome screen. Its saved automation tree
-    shows the test workspace, but `grim -T` exited with SIGSEGV. Draft recovery
-    and restart remain unrun. The existing user app was not stopped or captured.
-    Resolve client-only capture before rerunning the native cases.
+    shows the test workspace, and its store lock was absent after shutdown.
+    `grim -T` exited with SIGSEGV. Draft recovery and restart remain unrun. The
+    existing user app was not stopped or captured. Resolve client-only capture
+    before rerunning the native cases.
 
 - [ ] **QA-017 — P0 — MCP stdio cancellation and ordering**
   - **Purpose:** Preserve the JSON-RPC protocol and release in-flight work when
