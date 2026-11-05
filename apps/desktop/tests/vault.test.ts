@@ -416,6 +416,232 @@ describe("native Markdown vault", () => {
       )
     })
 
+    test(`${primary} layout rejects case aliases without changing vault data`, () => {
+      const directory = root()
+      const vault = open(directory, primary)
+      const active = Effect.runSync(
+        vault.createNote("quick", "Keep", "", "keep"),
+      )
+      Effect.runSync(vault.setPinned(active.path, true))
+      const trashed = Effect.runSync(vault.moveToTrash(active.path))
+      const asset = Effect.runSync(
+        vault.createAsset("keep.bin", Buffer.from("asset")),
+      )
+      Effect.runSync(vault.createFolder("root", "Work"))
+      const statePath = join(directory, ".still-notes/state.json")
+      const before = readFileSync(statePath, "utf8")
+      const aliases = ["Trash", "TRASH", "Archive", "QUICK", "Assets"]
+
+      if (primary === "inbox") aliases.push("INBOX")
+
+      for (const alias of aliases) {
+        for (const path of [alias, `${alias}/Nested`]) {
+          const folders =
+            primary === "root"
+              ? (["root", "inbox"] as const)
+              : (["root"] as const)
+
+          for (const folder of folders) {
+            expect(
+              Effect.runSync(Effect.flip(vault.createFolder(folder, path))),
+            ).toBeInstanceOf(VaultFolderError)
+            expect(
+              Effect.runSync(
+                Effect.flip(vault.renameFolder(folder, path, "Moved")),
+              ),
+            ).toBeInstanceOf(VaultFolderError)
+            expect(
+              Effect.runSync(
+                Effect.flip(vault.renameFolder(folder, "Work", path)),
+              ),
+            ).toBeInstanceOf(VaultFolderError)
+            expect(
+              Effect.runSync(Effect.flip(vault.duplicateFolder(folder, path))),
+            ).toBeInstanceOf(VaultFolderError)
+            expect(
+              Effect.runSync(
+                Effect.flip(
+                  vault.deleteFolder(folder, path, { confirm: true }),
+                ),
+              ),
+            ).toBeInstanceOf(VaultFolderError)
+            expect(
+              Effect.runSync(
+                Effect.flip(vault.createNote(folder, "Escape", path)),
+              ),
+            ).toBeInstanceOf(VaultNoteError)
+            expect(
+              Effect.runSync(
+                Effect.flip(vault.moveNote(trashed.path, folder, path)),
+              ),
+            ).toBeInstanceOf(VaultNoteError)
+          }
+        }
+        const id = `${alias}/Keep.md`
+        for (const attempt of [
+          () => Effect.runSync(Effect.flip(vault.readNote(id))),
+          () =>
+            Effect.runSync(
+              Effect.flip(
+                vault.writeNote(id, "changed", { expectedContent: "keep" }),
+              ),
+            ),
+          () =>
+            Effect.runSync(
+              Effect.flip(
+                vault.appendToNote(id, "changed", "end", {
+                  expectedContent: "keep",
+                }),
+              ),
+            ),
+          () => Effect.runSync(Effect.flip(vault.setPinned(id, false))),
+          () =>
+            Effect.runSync(
+              Effect.flip(
+                vault.checkExternalChange(id, { expectedContent: "keep" }),
+              ),
+            ),
+          () => Effect.runSync(Effect.flip(vault.renameNote(id, "Changed"))),
+          () => Effect.runSync(Effect.flip(vault.moveNote(id, "quick"))),
+          () => Effect.runSync(Effect.flip(vault.duplicateNote(id))),
+          () => Effect.runSync(Effect.flip(vault.archiveNote(id))),
+          () => Effect.runSync(Effect.flip(vault.unarchiveNote(id))),
+          () => Effect.runSync(Effect.flip(vault.moveToTrash(id))),
+          () => Effect.runSync(Effect.flip(vault.restoreFromTrash(id))),
+          () =>
+            Effect.runSync(
+              Effect.flip(vault.deleteNote(id, { confirm: true })),
+            ),
+        ])
+          expect(attempt()).toBeInstanceOf(VaultNoteError)
+      }
+
+      for (const id of [
+        "assets/keep.md",
+        "Assets/keep.md",
+        ".STILL-NOTES/state.md",
+        "quick/.STILL-NOTES/state.md",
+      ]) {
+        expect(Effect.runSync(Effect.flip(vault.readNote(id)))).toBeInstanceOf(
+          VaultNoteError,
+        )
+        expect(
+          Effect.runSync(Effect.flip(vault.duplicateNote(id))),
+        ).toBeInstanceOf(VaultNoteError)
+      }
+      for (const id of [
+        "Assets/keep.bin",
+        "ASSETS/keep.bin",
+        ".STILL-NOTES/state.json",
+        "assets/.STILL-NOTES/keep.bin",
+      ]) {
+        for (const attempt of [
+          () => Effect.runSync(Effect.flip(vault.readAsset(id))),
+          () => Effect.runSync(Effect.flip(vault.readAssetText(id))),
+          () =>
+            Effect.runSync(
+              Effect.flip(
+                vault.writeAsset(id, Buffer.from("changed"), {
+                  expectedContent: "asset",
+                }),
+              ),
+            ),
+          () =>
+            Effect.runSync(Effect.flip(vault.renameAsset(id, "changed.bin"))),
+          () => Effect.runSync(Effect.flip(vault.moveAsset(id, "assets"))),
+          () => Effect.runSync(Effect.flip(vault.duplicateAsset(id))),
+          () => Effect.runSync(Effect.flip(vault.deleteAsset(id))),
+        ])
+          expect(attempt()).toBeInstanceOf(VaultAssetError)
+      }
+      expect(
+        Effect.runSync(
+          Effect.flip(
+            vault.createAsset("new.bin", Buffer.from("new"), "Assets"),
+          ),
+        ),
+      ).toBeInstanceOf(VaultAssetError)
+      expect(
+        Effect.runSync(Effect.flip(vault.moveAsset(asset.path, "Assets"))),
+      ).toBeInstanceOf(VaultAssetError)
+      expect(readFileSync(statePath, "utf8")).toBe(before)
+      expect(readFileSync(join(directory, trashed.path), "utf8")).toBe("keep")
+      expect(readFileSync(join(directory, asset.path), "utf8")).toBe("asset")
+      expect(Effect.runSync(vault.readNote(trashed.path)).pinned).toBe(true)
+      expect(Effect.runSync(vault.restoreFromTrash(trashed.path)).path).toBe(
+        active.path,
+      )
+      expect(Effect.runSync(vault.readAsset(asset.path))).toEqual(
+        Buffer.from("asset"),
+      )
+      vault.close()
+      expect(
+        Effect.runSync(open(directory, primary).readNote(active.path)).pinned,
+      ).toBe(true)
+    })
+
+    test(`${primary} layout preserves pre-existing mixed-case system names`, () => {
+      for (const name of [
+        "Trash",
+        "ARCHIVE",
+        "Quick",
+        "Assets",
+        ".STILL-NOTES",
+        ...(primary === "inbox" ? ["Inbox"] : []),
+      ]) {
+        const directory = root()
+        mkdirSync(join(directory, name))
+        writeFileSync(join(directory, name, "Keep.md"), "user content")
+        expect(() => open(directory, primary)).toThrow()
+        expect(readFileSync(join(directory, name, "Keep.md"), "utf8")).toBe(
+          "user content",
+        )
+      }
+    })
+
+    test(`${primary} layout does not relabel newly discovered case aliases`, () => {
+      const directory = root()
+      const vault = open(directory, primary)
+      const alias = join(directory, "Trash")
+
+      if (!existsSync(alias)) {
+        mkdirSync(alias)
+        writeFileSync(join(alias, "Keep.md"), "user content")
+        expect(
+          Effect.runSync(vault.listNotes()).some(
+            (note) => note.path === "Trash/Keep.md",
+          ),
+        ).toBe(false)
+        expect(
+          Effect.runSync(vault.listFolders()).some(
+            (folder) => folder.path === "Trash",
+          ),
+        ).toBe(false)
+        expect(
+          Effect.runSync(
+            Effect.flip(vault.deleteFolder("root", "Trash", { confirm: true })),
+          ),
+        ).toBeInstanceOf(VaultFolderError)
+        expect(readFileSync(join(alias, "Keep.md"), "utf8")).toBe(
+          "user content",
+        )
+      }
+
+      if (primary === "root") {
+        Effect.runSync(vault.createFolder("inbox", "INBOX"))
+        const note = Effect.runSync(
+          vault.createNote("inbox", "Keep", "INBOX", "ordinary"),
+        )
+        expect(note.path).toBe("INBOX/Keep.md")
+        expect(note.folder).toBe("inbox")
+        expect(Effect.runSync(vault.listFolders())).toContainEqual({
+          path: "INBOX",
+          folder: "inbox",
+          subpath: "INBOX",
+        })
+      }
+    })
+
     test(`${primary} layout blocks protected root aliases`, () => {
       const vault = open(root(), primary)
       const note = Effect.runSync(vault.createNote("quick", "Keep", "", "keep"))
