@@ -173,6 +173,7 @@ test("distinguishes routed normal keys from native insert keys", function routed
 
 test("routes close requests until an explicit close", function closeRequests() {
   const calls: unknown[] = []
+
   const native = {
     applyBatch() {
       return []
@@ -186,9 +187,11 @@ test("routes close requests until an explicit close", function closeRequests() {
       calls.push(["close"])
     },
   }
+
   const dispatcher = createRendererState(native)
   const binding = dispatcher.attach()
   let requests = 0
+
   const guard = createNativeCloseGuard({ native }, function requestClose() {
     requests += 1
   })
@@ -213,26 +216,33 @@ test("routes close requests until an explicit close", function closeRequests() {
   binding.detach()
 })
 
+function unexpectedClose() {
+  throw new Error("Unexpected close bridge call")
+}
+
 test("refuses to arm without a mounted root or a native bridge", function closePrerequisites() {
   const native = {
     applyBatch() {
       return []
     },
-    armCloseGuard() {},
-    closeWindow() {},
+    armCloseGuard: unexpectedClose,
+    closeWindow: unexpectedClose,
   }
+
   expect(function withoutRoot() {
-    createNativeCloseGuard(native, function requestClose() {})
-  }).toThrow()
+    createNativeCloseGuard(native, unexpectedClose)
+  }).toThrow("Mount the GPUix root")
+
   const missing = {
     applyBatch() {
       return []
     },
   }
+
   const binding = createRendererState(missing).attach()
   expect(function withoutNative() {
-    createNativeCloseGuard(missing, function requestClose() {})
-  }).toThrow()
+    createNativeCloseGuard(missing, unexpectedClose)
+  }).toThrow("close guard")
   binding.detach()
 })
 
@@ -244,12 +254,13 @@ test("removes the close handler when native arming fails", function failedCloseA
     armCloseGuard() {
       throw new Error("not initialized")
     },
-    closeWindow() {},
+    closeWindow: unexpectedClose,
   }
+
   const dispatcher = createRendererState(native)
   const binding = dispatcher.attach()
   expect(function arm() {
-    createNativeCloseGuard(native, function requestClose() {})
+    createNativeCloseGuard(native, unexpectedClose)
   }).toThrow("not initialized")
   expect(
     dispatcher.dispatch({
@@ -262,6 +273,8 @@ test("removes the close handler when native arming fails", function failedCloseA
 
 test("refuses to replace an active close handler", function duplicateCloseGuard() {
   let arms = 0
+  let requests = 0
+
   const native = {
     applyBatch() {
       return []
@@ -269,15 +282,25 @@ test("refuses to replace an active close handler", function duplicateCloseGuard(
     armCloseGuard() {
       arms += 1
     },
-    closeWindow() {},
+    closeWindow: unexpectedClose,
   }
+
   const dispatcher = createRendererState(native)
   const binding = dispatcher.attach()
-  createNativeCloseGuard(native, function firstRequest() {})
+  createNativeCloseGuard(native, function firstRequest() {
+    requests += 1
+  })
   expect(function duplicate() {
-    createNativeCloseGuard(native, function secondRequest() {})
-  }).toThrow()
+    createNativeCloseGuard(native, unexpectedClose)
+  }).toThrow("Window already has a close guard")
   expect(arms).toBe(1)
+  expect(
+    dispatcher.dispatch({
+      elementId: binding.windowKeyEventId,
+      eventType: "windowCloseRequested",
+    }),
+  ).toBe(true)
+  expect(requests).toBe(1)
   binding.detach()
 })
 
