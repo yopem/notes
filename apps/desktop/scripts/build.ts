@@ -11,7 +11,9 @@ if (process.platform === "win32") abi = "-msvc"
 
 const nativePackage = `@gpuix/native-${process.platform}-${process.arch}${abi}`
 
-const nativeBinding = Bun.resolveSync(nativePackage, root)
+const nativeModule = Bun.resolveSync("@gpuix/native", root)
+
+const nativeBinding = Bun.resolveSync(nativePackage, nativeModule)
 
 // GPUix uses createRequire, so Bun needs the native file as an explicit asset.
 const result = Bun.spawnSync({
