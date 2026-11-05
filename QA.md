@@ -710,7 +710,7 @@ mark those cases passed until capture works and the evidence is inspected.
     and screenshot capture is blocked by QA-015. A native bridge requires
     source, build and platform verification before this scenario can run.
 
-- [ ] **QA-026 — P0 — Keep assistant errors free of private details**
+- [x] **QA-026 — P0 — Keep assistant errors free of private details**
   - **Purpose:** Prevent an adapter failure from exposing filesystem paths,
     credentials, or free-text content through a tool response.
   - **Prerequisites:** Shared setup and disposable streams in the existing MCP
@@ -730,16 +730,18 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/effect-migration/QA-026-mcp-errors.txt` and inspect it.
   - **Cleanup:** Close test-owned streams and child processes. Remove only
     disposable test data; no other cleanup is needed.
-  - **Status:** Pending. Current adapter error text is returned to the client.
+  - **Status:** Passed at `81e7bbd` on 2026-11-05, Linux x86_64, Bun
+    `1.4.4-canary.1+b9f2ec363`. The focused file passed 26 tests and 170
+    assertions. Evidence: `docs/artifacts/effect-migration/QA-026-027-mcp.txt`.
 
-- [ ] **QA-027 — P1 — Enforce per-frame MCP limits**
+- [x] **QA-027 — P1 — Enforce per-frame MCP limits**
   - **Purpose:** Treat valid requests the same regardless of stream chunking
     while rejecting an individually oversized frame.
   - **Prerequisites:** Shared setup and isolated streams in the existing MCP
     test file. No live client or vault is needed.
-  - **Inputs:** Two valid newline-delimited messages, each below the existing
-    four-MiB frame limit but above two MiB, delivered in one byte chunk; then
-    one message above the individual frame limit.
+  - **Inputs:** Two valid newline-delimited ASCII messages, each below the
+    existing 4,194,304 UTF-16-code-unit limit but above 2,097,152 code units,
+    delivered in one byte chunk; then one message above the frame limit.
   - **Steps:**
     1. From `apps/desktop`, run
        `../../node_modules/.bin/bun test tests/mcp.test.ts` after the
@@ -753,7 +755,11 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/effect-migration/QA-027-mcp-frames.txt` and inspect it.
   - **Cleanup:** Close test-owned streams and child processes. Remove only
     disposable test data; no other cleanup is needed.
-  - **Status:** Pending. The current limit applies before splitting a chunk.
+  - **Status:** Passed at `81e7bbd` on 2026-11-05, Linux x86_64, Bun
+    `1.4.4-canary.1+b9f2ec363`. The focused file passed 26 tests and 170
+    assertions, including a split UTF-8 sequence. The limit counts decoded
+    UTF-16 code units, not wire bytes. Evidence:
+    `docs/artifacts/effect-migration/QA-026-027-mcp.txt`.
 
 - [ ] **QA-028 — P1 — Persist note sorting across views**
   - **Purpose:** Apply the saved note sort choice to the JSON workspace and
