@@ -1548,3 +1548,70 @@ mark those cases passed until capture works and the evidence is inspected.
     private screenshot and one-note disk result establish unexpected disclosure,
     but do not yet establish event IDs, coordinate routing or application
     callback wiring as its cause.
+
+- [ ] **QA-058 — P1 — Keep font setup failures out of React commit errors**
+  - **Purpose:** Keep cold native font setup and slow UI commands from leaving
+    an unusable partial editor or an unhandled render error.
+  - **Prerequisites:** QA-056 private compositor, verified addon, full system
+    font profile, a fresh private font/cache directory, and immutable source. Do
+    not change global fonts or use a host display. Use only synthetic data.
+  - **Inputs:** Bundled Inter and IBM Plex Mono. Preserve the native command
+    timeout diagnostic instead of replacing it with an unrelated tree timeout.
+  - **Steps:**
+    1. From repository root, run
+       `python3 docs/artifacts/native-isolation/app-sandbox.py "$(date -u +%Y%m%dT%H%M%SZ)-$$" wide`.
+    2. Inspect native startup logs, font-registration timing, the first usable
+       tree and a private screenshot before settings or note actions.
+    3. If setup fails, inspect the implemented startup error/retry path. Define
+       a child-only reproducible delayed-font scenario before changing code. The
+       fault adapter and exact replay command remain a discovery task.
+    4. Repeat the source launch after the fix. Keep normal-font startup results
+       separate from workflow runs with an explicit bundled-font QA profile.
+  - **Expected results:** Fonts load before their first text layout, or the app
+    reports a specific recoverable setup failure. A root ref exception must not
+    replace the workspace with an unrelated React error. Retry cannot create a
+    second native host or lose notes. A font fixture must not change global
+    configuration or be presented as proof of normal-font startup performance.
+  - **Evidence:** Save stable source/addon hashes, native timing/errors, exact
+    command, tree, private screenshot and cleanup under
+    `docs/artifacts/native-isolation/`. The initial failure is
+    `app-run-20261105T131052Z-1562454`.
+  - **Cleanup:** Stop only owned app/compositor groups, check the lock is gone
+    and remove private runtimes. Keep sanitized artifacts and fault scripts.
+  - **Status:** Failed on 2026-11-05 at ba271a3. The real leaf start script
+    reached font registration, which threw its two-second native timeout during
+    `registerRoot`. React reported a runtime error and tree queries timed out.
+    No settings/regression case ran. Owned processes stopped and the lock was
+    removed. The underlying wait location and a controlled fault are pending.
+
+- [ ] **QA-059 — P0 — Preserve failed drafts across native root remounts**
+  - **Purpose:** Protect pending notes when hot reload or an explicit root
+    remount replaces React components without closing the native window.
+  - **Prerequisites:** QA-056 private setup and the existing failed-save fixture
+    from `apps/desktop/scripts/native-regressions.ts`. Keep Notes and Settings
+    resources in the same application runtime. No user app or data may be used.
+  - **Inputs:** Note title `Remount draft Ω`; body `Unsaved before remount 🌿`.
+    Preserve the original saved bytes and current pending draft independently.
+  - **Steps:**
+    1. Create the note and force the existing isolated save failure. Check the
+       native field, draft notice and unchanged saved bytes.
+    2. Define an owned remount action through the pinned renderer or hot entry
+       before implementation. Record its exact command/protocol; this action
+       remains a discovery task, not an invented executable payload.
+    3. Remount on the same native host and runtime. Inspect the active note,
+       pending count, native fields, rescue export and ordinary-close policy.
+    4. Check incompatible runtime contracts refuse unsafe reuse without
+       disposing the old store or silently discarding its pending text.
+  - **Expected results:** The exact failed draft and original saved data remain
+    available. Remount does not bypass a close warning, create another lock or
+    repeat a note mutation. An incompatible live runtime gets a clear restart
+    instruction without losing its existing draft or replacing its working UI.
+  - **Evidence:** Save before/after trees, native values, file hashes, runtime
+    and addon identity, rescue output and owned cleanup under
+    `docs/artifacts/native-isolation/QA-059/`.
+  - **Cleanup:** Restore only fixture permissions/paths and stop owned groups.
+    Check the store lock is released. Keep evidence and remove isolated data.
+  - **Status:** Pending. Installed GPUix `render()` explicitly unmounts the
+    previous root on remount. Failed drafts currently live in hook state and
+    refs, while the application runtime is reused globally. No live remount or
+    compatibility-preservation acceptance has run.
