@@ -1,8 +1,11 @@
+import { use } from "react"
+
 import type { Palette } from "@/components/ui/theme"
 import type { Note } from "@/features/notes/store"
 
 import { Button } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
+import { DuplicateNoteContext } from "@/features/editor/components/duplicate-note-context"
 import { getEditorChromeStyles } from "@/features/editor/components/editor-styles"
 
 export function EditorFooter({
@@ -25,6 +28,7 @@ export function EditorFooter({
   onTrash: () => void
 }) {
   const styles = getEditorChromeStyles(color)
+  const duplicateNote = use(DuplicateNoteContext)
 
   return (
     <div style={styles.footer}>
@@ -49,6 +53,15 @@ export function EditorFooter({
             testId="pin-note"
             label={note.pinned ? "Unpin note" : "Pin note"}
             onClick={onPin}
+          />
+        )}
+        {!note.trashedAt && duplicateNote && (
+          <Button
+            color={color}
+            icon="notes"
+            testId="duplicate-note"
+            label="Duplicate note"
+            onClick={duplicateNote}
           />
         )}
         {!note.trashedAt && !narrow && (

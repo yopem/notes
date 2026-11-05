@@ -5,6 +5,7 @@ import type { NotesStore } from "@/features/notes/store"
 import type { SettingsStore } from "@/features/settings/store"
 
 import { palettes } from "@/components/ui/theme"
+import { DuplicateNoteContext } from "@/features/editor/components/duplicate-note-context"
 import { NoteList } from "@/features/notes/components/note-list"
 import { SettingsPanel } from "@/features/settings/components/settings-panel"
 import { AppDialog } from "@/features/workspace/components/app-dialog"
@@ -204,25 +205,27 @@ export function App({
                   onSort={navigation.toggleSort}
                 />
               )}
-            <WorkspaceEditor
-              color={color}
-              preferences={preferences}
-              note={note}
-              notebookName={notebook?.name ?? "Notebook"}
-              mode={navigation.mode}
-              onMode={navigation.setMode}
-              onChange={changeNote}
-              actions={editor}
-              focusMode={navigation.focusMode}
-              onFocusMode={navigation.toggleFocus}
-              dirty={hasDrafts}
-              narrow={narrow}
-              mobileEditor={navigation.mobileEditor}
-              onBack={navigation.showList}
-              query={navigation.query}
-              view={navigation.view}
-              onNew={intake.newNote}
-            />
+            <DuplicateNoteContext value={editor.duplicateNote}>
+              <WorkspaceEditor
+                color={color}
+                preferences={preferences}
+                note={note}
+                notebookName={notebook?.name ?? "Notebook"}
+                mode={navigation.mode}
+                onMode={navigation.setMode}
+                onChange={changeNote}
+                actions={editor}
+                focusMode={navigation.focusMode}
+                onFocusMode={navigation.toggleFocus}
+                dirty={hasDrafts}
+                narrow={narrow}
+                mobileEditor={navigation.mobileEditor}
+                onBack={navigation.showList}
+                query={navigation.query}
+                view={navigation.view}
+                onNew={intake.newNote}
+              />
+            </DuplicateNoteContext>
           </div>
         </div>
       </div>

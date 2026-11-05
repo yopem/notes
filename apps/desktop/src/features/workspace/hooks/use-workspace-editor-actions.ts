@@ -39,6 +39,40 @@ export function useWorkspaceEditorActions({
       onError(attempt(() => run(store.togglePin(note.id))))
     }
 
+    function duplicateNote() {
+      const { store, note, navigation, onError, run } = current.current
+
+      if (!note || note.trashedAt) return
+
+      try {
+        const copy = run(
+          store.duplicateNote(note.id, { title: note.title, body: note.body }),
+        )
+
+        const search = navigation.query.trim().toLocaleLowerCase()
+
+        if (
+          navigation.view.kind === "pinned" ||
+          (navigation.view.kind === "notebook" &&
+            navigation.view.notebookId !== copy.notebookId)
+        )
+          navigation.setView({ kind: "notebook", notebookId: copy.notebookId })
+
+        if (
+          search &&
+          !`${copy.title}\n${copy.body}`.toLocaleLowerCase().includes(search)
+        )
+          navigation.setQuery("")
+
+        navigation.setActiveNoteId(copy.id)
+        navigation.setMobileEditor(true)
+        navigation.setNavigationOpen(false)
+        onError("")
+      } catch {
+        onError("Could not duplicate note. Try again.")
+      }
+    }
+
     function trashNote() {
       const { store, note, navigation, onError, run } = current.current
 
@@ -88,6 +122,7 @@ export function useWorkspaceEditorActions({
 
     return {
       pinNote,
+      duplicateNote,
       trashNote,
       restoreNote,
       deleteNote,
