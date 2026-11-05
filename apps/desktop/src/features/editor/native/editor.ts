@@ -6,65 +6,64 @@ import {
   registerEventHandler,
   unregisterEventHandler,
 } from "@gpuix/native/host"
-import { z } from "zod"
+import { Predicate, Result, Schema } from "effect"
 
-const OffsetSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+const OffsetSchema = Schema.Natural
 
-const PixelSchema = z.number().finite().nonnegative()
+const PixelSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 
-const EditorModeSchema = z.enum(["insert", "normal", "readOnly"])
+const EditorModeSchema = Schema.Literals(["insert", "normal", "readOnly"])
 
-const SelectionSchema = z
-  .strictObject({
-    start: OffsetSchema,
-    end: OffsetSchema,
-    direction: z.enum(["forward", "backward"]),
-  })
-  .refine(function ordered(selection) {
-    return selection.start <= selection.end
-  })
-
-const RevisionSchema = z.strictObject({ revision: OffsetSchema })
-
-const SetSelectionSchema = RevisionSchema.extend(SelectionSchema.shape)
-
-const ViewportSchema = z.strictObject({ top: PixelSchema, left: PixelSchema })
-
-const ReplaceRangeSchema = RevisionSchema.extend({
+const SelectionSchema = Schema.Struct({
   start: OffsetSchema,
   end: OffsetSchema,
-  text: z.string(),
-  selection: SelectionSchema.optional(),
-}).refine(function ordered(range) {
-  return range.start <= range.end
+  direction: Schema.Literals(["forward", "backward"]),
+}).check(Schema.makeFilter((selection) => selection.start <= selection.end))
+
+const RevisionSchema = Schema.Struct({ revision: OffsetSchema })
+
+const SetSelectionSchema = Schema.Struct({
+  ...RevisionSchema.fields,
+  ...SelectionSchema.fields,
 })
 
-const TextSnapshotSchema = z.strictObject({
-  text: z.string(),
-  ...SelectionSchema.shape,
+const ViewportSchema = Schema.Struct({ top: PixelSchema, left: PixelSchema })
+
+const ReplaceRangeSchema = Schema.Struct({
+  ...RevisionSchema.fields,
+  start: OffsetSchema,
+  end: OffsetSchema,
+  text: Schema.String,
+  selection: Schema.optionalKey(SelectionSchema),
+}).check(Schema.makeFilter((range) => range.start <= range.end))
+
+const TextSnapshotSchema = Schema.Struct({
+  text: Schema.String,
+  ...SelectionSchema.fields,
 })
 
-const EditorSnapshotSchema = z.strictObject({
-  version: z.literal(1),
+const EditorSnapshotSchema = Schema.Struct({
+  version: Schema.Literal(1),
   current: TextSnapshotSchema,
-  undo: z.array(TextSnapshotSchema).max(200),
-  redo: z.array(TextSnapshotSchema).max(200),
+  undo: Schema.Array(TextSnapshotSchema).check(Schema.isMaxLength(200)),
+  redo: Schema.Array(TextSnapshotSchema).check(Schema.isMaxLength(200)),
   scrollTop: PixelSchema,
   scrollLeft: PixelSchema,
 })
 
-const EditorStateSchema = z.strictObject({
-  text: z.string(),
+const EditorStateSchema = Schema.Struct({
+  text: Schema.String,
   revision: OffsetSchema,
   selection: SelectionSchema,
-  composition: z
-    .strictObject({ start: OffsetSchema, end: OffsetSchema })
-    .nullable(),
+  composition: Schema.NullOr(
+    Schema.Struct({ start: OffsetSchema, end: OffsetSchema }),
+  ),
   mode: EditorModeSchema,
-  readOnly: z.boolean(),
-  canUndo: z.boolean(),
-  canRedo: z.boolean(),
-  viewport: ViewportSchema.extend({
+  readOnly: Schema.Boolean,
+  canUndo: Schema.Boolean,
+  canRedo: Schema.Boolean,
+  viewport: Schema.Struct({
+    ...ViewportSchema.fields,
     width: PixelSchema,
     height: PixelSchema,
     contentHeight: PixelSchema,
@@ -72,11 +71,37 @@ const EditorStateSchema = z.strictObject({
   }),
 })
 
-const EditorEventSchema = z.object({
+const EditorEventSchema = Schema.Struct({
   elementId: OffsetSchema,
-  eventType: z.string(),
-  value: z.string().optional(),
+  eventType: Schema.String,
+  value: Schema.optionalKey(Schema.String),
 })
+
+const decodeOffset = Schema.decodeUnknownSync(OffsetSchema)
+
+const decodeText = Schema.decodeUnknownSync(Schema.String)
+
+const decodeSelection = Schema.decodeUnknownSync(SetSelectionSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeRange = Schema.decodeUnknownSync(ReplaceRangeSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeSnapshot = Schema.decodeUnknownSync(EditorSnapshotSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeState = Schema.decodeUnknownSync(EditorStateSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeViewport = Schema.decodeUnknownSync(ViewportSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeMode = Schema.decodeUnknownSync(EditorModeSchema)
 
 export interface NativeEditorProps {
   editorMode?: NativeEditorMode
@@ -84,15 +109,15 @@ export interface NativeEditorProps {
   editorPath?: string
 }
 
-export type NativeEditorMode = z.infer<typeof EditorModeSchema>
+export type NativeEditorMode = typeof EditorModeSchema.Type
 
-export type NativeEditorSelection = z.infer<typeof SelectionSchema>
+export type NativeEditorSelection = typeof SelectionSchema.Type
 
-export type NativeEditorState = z.infer<typeof EditorStateSchema>
+export type NativeEditorState = typeof EditorStateSchema.Type
 
-export type NativeEditorSnapshot = z.infer<typeof EditorSnapshotSchema>
+export type NativeEditorSnapshot = typeof EditorSnapshotSchema.Type
 
-export type NativeEditorReplaceRange = z.infer<typeof ReplaceRangeSchema>
+export type NativeEditorReplaceRange = typeof ReplaceRangeSchema.Type
 
 type EditorRenderer = NativeRenderer & {
   editorCommand?: (elementId: number, commandJson: string) => string
@@ -116,28 +141,23 @@ export function createNativeEditor(
   renderer: EditorRenderer | { native: EditorRenderer },
   elementId: number,
 ) {
-  const id = OffsetSchema.parse(elementId)
-  const wrapped = z.object({ native: z.unknown() }).safeParse(renderer)
+  const id = decodeOffset(elementId)
+  const native = "native" in renderer ? renderer.native : renderer
+  const command = native.editorCommand
 
-  const native = wrapped.success ? (wrapped.data.native ?? renderer) : renderer
-
-  const bridge = z
-    .object({ editorCommand: z.instanceof(Function) })
-    .safeParse(native)
-
-  if (!bridge.success) {
+  if (!Predicate.isFunction(command)) {
     throw new Error("Custom GPUix addon with editorCommand is required")
   }
 
-  const command = bridge.data.editorCommand
-
-  function execute<Output>(
+  function execute<S extends Schema.ConstraintDecoder<unknown>>(
     value: NativeEditorCommand,
-    schema: z.ZodType<Output>,
+    schema: S,
   ) {
     const response: unknown = command.call(native, id, JSON.stringify(value))
 
-    return schema.parse(JSON.parse(z.string().parse(response)))
+    return Schema.decodeUnknownSync(schema, { onExcessProperty: "error" })(
+      JSON.parse(decodeText(response)),
+    )
   }
 
   function subscribe(onState: (state: NativeEditorState) => void) {
@@ -179,8 +199,8 @@ export function createNativeEditor(
     return execute(
       {
         type: "restoreSnapshot",
-        revision: OffsetSchema.parse(revision),
-        snapshot: EditorSnapshotSchema.parse(snapshot),
+        revision: decodeOffset(revision),
+        snapshot: decodeSnapshot(snapshot),
       },
       EditorStateSchema,
     )
@@ -190,42 +210,42 @@ export function createNativeEditor(
     selection: NativeEditorSelection & { revision: number },
   ) {
     return execute(
-      { type: "setSelection", ...SetSelectionSchema.parse(selection) },
+      { type: "setSelection", ...decodeSelection(selection) },
       EditorStateSchema,
     )
   }
 
   function replaceRange(range: NativeEditorReplaceRange) {
     return execute(
-      { type: "replaceRange", ...ReplaceRangeSchema.parse(range) },
+      { type: "replaceRange", ...decodeRange(range) },
       EditorStateSchema,
     )
   }
 
   function undo(revision: number) {
     return execute(
-      { type: "undo", revision: OffsetSchema.parse(revision) },
+      { type: "undo", revision: decodeOffset(revision) },
       EditorStateSchema,
     )
   }
 
   function redo(revision: number) {
     return execute(
-      { type: "redo", revision: OffsetSchema.parse(revision) },
+      { type: "redo", revision: decodeOffset(revision) },
       EditorStateSchema,
     )
   }
 
-  function setViewport(viewport: z.infer<typeof ViewportSchema>) {
+  function setViewport(viewport: typeof ViewportSchema.Type) {
     return execute(
-      { type: "setViewport", ...ViewportSchema.parse(viewport) },
+      { type: "setViewport", ...decodeViewport(viewport) },
       EditorStateSchema,
     )
   }
 
   function setMode(mode: NativeEditorMode) {
     return execute(
-      { type: "setMode", mode: EditorModeSchema.parse(mode) },
+      { type: "setMode", mode: decodeMode(mode) },
       EditorStateSchema,
     )
   }
@@ -246,23 +266,21 @@ export function createNativeEditor(
 
 /** Subscribe first. GPUix drops events that have no host handler. */
 export function readNativeEditorEvent(event: EventPayload, elementId: number) {
-  const parsed = EditorEventSchema.safeParse(event)
+  const parsed = Schema.decodeUnknownResult(EditorEventSchema)(event)
 
   if (
-    !parsed.success ||
-    parsed.data.eventType !== "editorState" ||
-    parsed.data.elementId !== elementId
+    Result.isFailure(parsed) ||
+    parsed.success.eventType !== "editorState" ||
+    parsed.success.elementId !== elementId
   ) {
     return null
   }
 
-  return EditorStateSchema.parse(
-    JSON.parse(z.string().parse(parsed.data.value)),
-  )
+  return decodeState(JSON.parse(decodeText(parsed.success.value)))
 }
 
-const RoutedKeySchema = z.strictObject({
-  nativeEditorRoute: z.literal(true),
+const RoutedKeySchema = Schema.Struct({
+  nativeEditorRoute: Schema.Literal(true),
   revision: OffsetSchema,
   mode: EditorModeSchema,
 })
@@ -286,14 +304,16 @@ export function readNativeEditorKeyEvent(
     !event.value
   )
     return null
-  const routed = RoutedKeySchema.safeParse(JSON.parse(event.value))
+  const routed = Schema.decodeUnknownResult(RoutedKeySchema, {
+    onExcessProperty: "error",
+  })(JSON.parse(event.value))
 
-  if (!routed.success) return null
+  if (Result.isFailure(routed)) return null
 
   const result: NativeEditorRoutedKey = {
-    key: z.string().parse(event.key),
-    revision: routed.data.revision,
-    mode: routed.data.mode,
+    key: decodeText(event.key),
+    revision: routed.success.revision,
+    mode: routed.success.mode,
   }
 
   if (event.keyChar) result.keyChar = event.keyChar
