@@ -18,7 +18,7 @@ import { join, resolve } from "node:path"
 
 import { NotesError } from "@/features/notes/errors"
 import { Notes, NotesStore } from "@/features/notes/store"
-import { AtomicWriteError, atomicWrite } from "@/platform/files"
+import { atomicWrite, AtomicWriteError } from "@/platform/files"
 
 import { readDataDirectory, writeDataDirectory } from "./env"
 
