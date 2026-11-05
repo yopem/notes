@@ -473,11 +473,9 @@ synchronous calculations in ordinary TypeScript.
     command, revision, runtime, test output and any sanitized failure details.
   - **Cleanup:** Existing cases close their streams and child processes. Remove
     only data created by those cases. No other cleanup is required.
-  - **Status:** Passed at revision `c72cf9d` on 2026-11-05, Linux x86_64, Bun
-    `1.4.4-canary.1+b9f2ec363`. The named file passed 20 tests and 119
-    assertions. Evidence: `docs/artifacts/effect-migration/QA-017-mcp.txt`. A
-    Promise already started by an output adapter cannot be canceled by Effect,
-    and cancellation cannot undo a completed write.
+  - **Status:** Pending. The named file passed at `c72cf9d`, but a review
+    identified cancellation and resource-bound gaps. Rerun after QA-023. Earlier
+    evidence: `docs/artifacts/effect-migration/QA-017-mcp.txt`.
 
 ## Planned local folder workspace
 
