@@ -275,6 +275,18 @@ assert.match(
   "NAPI declarations lack asynchronous font batches",
 )
 
+for (const signature of [
+  "bindCloseOwnerV2(command: string): string",
+  "cancelCloseOwnerV2(command: string): string",
+  "releaseCloseOwnerV2(command: string): string",
+  "approveCloseOwnerV2(command: string): Promise<string>",
+]) {
+  assert(
+    declarations.includes(signature),
+    `NAPI declarations lack close ownership: ${signature}`,
+  )
+}
+
 let target: string
 
 if (process.platform === "linux") target = `linux-${process.arch}-gnu`
@@ -300,6 +312,10 @@ Schema.decodeUnknownSync(
     armCloseGuard: Schema.declare(Predicate.isFunction),
     closeWindow: Schema.declare(Predicate.isFunction),
     registerFontsAsyncV1: Schema.declare(Predicate.isFunction),
+    bindCloseOwnerV2: Schema.declare(Predicate.isFunction),
+    cancelCloseOwnerV2: Schema.declare(Predicate.isFunction),
+    releaseCloseOwnerV2: Schema.declare(Predicate.isFunction),
+    approveCloseOwnerV2: Schema.declare(Predicate.isFunction),
   }),
 )(prototype)
 

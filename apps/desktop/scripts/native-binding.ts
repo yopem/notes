@@ -11,6 +11,10 @@ const bridgeSchema = Schema.Struct({
   armCloseGuard: Schema.declare(Predicate.isFunction),
   closeWindow: Schema.declare(Predicate.isFunction),
   registerFontsAsyncV1: Schema.declare(Predicate.isFunction),
+  bindCloseOwnerV2: Schema.declare(Predicate.isFunction),
+  cancelCloseOwnerV2: Schema.declare(Predicate.isFunction),
+  releaseCloseOwnerV2: Schema.declare(Predicate.isFunction),
+  approveCloseOwnerV2: Schema.declare(Predicate.isFunction),
 })
 
 const loadNative = createRequire(import.meta.url)
