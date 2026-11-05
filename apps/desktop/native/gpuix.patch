@@ -1322,20 +1322,22 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a307
      pub fn set_live_image(
          &mut self,
 diff --git a/packages/native/src/lib.rs b/packages/native/src/lib.rs
-index c5f4fa1212554676217279fa2a3873c26c58a477..4fba03b237ebc1d4d099252c95f22220ace8df5c 100644
+index c5f4fa1212554676217279fa2a3873c26c58a477..e8aa3bb2ea2c27284982e18beb404999b250fb6c 100644
 --- a/packages/native/src/lib.rs
 +++ b/packages/native/src/lib.rs
-@@ -22,6 +22,8 @@ mod element_tree;
+@@ -22,6 +22,10 @@ mod element_tree;
  mod markdown;
  mod motion;
  mod renderer;
 +#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 +mod window_close;
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++mod window_close_command;
  // The data model is public so `examples/bench_serde.rs` measures the real
  // types instead of a copy that silently drifts from them.
  pub mod retained_tree;
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e1755587b8e2e1 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d9374e1ba718abb89ce0b29abfe676818460737d 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -1349,7 +1351,13 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
  #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
  use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
  use std::sync::{Arc, Mutex};
-@@ -45,20 +47,32 @@ use crate::theme::Theme;
+@@ -41,24 +43,38 @@ use crate::retained_tree::{RetainedTree, StyleTable};
+ use crate::style::StyleDesc;
+ use crate::text::{selectable_text, selection_frame_reset, SharedSelection};
+ use crate::theme::Theme;
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++use crate::window_close_command as close_commands;
+ 
  /// The Window menu items act on the focused window, and the root element is the
  /// only place in GPUIX that has one. `crate::app_menu` owns everything else.
  #[cfg(target_os = "macos")]
@@ -1385,15 +1393,20 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
  /// Parse a CSS font-weight value (string or number) into a GPUI FontWeight.
  /// Accepts named keywords ("bold", "semibold"), numeric strings ("700"),
  /// and raw numbers (700). Falls back to 400 (normal) for unrecognized values.
-@@ -437,6 +451,7 @@ enum UiCommand {
+@@ -437,6 +453,12 @@ enum UiCommand {
      Invalidate,
      ActivateWindow,
      MinimizeWindow,
 +    CloseWindow,
++    CloseOwnedWindow {
++        owner: Arc<Mutex<crate::window_close::CloseGuardState>>,
++        token: crate::window_close::ApprovalToken,
++        response: SyncSender<std::result::Result<String, String>>,
++    },
      ZoomWindow,
      ToggleFullscreen,
      SetWindowTitle(String),
-@@ -481,10 +496,19 @@ enum UiCommand {
+@@ -481,10 +503,19 @@ enum UiCommand {
          bytes: Vec<u8>,
          response: SyncSender<std::result::Result<(), String>>,
      },
@@ -1413,7 +1426,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      GetScrollOffset {
          id: u64,
          response: SyncSender<Option<[f64; 2]>>,
-@@ -493,6 +517,9 @@ enum UiCommand {
+@@ -493,6 +524,9 @@ enum UiCommand {
          id: u64,
          response: SyncSender<Option<[f64; 3]>>,
      },
@@ -1423,17 +1436,37 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      GetAutomationBounds {
          response: SyncSender<HashMap<u64, crate::automation::ElementBounds>>,
      },
-@@ -567,6 +594,9 @@ async fn run_ui_commands(
+@@ -567,6 +601,29 @@ async fn run_ui_commands(
              UiCommand::MinimizeWindow => {
                  window.update(cx, |_view, window, _cx| window.minimize_window())
              }
 +            UiCommand::CloseWindow => {
 +                window.update(cx, |_view, window, _cx| window.remove_window())
 +            }
++            UiCommand::CloseOwnedWindow {
++                owner,
++                token,
++                response,
++            } => {
++                let reply = match window.update(cx, |_view, window, _cx| {
++                    execute_owned_close_approval(&owner, token, || {
++                        window.remove_window();
++                        Ok(())
++                    })
++                }) {
++                    Ok(reply) => reply,
++                    Err(_) => {
++                        revoke_owned_close_approval(&owner, token);
++                        Err("The GPUI window could not begin closing".to_string())
++                    }
++                };
++                response.send(reply).ok();
++                Ok(())
++            }
              UiCommand::ZoomWindow => window.update(cx, |_view, window, _cx| window.zoom_window()),
              UiCommand::ToggleFullscreen => {
                  window.update(cx, |_view, window, _cx| window.toggle_fullscreen())
-@@ -678,11 +708,31 @@ async fn run_ui_commands(
+@@ -678,11 +735,31 @@ async fn run_ui_commands(
                      .send(view.set_encoded_image(id, bytes, window, cx))
                      .ok();
              }),
@@ -1465,7 +1498,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
              UiCommand::GetScrollOffset { id, response } => {
                  let offset = VIRTUAL_LIST_STATES
                      .with(|cell| {
-@@ -733,6 +783,18 @@ async fn run_ui_commands(
+@@ -733,6 +810,18 @@ async fn run_ui_commands(
                          .ok();
                  })
              }
@@ -1484,7 +1517,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
              UiCommand::GetAutomationBounds { response } => {
                  window.update(cx, move |_view, window, cx| {
                      cx.notify();
-@@ -962,6 +1024,9 @@ pub fn is_terminal() -> bool {
+@@ -962,6 +1051,9 @@ pub fn is_terminal() -> bool {
  #[napi]
  pub struct GpuixRenderer {
      event_callback: Mutex<Option<Arc<ThreadsafeFunction<EventPayload>>>>,
@@ -1494,7 +1527,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      tree: Arc<Mutex<RetainedTree>>,
      initialized: Arc<Mutex<bool>>,
      /// Shared with GpuixView so napi methods can read the live selection
-@@ -977,6 +1042,179 @@ pub struct GpuixRenderer {
+@@ -977,6 +1069,516 @@ pub struct GpuixRenderer {
      ui_running: Arc<AtomicBool>,
  }
  
@@ -1531,6 +1564,214 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
 +#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 +mod close_guard_tests {
 +    use super::*;
++
++    #[test]
++    fn close_commands_require_version_owner_and_safe_ids() {
++        let initial =
++            close_commands::bind(r#"{"protocol":2,"eventId":0,"expectedOwner":null}"#).unwrap();
++        assert_eq!(initial.expected_owner, None);
++        assert_eq!(initial.event_id, 0);
++        let last = close_commands::bind(
++            r#"{"protocol":2,"eventId":9007199254740991,"expectedOwner":9007199254740991}"#,
++        )
++        .unwrap();
++        assert_eq!(last.expected_owner, Some(9_007_199_254_740_991));
++        for command in [
++            r#"{"protocol":2,"eventId":0}"#,
++            r#"{"protocol":2,"eventId":0,"expectedOwner":null,"extra":true}"#,
++            r#"{"protocol":1,"eventId":0,"expectedOwner":null}"#,
++            r#"{"protocol":"2","eventId":0,"expectedOwner":null}"#,
++            r#"{"eventId":0,"expectedOwner":null}"#,
++            r#"{"protocol":2,"eventId":-1,"expectedOwner":null}"#,
++            r#"{"protocol":2,"eventId":9007199254740992,"expectedOwner":null}"#,
++            r#"{"protocol":2,"eventId":0,"expectedOwner":0}"#,
++            r#"{"protocol":2,"eventId":0,"expectedOwner":9007199254740992}"#,
++            r#"{"protocol":2,"eventId":0,"expectedOwner":1.5}"#,
++        ] {
++            assert!(close_commands::bind(command).is_err(), "{command}");
++        }
++        assert!(close_commands::bind(&" ".repeat(4097)).is_err());
++    }
++
++    #[test]
++    fn close_cancel_release_and_approval_require_exact_shapes() {
++        let request = close_commands::request(r#"{"protocol":2,"owner":1,"requestId":2}"#).unwrap();
++        assert_eq!(request.owner, 1);
++        assert_eq!(request.request_id, 2);
++        assert_eq!(
++            close_commands::release(r#"{"protocol":2,"owner":1}"#)
++                .unwrap()
++                .owner,
++            1
++        );
++        for command in [
++            r#"{"protocol":2,"owner":1}"#,
++            r#"{"protocol":2,"owner":1,"requestId":0}"#,
++            r#"{"protocol":2,"owner":0,"requestId":1}"#,
++            r#"{"protocol":2,"owner":1,"requestId":9007199254740992}"#,
++            r#"{"protocol":2,"owner":1,"requestId":2,"extra":true}"#,
++            r#"{"protocol":3,"owner":1,"requestId":2}"#,
++        ] {
++            assert!(close_commands::request(command).is_err(), "{command}");
++        }
++        assert!(close_commands::release(r#"{"protocol":2,"owner":1,"requestId":2}"#).is_err());
++    }
++
++    fn queued_owned_request() -> (
++        Mutex<crate::window_close::CloseGuardState>,
++        crate::window_close::ApprovalToken,
++    ) {
++        let mut state = crate::window_close::CloseGuardState::default();
++        let binding = state.bind(None, 41).unwrap();
++        state.request_close().unwrap();
++        let request = state.snapshot().unwrap().pending_request.unwrap();
++        let token = state.approve(binding.owner, request).unwrap();
++        (Mutex::new(state), token)
++    }
++
++    #[test]
++    fn retargeted_queued_close_never_reaches_removal() {
++        let (state, token) = queued_owned_request();
++        let replacement = state.lock().unwrap().bind(Some(token.owner), 42).unwrap();
++        let removed = AtomicBool::new(false);
++        let reply = execute_owned_close_approval(&state, token, || {
++            removed.store(true, Ordering::Release);
++            Ok(())
++        })
++        .unwrap();
++        assert_eq!(
++            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
++            "stale"
++        );
++        assert!(!removed.load(Ordering::Acquire));
++        assert_eq!(state.lock().unwrap().snapshot(), Some(replacement));
++    }
++
++    #[test]
++    fn cancelled_or_released_queued_close_never_reaches_removal() {
++        for release in [false, true] {
++            let (state, token) = queued_owned_request();
++            if release {
++                state.lock().unwrap().release(token.owner).unwrap();
++            } else {
++                state
++                    .lock()
++                    .unwrap()
++                    .cancel(token.owner, token.request_id)
++                    .unwrap();
++            }
++            let snapshot = state.lock().unwrap().snapshot();
++            let reply = execute_owned_close_approval(&state, token, || {
++                panic!("stale close reached removal")
++            })
++            .unwrap();
++            assert_eq!(
++                serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
++                "stale"
++            );
++            assert_eq!(state.lock().unwrap().snapshot(), snapshot);
++        }
++    }
++
++    #[test]
++    fn valid_close_holds_owner_until_removal_begins() {
++        let (state, token) = queued_owned_request();
++        let reply = execute_owned_close_approval(&state, token, || {
++            assert!(state.try_lock().is_err());
++            Ok(())
++        })
++        .unwrap();
++        assert_eq!(
++            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
++            "closing"
++        );
++        assert_eq!(
++            state.lock().unwrap().snapshot().unwrap().phase,
++            crate::window_close::Phase::Closing
++        );
++        assert!(state.lock().unwrap().bind(Some(token.owner), 42).is_err());
++    }
++
++    #[test]
++    fn failed_close_keeps_veto_and_current_request() {
++        let (state, token) = queued_owned_request();
++        assert!(execute_owned_close_approval(&state, token, || Err(
++            "controlled removal failure".into()
++        ))
++        .is_err());
++        let snapshot = state.lock().unwrap().snapshot().unwrap();
++        assert_eq!(snapshot.phase, crate::window_close::Phase::Armed);
++        assert_eq!(snapshot.pending_request, Some(token.request_id));
++        assert_eq!(snapshot.owner, token.owner);
++        assert!(snapshot.attached);
++    }
++
++    #[test]
++    fn dropped_close_reply_revokes_request_before_retry() {
++        let (state, token) = queued_owned_request();
++        let (sender, receiver) = sync_channel(1);
++        drop(sender);
++        assert!(
++            await_owned_close_approval(receiver, &state, token, Duration::from_millis(1)).is_err()
++        );
++        assert_eq!(
++            state.lock().unwrap().snapshot().unwrap().pending_request,
++            None
++        );
++        state.lock().unwrap().request_close().unwrap();
++        let request = state
++            .lock()
++            .unwrap()
++            .snapshot()
++            .unwrap()
++            .pending_request
++            .unwrap();
++        assert!(request > token.request_id);
++        assert!(state.lock().unwrap().approve(token.owner, request).is_ok());
++        let reply =
++            execute_owned_close_approval(&state, token, || panic!("old request reached removal"))
++                .unwrap();
++        assert_eq!(
++            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
++            "stale"
++        );
++    }
++
++    #[test]
++    fn close_reply_timeout_cannot_resurrect_old_approval() {
++        let (state, token) = queued_owned_request();
++        let (_sender, receiver) = sync_channel(1);
++        assert!(
++            await_owned_close_approval(receiver, &state, token, Duration::from_millis(1)).is_err()
++        );
++        assert_eq!(
++            state.lock().unwrap().snapshot().unwrap().pending_request,
++            None
++        );
++        let reply = execute_owned_close_approval(&state, token, || {
++            panic!("timed-out request reached removal")
++        })
++        .unwrap();
++        assert_eq!(
++            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
++            "stale"
++        );
++    }
++
++    #[test]
++    fn native_close_callback_does_not_hold_owner_lock() {
++        let owner = Arc::new(Mutex::new(crate::window_close::CloseGuardState::default()));
++        owner.lock().unwrap().bind(None, 41).unwrap();
++        let callback_owner = owner.clone();
++        let callback: Option<EventCallback> = Some(Arc::new(move |_| {
++            assert!(callback_owner.try_lock().is_ok());
++        }));
++        assert!(!owned_close_should_close(
++            &AtomicU64::new(0),
++            &owner,
++            &callback
++        ));
++    }
 +
 +    #[test]
 +    fn owned_requests_keep_pending_identity_after_retarget() {
@@ -1610,30 +1851,159 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
 +    owner: &Mutex<crate::window_close::CloseGuardState>,
 +    callback: &Option<EventCallback>,
 +) -> bool {
-+    let Ok(mut owner) = owner.lock() else {
-+        return false;
++    enum Notice {
++        Allow,
++        Legacy(u64),
++        Owned(crate::window_close::Delivery),
++        Veto,
++    }
++    let notice = {
++        let Ok(mut owner) = owner.lock() else {
++            return false;
++        };
++        if owner.snapshot().is_none() {
++            if close_guard_should_close(guard, &None) {
++                Notice::Allow
++            } else {
++                Notice::Legacy(guard.load(Ordering::Acquire) - 1)
++            }
++        } else {
++            match owner.request_close() {
++                Ok(crate::window_close::CloseRequest::Veto(Some(delivery))) => {
++                    Notice::Owned(delivery)
++                }
++                _ => Notice::Veto,
++            }
++        }
 +    };
-+    if owner.snapshot().is_none() {
-+        return close_guard_should_close(guard, callback);
++    match notice {
++        Notice::Allow => true,
++        Notice::Legacy(id) => {
++            emit_event_full(callback, id, "windowCloseRequested", |_| {});
++            false
++        }
++        Notice::Owned(delivery) => {
++            emit_event_full(
++                callback,
++                delivery.event_id,
++                "windowCloseRequested",
++                |event| {
++                    event.value = Some(
++                        serde_json::json!({
++                            "protocol": 2,
++                            "owner": delivery.owner,
++                            "requestId": delivery.request_id,
++                        })
++                        .to_string(),
++                    );
++                },
++            );
++            false
++        }
++        Notice::Veto => false,
 +    }
-+    if let Ok(crate::window_close::CloseRequest::Veto(Some(delivery))) = owner.request_close() {
-+        emit_event_full(
-+            callback,
-+            delivery.event_id,
-+            "windowCloseRequested",
-+            |event| {
-+                event.value = Some(
-+                    serde_json::json!({
-+                        "protocol": 2,
-+                        "owner": delivery.owner,
-+                        "requestId": delivery.request_id,
-+                    })
-+                    .to_string(),
-+                );
-+            },
-+        );
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn close_owner_error(error: crate::window_close::CloseGuardError) -> Error {
++    use crate::window_close::CloseGuardError;
++    Error::from_reason(match error {
++        CloseGuardError::InvalidOwner => "Window close ownership changed",
++        CloseGuardError::InvalidRequest => "Window close request is no longer current",
++        CloseGuardError::Detached => "Window close owner is detached",
++        CloseGuardError::InvalidPhase => "Window close approval is already queued",
++        CloseGuardError::Closing => "Window is already closing",
++        CloseGuardError::IdExhausted => {
++            "Window close identities are exhausted; restart is required"
++        }
++    })
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn bind_owned_close_state(
++    legacy: &AtomicU64,
++    owner: &Mutex<crate::window_close::CloseGuardState>,
++    command: close_commands::BindCommand,
++) -> Result<String> {
++    let mut owner = owner
++        .lock()
++        .map_err(|_| Error::from_reason("Window close state is unavailable"))?;
++    if legacy.load(Ordering::Acquire) != 0 {
++        return Err(Error::from_reason(
++            "Legacy close ownership cannot be replaced; restart is required",
++        ));
 +    }
-+    false
++    let binding = owner
++        .bind(command.expected_owner, command.event_id)
++        .map_err(close_owner_error)?;
++    Ok(close_commands::binding_reply(binding))
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn execute_owned_close_approval(
++    owner: &Mutex<crate::window_close::CloseGuardState>,
++    token: crate::window_close::ApprovalToken,
++    remove: impl FnOnce() -> std::result::Result<(), String>,
++) -> std::result::Result<String, String> {
++    let mut owner = owner
++        .lock()
++        .map_err(|_| "Window close state is unavailable".to_string())?;
++    if owner.execute_approval(token).is_err() {
++        return Ok(close_commands::request_reply(
++            token,
++            close_commands::RequestOutcome::Stale,
++        ));
++    }
++    if let Err(error) = remove() {
++        owner
++            .close_failed(token)
++            .map_err(|_| "Window close recovery failed; restart is required".to_string())?;
++        return Err(error);
++    }
++    Ok(close_commands::request_reply(
++        token,
++        close_commands::RequestOutcome::Closing,
++    ))
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn revoke_owned_close_approval(
++    owner: &Mutex<crate::window_close::CloseGuardState>,
++    token: crate::window_close::ApprovalToken,
++) {
++    if let Ok(mut owner) = owner.lock() {
++        let _ = owner.revoke_approval(token);
++    }
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn await_owned_close_approval(
++    receiver: std::sync::mpsc::Receiver<std::result::Result<String, String>>,
++    owner: &Mutex<crate::window_close::CloseGuardState>,
++    token: crate::window_close::ApprovalToken,
++    timeout: Duration,
++) -> Result<String> {
++    match receiver.recv_timeout(timeout) {
++        Ok(reply) => reply.map_err(Error::from_reason),
++        Err(error) => {
++            if let Ok(mut owner) = owner.lock() {
++                if owner
++                    .snapshot()
++                    .is_some_and(|binding| binding.phase == crate::window_close::Phase::Queued)
++                {
++                    let _ = owner.cancel(token.owner, token.request_id);
++                }
++            }
++            Err(Error::from_reason(match error {
++                std::sync::mpsc::RecvTimeoutError::Disconnected => {
++                    "The window close reply was lost; keep the window open or request close again"
++                }
++                std::sync::mpsc::RecvTimeoutError::Timeout => {
++                    "Window close timed out and may already be closing; do not assume it closed"
++                }
++            }))
++        }
++    }
 +}
 +
 +#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
@@ -1674,7 +2044,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
  #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
  #[napi]
  impl GpuixRenderer {
-@@ -1174,7 +1412,10 @@ impl GpuixRenderer {
+@@ -1174,7 +1776,10 @@ impl GpuixRenderer {
      pub fn new(event_callback: Option<ThreadsafeFunction<EventPayload>>) -> Self {
          let _ = env_logger::try_init();
          Self {
@@ -1685,7 +2055,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
              tree: Arc::new(Mutex::new(RetainedTree::new())),
              initialized: Arc::new(Mutex::new(false)),
              selection: SharedSelection::default(),
-@@ -1245,6 +1486,8 @@ impl GpuixRenderer {
+@@ -1245,6 +1850,8 @@ impl GpuixRenderer {
  
          let tree = self.tree.clone();
          let callback = self.event_callback_for_view();
@@ -1694,7 +2064,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
  
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
-@@ -1274,9 +1517,18 @@ impl GpuixRenderer {
+@@ -1274,9 +1881,18 @@ impl GpuixRenderer {
  
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
@@ -1715,7 +2085,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
                      })
                  },
              ) {
-@@ -1377,6 +1629,8 @@ impl GpuixRenderer {
+@@ -1377,6 +1993,8 @@ impl GpuixRenderer {
          let tree = self.tree.clone();
          let selection = self.selection.clone();
          let callback = self.event_callback_for_view();
@@ -1724,7 +2094,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
          let (command_sender, command_receiver) = mpsc::unbounded();
          let (startup_sender, startup_receiver) = sync_channel(1);
          let exit_startup_sender = startup_sender.clone();
-@@ -1434,8 +1688,20 @@ impl GpuixRenderer {
+@@ -1434,8 +2052,20 @@ impl GpuixRenderer {
                              };
                              let window = match cx.open_window(
                                  to_gpui_window_options(&window_options, bounds),
@@ -1747,7 +2117,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
                                  },
                              ) {
                                  Ok(window) => window,
-@@ -1573,7 +1839,6 @@ impl GpuixRenderer {
+@@ -1573,7 +2203,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
  
@@ -1755,14 +2125,16 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2397,96 @@ impl GpuixRenderer {
+@@ -2132,6 +2761,236 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
-+    #[napi]
-+    pub fn arm_close_guard(&self, event_id: f64) -> Result<()> {
-+        let event_id = to_element_id(event_id)?;
-+        if !*self.initialized.lock().unwrap() {
++    fn ensure_close_guard_ready(&self) -> Result<()> {
++        if !*self
++            .initialized
++            .lock()
++            .map_err(|_| Error::from_reason("GPUI initialization state is unavailable"))?
++        {
 +            return Err(Error::from_reason("GPUI application is not initialized"));
 +        }
 +        if !self.has_event_callback {
@@ -1777,6 +2149,144 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
 +        if !self.ui_running.load(Ordering::Acquire) {
 +            return Err(Error::from_reason("The GPUI UI thread is not running"));
 +        }
++        Ok(())
++    }
++
++    #[napi(js_name = "bindCloseOwnerV2")]
++    pub fn bind_close_owner_v2(&self, command: String) -> Result<String> {
++        self.ensure_close_guard_ready()?;
++        let command = close_commands::bind(&command)?;
++        bind_owned_close_state(&self.close_guard, &self.close_owner, command)
++    }
++
++    #[napi(js_name = "cancelCloseOwnerV2")]
++    pub fn cancel_close_owner_v2(&self, command: String) -> Result<String> {
++        use crate::window_close::CloseGuardError;
++        let command = close_commands::request(&command)?;
++        let token = crate::window_close::ApprovalToken {
++            owner: command.owner,
++            request_id: command.request_id,
++        };
++        let mut owner = self
++            .close_owner
++            .lock()
++            .map_err(|_| Error::from_reason("Window close state is unavailable"))?;
++        let outcome = match owner.cancel(token.owner, token.request_id) {
++            Ok(()) => close_commands::RequestOutcome::Cancelled,
++            Err(
++                CloseGuardError::InvalidOwner
++                | CloseGuardError::InvalidRequest
++                | CloseGuardError::Closing,
++            ) => close_commands::RequestOutcome::Stale,
++            Err(error) => return Err(close_owner_error(error)),
++        };
++        Ok(close_commands::request_reply(token, outcome))
++    }
++
++    #[napi(js_name = "releaseCloseOwnerV2")]
++    pub fn release_close_owner_v2(&self, command: String) -> Result<String> {
++        use crate::window_close::CloseGuardError;
++        let command = close_commands::release(&command)?;
++        let mut owner = self
++            .close_owner
++            .lock()
++            .map_err(|_| Error::from_reason("Window close state is unavailable"))?;
++        let released = match owner.release(command.owner) {
++            Ok(()) => true,
++            Err(CloseGuardError::InvalidOwner) => false,
++            Err(error) => return Err(close_owner_error(error)),
++        };
++        Ok(close_commands::release_reply(command.owner, released))
++    }
++
++    #[napi(js_name = "approveCloseOwnerV2", ts_return_type = "Promise<string>")]
++    pub fn approve_close_owner_v2(&self, command: String) -> AsyncTask<CloseApprovalTask> {
++        AsyncTask::new(CloseApprovalTask {
++            wait: Some(self.prepare_owned_close_approval(&command)),
++        })
++    }
++
++    fn prepare_owned_close_approval(&self, command: &str) -> Result<CloseApprovalWait> {
++        use crate::window_close::CloseGuardError;
++        self.ensure_close_guard_ready()?;
++        let command = close_commands::request(command)?;
++        let token = {
++            let mut owner = self
++                .close_owner
++                .lock()
++                .map_err(|_| Error::from_reason("Window close state is unavailable"))?;
++            match owner.approve(command.owner, command.request_id) {
++                Ok(token) => token,
++                Err(
++                    CloseGuardError::InvalidOwner
++                    | CloseGuardError::InvalidRequest
++                    | CloseGuardError::Detached
++                    | CloseGuardError::InvalidPhase
++                    | CloseGuardError::Closing,
++                ) => {
++                    let token = crate::window_close::ApprovalToken {
++                        owner: command.owner,
++                        request_id: command.request_id,
++                    };
++                    return Ok(CloseApprovalWait::Ready(close_commands::request_reply(
++                        token,
++                        close_commands::RequestOutcome::Stale,
++                    )));
++                }
++                Err(error) => return Err(close_owner_error(error)),
++            }
++        };
++        #[cfg(target_os = "macos")]
++        {
++            let reply = match update_window_without_view(|window, _cx| {
++                execute_owned_close_approval(&self.close_owner, token, || {
++                    window.remove_window();
++                    Ok(())
++                })
++            }) {
++                Ok(reply) => reply.map_err(Error::from_reason)?,
++                Err(_) => {
++                    revoke_owned_close_approval(&self.close_owner, token);
++                    return Err(Error::from_reason(
++                        "The GPUI window could not begin closing",
++                    ));
++                }
++            };
++            return Ok(CloseApprovalWait::Ready(reply));
++        }
++        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++        {
++            let (response, receiver) = sync_channel(1);
++            if let Err(error) = self.send_ui_command(UiCommand::CloseOwnedWindow {
++                owner: self.close_owner.clone(),
++                token,
++                response,
++            }) {
++                revoke_owned_close_approval(&self.close_owner, token);
++                return Err(error);
++            }
++            return Ok(CloseApprovalWait::Pending {
++                receiver,
++                owner: self.close_owner.clone(),
++                token,
++            });
++        }
++        #[cfg(not(any(
++            target_os = "macos",
++            target_os = "windows",
++            target_os = "linux",
++            target_os = "freebsd"
++        )))]
++        {
++            revoke_owned_close_approval(&self.close_owner, token);
++            Err(Error::from_reason("Unsupported operating system"))
++        }
++    }
++
++    #[napi]
++    pub fn arm_close_guard(&self, event_id: f64) -> Result<()> {
++        let event_id = to_element_id(event_id)?;
++        self.ensure_close_guard_ready()?;
 +        arm_legacy_close_guard(&self.close_guard, &self.close_owner, event_id)
 +    }
 +
@@ -1852,7 +2362,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      // ── Selection API ────────────────────────────────────────────────
  
      /// The current text selection joined in document order, or null.
-@@ -2467,14 +2822,95 @@ impl GpuixRenderer {
+@@ -2467,14 +3326,95 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
@@ -1954,7 +2464,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      }
  
      #[napi]
-@@ -3428,11 +3864,7 @@ impl WebGpuixRenderer {
+@@ -3428,11 +4368,7 @@ impl WebGpuixRenderer {
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
      pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
          notify_web();
@@ -1967,7 +2477,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      }
  
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
-@@ -3652,6 +4084,7 @@ pub(crate) struct GpuixView {
+@@ -3652,6 +4588,7 @@ pub(crate) struct GpuixView {
      pub(crate) window_key_event_id: u64,
      pub(crate) window_selection_change: bool,
      pub(crate) window_selection_event_id: u64,
@@ -1975,7 +2485,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      /// Last identity delivered through `selectionChange`. Only written once an
      /// event is really queued, so adding the listener later still reports.
      reported_selection: Option<u64>,
-@@ -3820,8 +4253,12 @@ pub(crate) fn emit_key_event(
+@@ -3820,8 +4757,12 @@ pub(crate) fn emit_key_event(
      });
  }
  
@@ -1990,7 +2500,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
  }
  
  fn window_key_events(
-@@ -3869,7 +4306,13 @@ fn window_key_events(
+@@ -3869,7 +4810,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -2005,7 +2515,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
                  }
              });
          },
-@@ -3957,6 +4400,34 @@ fn resolve_highlight(
+@@ -3957,6 +4904,34 @@ fn resolve_highlight(
  }
  
  impl GpuixView {
@@ -2040,7 +2550,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -3972,6 +4443,7 @@ impl GpuixView {
+@@ -3972,6 +4947,7 @@ impl GpuixView {
              window_key_event_id: 0,
              window_selection_change: false,
              window_selection_event_id: 0,
@@ -2048,7 +2558,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
              reported_selection: None,
              focus_handles: HashMap::new(),
              pending_focus_element: None,
-@@ -4041,10 +4513,8 @@ impl GpuixView {
+@@ -4041,10 +5017,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -2061,7 +2571,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
          self.set_live_image(id, image, window, cx)
      }
  
-@@ -4066,6 +4536,24 @@ impl GpuixView {
+@@ -4066,6 +5040,24 @@ impl GpuixView {
          Ok(())
      }
  
@@ -2086,7 +2596,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      pub(crate) fn scroll_element_into_view(&self, id: u64) -> bool {
          let Some((scroller_id, child_index)) = self.scroll_target(id) else {
              return false;
-@@ -4314,7 +4802,9 @@ impl GpuixView {
+@@ -4314,7 +5306,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -2097,7 +2607,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
              }
              current = parent_id;
          };
-@@ -4764,7 +5254,12 @@ impl VirtualListEntry {
+@@ -4764,7 +5758,12 @@ impl VirtualListEntry {
  }
  
  impl GpuixView {
@@ -2111,7 +2621,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -5188,7 +5683,7 @@ impl gpui::Render for GpuixView {
+@@ -5188,7 +6187,7 @@ impl gpui::Render for GpuixView {
              let drag_move_view = cx.weak_entity();
              let drag_end_view = drag_move_view.clone();
              let root = gpui::div().size_full();
@@ -2120,7 +2630,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
                  .child(window_key_events(
                      callback.clone(),
                      self.window_key_down,
-@@ -6731,10 +7226,7 @@ fn report_layout(
+@@ -6731,10 +7730,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -2132,7 +2642,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
-@@ -8329,3 +8821,136 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
+@@ -8329,3 +9325,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
      }
      Ok(())
  }
@@ -2243,6 +2753,47 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..943129b214ef765d4a7b7e1d19e17555
 +        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(Error::from_reason(
 +            "Font registration timed out; its outcome is unknown and it may still complete",
 +        )),
++    }
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++enum CloseApprovalWait {
++    Ready(String),
++    Pending {
++        receiver: std::sync::mpsc::Receiver<std::result::Result<String, String>>,
++        owner: Arc<Mutex<crate::window_close::CloseGuardState>>,
++        token: crate::window_close::ApprovalToken,
++    },
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++pub struct CloseApprovalTask {
++    wait: Option<Result<CloseApprovalWait>>,
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++#[napi]
++impl Task for CloseApprovalTask {
++    type Output = String;
++    type JsValue = String;
++
++    fn compute(&mut self) -> Result<Self::Output> {
++        match self
++            .wait
++            .take()
++            .ok_or_else(|| Error::from_reason("Window close was already awaited"))??
++        {
++            CloseApprovalWait::Ready(reply) => Ok(reply),
++            CloseApprovalWait::Pending {
++                receiver,
++                owner,
++                token,
++            } => await_owned_close_approval(receiver, &owner, token, Duration::from_secs(60)),
++        }
++    }
++
++    fn resolve(&mut self, _env: Env, reply: String) -> Result<Self::JsValue> {
++        Ok(reply)
 +    }
 +}
 +
@@ -2366,11 +2917,11 @@ index fe530846d1800c2755cb35840e56ef11f2ce13ff..68d4a15db8205a0b29a093445f9b1990
      /// Last painted bounds for an element, or null if it was not painted.
 diff --git a/packages/native/src/window_close.rs b/packages/native/src/window_close.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..7a0dbb77fc6e8ef18fe286f0c41b74d0e67fa149
+index 0000000000000000000000000000000000000000..680e1fd8b24b730968a8f2506d886f6138c3102d
 --- /dev/null
 +++ b/packages/native/src/window_close.rs
 @@ -0,0 +1,479 @@
-+const MAX_SAFE_ID: u64 = 9_007_199_254_740_991;
++pub(crate) const MAX_SAFE_ID: u64 = 9_007_199_254_740_991;
 +
 +#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 +pub(crate) enum Phase {
@@ -2848,4 +3399,134 @@ index 0000000000000000000000000000000000000000..7a0dbb77fc6e8ef18fe286f0c41b74d0
 +        );
 +        assert_eq!(state, before);
 +    }
++}
+diff --git a/packages/native/src/window_close_command.rs b/packages/native/src/window_close_command.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..f6704ee12a714ad5128417403349a6f19bd11ea6
+--- /dev/null
++++ b/packages/native/src/window_close_command.rs
+@@ -0,0 +1,124 @@
++use napi::{Error, Result};
++use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
++
++use crate::window_close::{ApprovalToken, BindingSnapshot, MAX_SAFE_ID};
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields, rename_all = "camelCase")]
++pub(crate) struct BindCommand {
++    #[serde(rename = "protocol", deserialize_with = "protocol_v2")]
++    _protocol: (),
++    #[serde(deserialize_with = "event_id")]
++    pub(crate) event_id: u64,
++    #[serde(deserialize_with = "required_expected_owner")]
++    pub(crate) expected_owner: Option<u64>,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields, rename_all = "camelCase")]
++pub(crate) struct RequestCommand {
++    #[serde(rename = "protocol", deserialize_with = "protocol_v2")]
++    _protocol: (),
++    #[serde(deserialize_with = "positive_id")]
++    pub(crate) owner: u64,
++    #[serde(deserialize_with = "positive_id")]
++    pub(crate) request_id: u64,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields, rename_all = "camelCase")]
++pub(crate) struct ReleaseCommand {
++    #[serde(rename = "protocol", deserialize_with = "protocol_v2")]
++    _protocol: (),
++    #[serde(deserialize_with = "positive_id")]
++    pub(crate) owner: u64,
++}
++
++#[derive(Clone, Copy, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub(crate) enum RequestOutcome {
++    Cancelled,
++    Closing,
++    Stale,
++}
++
++fn protocol_v2<'de, D: Deserializer<'de>>(reader: D) -> std::result::Result<(), D::Error> {
++    if u8::deserialize(reader)? != 2 {
++        return Err(serde::de::Error::custom("Unsupported close protocol"));
++    }
++    Ok(())
++}
++
++fn event_id<'de, D: Deserializer<'de>>(reader: D) -> std::result::Result<u64, D::Error> {
++    let id = u64::deserialize(reader)?;
++    if id > MAX_SAFE_ID {
++        return Err(serde::de::Error::custom(
++            "Close event ID is not a safe integer",
++        ));
++    }
++    Ok(id)
++}
++
++fn positive_id<'de, D: Deserializer<'de>>(reader: D) -> std::result::Result<u64, D::Error> {
++    let id = event_id(reader)?;
++    if id == 0 {
++        return Err(serde::de::Error::custom("Close identity must be positive"));
++    }
++    Ok(id)
++}
++
++fn required_expected_owner<'de, D: Deserializer<'de>>(
++    reader: D,
++) -> std::result::Result<Option<u64>, D::Error> {
++    let owner = Option::<u64>::deserialize(reader)?;
++    if owner.is_some_and(|owner| owner == 0 || owner > MAX_SAFE_ID) {
++        return Err(serde::de::Error::custom("Invalid expected close owner"));
++    }
++    Ok(owner)
++}
++
++fn decode<T: DeserializeOwned>(command: &str) -> Result<T> {
++    if command.len() > 4096 {
++        return Err(Error::from_reason("Window close command is too large"));
++    }
++    serde_json::from_str(command).map_err(|_| Error::from_reason("Invalid window close command"))
++}
++
++pub(crate) fn bind(command: &str) -> Result<BindCommand> {
++    decode(command)
++}
++
++pub(crate) fn request(command: &str) -> Result<RequestCommand> {
++    decode(command)
++}
++
++pub(crate) fn release(command: &str) -> Result<ReleaseCommand> {
++    decode(command)
++}
++
++pub(crate) fn binding_reply(binding: BindingSnapshot) -> String {
++    serde_json::json!({
++        "protocol": 2,
++        "owner": binding.owner,
++        "eventId": binding.event_id,
++        "pendingRequest": binding.pending_request,
++        "attached": binding.attached,
++        "phase": "armed",
++    })
++    .to_string()
++}
++
++pub(crate) fn request_reply(token: ApprovalToken, outcome: RequestOutcome) -> String {
++    serde_json::json!({
++        "protocol": 2,
++        "owner": token.owner,
++        "requestId": token.request_id,
++        "outcome": outcome,
++    })
++    .to_string()
++}
++
++pub(crate) fn release_reply(owner: u64, released: bool) -> String {
++    let outcome = if released { "released" } else { "stale" };
++    serde_json::json!({"protocol": 2, "owner": owner, "outcome": outcome}).to_string()
 +}
