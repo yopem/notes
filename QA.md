@@ -1236,5 +1236,9 @@ mark those cases passed until capture works and the evidence is inspected.
     and process cleanup result under `docs/artifacts/dev/QA-048/`.
   - **Cleanup:** Stop only processes started by this case and remove the
     isolated directory after evidence review.
-  - **Status:** Blocked. GPUix initialization has stalled in isolated controls;
-    the reported shutdown line alone does not identify its cause.
+  - **Status:** Pending. At `d55cf29`, an isolated run with a test-only font
+    configuration logged window creation and mount completion. After a timed
+    SIGINT, Turbo logged task shutdown and the workspace lock was absent.
+    Evidence: `docs/artifacts/dev/QA-048/dev-output.txt`. The timeout wrapper
+    returned 124 as expected after its deadline. Default system-font startup,
+    visual output and exact child-process cleanup remain unverified.
