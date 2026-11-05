@@ -12,6 +12,8 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     flexGrow: 1,
+    width: "100%",
+    height: "100%",
     padding: 24,
     backgroundColor: palettes.light.background,
   },
@@ -47,6 +49,7 @@ export function FontStartup({ children }: { children: ReactNode }) {
   return (
     <div
       ref={registerRoot}
+      testId="font-startup"
       role="application"
       aria-label="Still Notes font setup"
       style={styles.root}
