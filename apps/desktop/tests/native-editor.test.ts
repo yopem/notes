@@ -9,6 +9,7 @@ import {
   readNativeEditorEvent,
   readNativeEditorKeyEvent,
 } from "@/features/editor/native/editor"
+import { registerFonts } from "@/native/fonts"
 
 test("installed automation schema preserves exact optional editor text", function treeTextContract() {
   expect(PROTOCOL_VERSION).toBe(1)
@@ -384,4 +385,70 @@ test("registers editor state events in the real GPUix host dispatcher", function
   expect(dispatcher.dispatch(event)).toBe(false)
   expect(seen).toEqual([2])
   binding.detach()
+})
+
+describe("native font completion boundary", function fontCompletion() {
+  test("shares pending work and waits for native success", async function pendingBatch() {
+    const reply = Promise.withResolvers<number>()
+    const batches: Uint8Array[][] = []
+    const native = {
+      registerFontsAsyncV1(fonts: Uint8Array[]) {
+        batches.push(fonts)
+        return reply.promise
+      },
+    }
+    const first = registerFonts(native)
+    const second = registerFonts(native)
+    let completed = false
+    void first.then(function markComplete() {
+      completed = true
+    })
+    await Bun.sleep(0)
+    expect(second).toBe(first)
+    expect(batches).toHaveLength(1)
+    expect(batches[0]).toHaveLength(2)
+    for (const font of batches[0] ?? [])
+      expect(font.byteLength).toBeGreaterThan(0)
+    expect(completed).toBe(false)
+    reply.resolve(2)
+    await first
+    expect(completed).toBe(true)
+    expect(registerFonts(native)).toBe(first)
+    expect(batches).toHaveLength(1)
+  })
+
+  test("retains failed work without replay", async function failedBatch() {
+    let calls = 0
+    const native = {
+      registerFontsAsyncV1() {
+        calls++
+        return Promise.reject(new Error("Owned font reply failed"))
+      },
+    }
+    const first = registerFonts(native)
+    await expect(first).rejects.toThrow("Owned font reply failed")
+    expect(registerFonts(native)).toBe(first)
+    await expect(registerFonts(native)).rejects.toThrow(
+      "Owned font reply failed",
+    )
+    expect(calls).toBe(1)
+  })
+
+  test("refuses legacy and synchronous font hosts", async function invalidHost() {
+    await expect(registerFonts({})).rejects.toThrow("registerFontsAsyncV1")
+    await expect(
+      registerFonts({ registerFontsAsyncV1: () => 2 }),
+    ).rejects.toThrow("Promise")
+  })
+
+  test("requires confirmation for both fonts", async function incompleteReply() {
+    const native = {
+      registerFontsAsyncV1() {
+        return Promise.resolve(1)
+      },
+    }
+    await expect(registerFonts(native)).rejects.toThrow(
+      "both application fonts",
+    )
+  })
 })
