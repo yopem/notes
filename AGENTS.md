@@ -1315,6 +1315,9 @@ Add Polar only when a requested feature needs payments or subscriptions.
   anonymous callbacks.
 - Prefer inferred return types unless a public contract needs an explicit type.
 - Use static imports. Do not use `await import()`.
+- Use package entrypoints for libraries. Do not import library source or
+  `dist` files through absolute `node_modules` paths. Fix tool resolution
+  instead of bypassing package exports.
 - Omit file extensions where the bundler supports this. Use valid Node.js ESM
   imports for scripts that run without a bundler.
 
