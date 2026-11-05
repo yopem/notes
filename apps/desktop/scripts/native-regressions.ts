@@ -640,9 +640,9 @@ export async function verifyRegressions(
   await app.getByTestId("settings-close").click()
 
   const [workspacePinned, workspaceTen, workspaceTwo] = await Promise.all([
-    app.getByText("Sort note pinned").bounds(),
-    app.getByText("Sort note 10").bounds(),
-    app.getByText("Sort note 2").bounds(),
+    app.getByTestId("note-row").getByText("Sort note pinned").bounds(),
+    app.getByTestId("note-row").getByText("Sort note 10").bounds(),
+    app.getByTestId("note-row").getByText("Sort note 2").bounds(),
   ])
 
   assert(
@@ -656,9 +656,9 @@ export async function verifyRegressions(
   await app.getByTestId("settings-close").click()
 
   const [pinned, two, ten] = await Promise.all([
-    app.getByText("Sort note pinned").bounds(),
-    app.getByText("Sort note 2").bounds(),
-    app.getByText("Sort note 10").bounds(),
+    app.getByTestId("note-row").getByText("Sort note pinned").bounds(),
+    app.getByTestId("note-row").getByText("Sort note 2").bounds(),
+    app.getByTestId("note-row").getByText("Sort note 10").bounds(),
   ])
 
   assert(pinned.y < two.y && two.y < ten.y, "Pinned and natural name order")
@@ -671,21 +671,21 @@ export async function verifyRegressions(
     sortedEditor.id,
   )
   assert(
-    (await app.getByText("Sort note 20").bounds()).y <
-      (await app.getByText("Sort note 10").bounds()).y,
+    (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y <
+      (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y,
     "Editing keeps the current list order",
   )
   await app.getByTestId("note-row").getByText("Sort note 10").click()
   assert(
-    (await app.getByText("Sort note 10").bounds()).y <
-      (await app.getByText("Sort note 20").bounds()).y,
+    (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y <
+      (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y,
     "Leaving the edited note applies the current name order",
   )
   await app.getByTestId("note-row").getByText("Sort note 20").click()
   await app.getByTestId("note-sort").click()
   assert(
-    (await app.getByText("Sort note 20").bounds()).y <
-      (await app.getByText("Sort note 10").bounds()).y,
+    (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y <
+      (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y,
     "Reversing name sort uses the committed preference",
   )
   await app.getByTestId("settings-open").click()
@@ -706,8 +706,8 @@ export async function verifyRegressions(
 
   await app.getByTestId("settings-close").click()
   assert(
-    (await app.getByText("Sort note 20").bounds()).y <
-      (await app.getByText("Sort note 10").bounds()).y,
+    (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y <
+      (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y,
     "Failed preference save preserves the displayed order",
   )
   await app.getByTestId("settings-open").click()
