@@ -82,6 +82,7 @@ async function createNote(
   const before = Schema.decodeUnknownSync(regressionWorkspaceSchema)(
     JSON.parse(readFileSync(join(dataDirectory, "workspace.json"), "utf8")),
   )
+
   const originalIds = new Set(before.notes.map((note) => note.id))
 
   await absent(app, "folder-warning")
@@ -90,6 +91,7 @@ async function createNote(
   await app.getByTestId("note-title").waitFor()
   await app.getByTestId("note-title").fill(title)
   await app.getByTestId("note-body").fill(body)
+
   const after = await savedNoteIs(dataDirectory, title, body)
   const savedNotes = new Map(
     after.notes.map((note) => [note.id, note] as const),
