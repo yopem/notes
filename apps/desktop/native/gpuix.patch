@@ -1337,7 +1337,7 @@ index c5f4fa1212554676217279fa2a3873c26c58a477..e8aa3bb2ea2c27284982e18beb404999
  // types instead of a copy that silently drifts from them.
  pub mod retained_tree;
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d1f72295d 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c9ba6dea9d10d0011e53f96b777ca32dbea3382d 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -1527,7 +1527,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      tree: Arc<Mutex<RetainedTree>>,
      initialized: Arc<Mutex<bool>>,
      /// Shared with GpuixView so napi methods can read the live selection
-@@ -977,6 +1069,539 @@ pub struct GpuixRenderer {
+@@ -977,6 +1069,548 @@ pub struct GpuixRenderer {
      ui_running: Arc<AtomicBool>,
  }
  
@@ -1567,25 +1567,34 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
 +
 +    #[test]
 +    fn old_reply_cannot_cancel_newer_approval() {
-+        let (state, first) = queued_owned_request();
-+        state.lock().unwrap().revoke_approval(first).unwrap();
-+        let second = state
-+            .lock()
-+            .unwrap()
-+            .approve(first.owner, first.request_id)
-+            .unwrap();
-+        let expected = state.lock().unwrap().clone();
-+        let (sender, receiver) = sync_channel(1);
-+        drop(sender);
-+        assert!(
-+            await_owned_close_approval(receiver, &state, first, Duration::from_millis(1)).is_err()
-+        );
-+        assert_eq!(state.lock().unwrap().clone(), expected);
-+        let reply = execute_owned_close_approval(&state, second, || Ok(())).unwrap();
-+        assert_eq!(
-+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
-+            "closing"
-+        );
++        for disconnected in [false, true] {
++            let (state, first) = queued_owned_request();
++            state.lock().unwrap().revoke_approval(first).unwrap();
++            let second = state
++                .lock()
++                .unwrap()
++                .approve(first.owner, first.request_id)
++                .unwrap();
++            let expected = state.lock().unwrap().clone();
++            let (sender, receiver) = sync_channel(1);
++            let held_sender = if disconnected {
++                drop(sender);
++                None
++            } else {
++                Some(sender)
++            };
++            assert!(
++                await_owned_close_approval(receiver, &state, first, Duration::from_millis(1))
++                    .is_err()
++            );
++            assert_eq!(state.lock().unwrap().clone(), expected);
++            let reply = execute_owned_close_approval(&state, second, || Ok(())).unwrap();
++            assert_eq!(
++                serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
++                "closing"
++            );
++            drop(held_sender);
++        }
 +    }
 +
 +    #[test]
@@ -2067,7 +2076,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
  #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
  #[napi]
  impl GpuixRenderer {
-@@ -1174,7 +1799,10 @@ impl GpuixRenderer {
+@@ -1174,7 +1808,10 @@ impl GpuixRenderer {
      pub fn new(event_callback: Option<ThreadsafeFunction<EventPayload>>) -> Self {
          let _ = env_logger::try_init();
          Self {
@@ -2078,7 +2087,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
              tree: Arc::new(Mutex::new(RetainedTree::new())),
              initialized: Arc::new(Mutex::new(false)),
              selection: SharedSelection::default(),
-@@ -1245,6 +1873,8 @@ impl GpuixRenderer {
+@@ -1245,6 +1882,8 @@ impl GpuixRenderer {
  
          let tree = self.tree.clone();
          let callback = self.event_callback_for_view();
@@ -2087,7 +2096,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
  
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
-@@ -1274,9 +1904,18 @@ impl GpuixRenderer {
+@@ -1274,9 +1913,18 @@ impl GpuixRenderer {
  
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
@@ -2108,7 +2117,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
                      })
                  },
              ) {
-@@ -1377,6 +2016,8 @@ impl GpuixRenderer {
+@@ -1377,6 +2025,8 @@ impl GpuixRenderer {
          let tree = self.tree.clone();
          let selection = self.selection.clone();
          let callback = self.event_callback_for_view();
@@ -2117,7 +2126,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
          let (command_sender, command_receiver) = mpsc::unbounded();
          let (startup_sender, startup_receiver) = sync_channel(1);
          let exit_startup_sender = startup_sender.clone();
-@@ -1434,8 +2075,20 @@ impl GpuixRenderer {
+@@ -1434,8 +2084,20 @@ impl GpuixRenderer {
                              };
                              let window = match cx.open_window(
                                  to_gpui_window_options(&window_options, bounds),
@@ -2140,7 +2149,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
                                  },
                              ) {
                                  Ok(window) => window,
-@@ -1573,7 +2226,6 @@ impl GpuixRenderer {
+@@ -1573,7 +2235,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
  
@@ -2148,7 +2157,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2784,236 @@ impl GpuixRenderer {
+@@ -2132,6 +2793,236 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
@@ -2385,7 +2394,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      // ── Selection API ────────────────────────────────────────────────
  
      /// The current text selection joined in document order, or null.
-@@ -2467,14 +3349,95 @@ impl GpuixRenderer {
+@@ -2467,14 +3358,95 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
@@ -2487,7 +2496,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      }
  
      #[napi]
-@@ -3428,11 +4391,7 @@ impl WebGpuixRenderer {
+@@ -3428,11 +4400,7 @@ impl WebGpuixRenderer {
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
      pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
          notify_web();
@@ -2500,7 +2509,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      }
  
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
-@@ -3652,6 +4611,7 @@ pub(crate) struct GpuixView {
+@@ -3652,6 +4620,7 @@ pub(crate) struct GpuixView {
      pub(crate) window_key_event_id: u64,
      pub(crate) window_selection_change: bool,
      pub(crate) window_selection_event_id: u64,
@@ -2508,7 +2517,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      /// Last identity delivered through `selectionChange`. Only written once an
      /// event is really queued, so adding the listener later still reports.
      reported_selection: Option<u64>,
-@@ -3820,8 +4780,12 @@ pub(crate) fn emit_key_event(
+@@ -3820,8 +4789,12 @@ pub(crate) fn emit_key_event(
      });
  }
  
@@ -2523,7 +2532,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
  }
  
  fn window_key_events(
-@@ -3869,7 +4833,13 @@ fn window_key_events(
+@@ -3869,7 +4842,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -2538,7 +2547,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
                  }
              });
          },
-@@ -3957,6 +4927,34 @@ fn resolve_highlight(
+@@ -3957,6 +4936,34 @@ fn resolve_highlight(
  }
  
  impl GpuixView {
@@ -2573,7 +2582,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -3972,6 +4970,7 @@ impl GpuixView {
+@@ -3972,6 +4979,7 @@ impl GpuixView {
              window_key_event_id: 0,
              window_selection_change: false,
              window_selection_event_id: 0,
@@ -2581,7 +2590,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
              reported_selection: None,
              focus_handles: HashMap::new(),
              pending_focus_element: None,
-@@ -4041,10 +5040,8 @@ impl GpuixView {
+@@ -4041,10 +5049,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -2594,7 +2603,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
          self.set_live_image(id, image, window, cx)
      }
  
-@@ -4066,6 +5063,24 @@ impl GpuixView {
+@@ -4066,6 +5072,24 @@ impl GpuixView {
          Ok(())
      }
  
@@ -2619,7 +2628,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      pub(crate) fn scroll_element_into_view(&self, id: u64) -> bool {
          let Some((scroller_id, child_index)) = self.scroll_target(id) else {
              return false;
-@@ -4314,7 +5329,9 @@ impl GpuixView {
+@@ -4314,7 +5338,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -2630,7 +2639,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
              }
              current = parent_id;
          };
-@@ -4764,7 +5781,12 @@ impl VirtualListEntry {
+@@ -4764,7 +5790,12 @@ impl VirtualListEntry {
  }
  
  impl GpuixView {
@@ -2644,7 +2653,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -5188,7 +6210,7 @@ impl gpui::Render for GpuixView {
+@@ -5188,7 +6219,7 @@ impl gpui::Render for GpuixView {
              let drag_move_view = cx.weak_entity();
              let drag_end_view = drag_move_view.clone();
              let root = gpui::div().size_full();
@@ -2653,7 +2662,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
                  .child(window_key_events(
                      callback.clone(),
                      self.window_key_down,
-@@ -6731,10 +7753,7 @@ fn report_layout(
+@@ -6731,10 +7762,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -2665,7 +2674,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..c01af08785c178bbe22ff4c7687eeb8d
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
-@@ -8329,3 +9348,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
+@@ -8329,3 +9357,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
      }
      Ok(())
  }
@@ -2940,10 +2949,10 @@ index fe530846d1800c2755cb35840e56ef11f2ce13ff..68d4a15db8205a0b29a093445f9b1990
      /// Last painted bounds for an element, or null if it was not painted.
 diff --git a/packages/native/src/window_close.rs b/packages/native/src/window_close.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..680e1fd8b24b730968a8f2506d886f6138c3102d
+index 0000000000000000000000000000000000000000..3655f3cef9a907de88e10a9ebf9d3ed728fc229a
 --- /dev/null
 +++ b/packages/native/src/window_close.rs
-@@ -0,0 +1,479 @@
+@@ -0,0 +1,534 @@
 +pub(crate) const MAX_SAFE_ID: u64 = 9_007_199_254_740_991;
 +
 +#[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3150,6 +3159,61 @@ index 0000000000000000000000000000000000000000..680e1fd8b24b730968a8f2506d886f61
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++
++    #[test]
++    fn approval_generations_fence_old_retry_operations() {
++        let (mut state, binding) = bound();
++        let delivery = request(&mut state);
++        let first = state.approve(binding.owner, delivery.request_id).unwrap();
++        state.revoke_approval(first).unwrap();
++        let second = state.approve(binding.owner, delivery.request_id).unwrap();
++        assert!(second.approval_id > first.approval_id);
++        let expected = state.clone();
++        assert_eq!(
++            state.cancel_approval(first),
++            Err(CloseGuardError::InvalidApproval)
++        );
++        assert_eq!(
++            state.revoke_approval(first),
++            Err(CloseGuardError::InvalidApproval)
++        );
++        assert_eq!(
++            state.execute_approval(first),
++            Err(CloseGuardError::InvalidApproval)
++        );
++        assert_eq!(
++            state.close_failed(first),
++            Err(CloseGuardError::InvalidApproval)
++        );
++        assert_eq!(state, expected);
++        state.execute_approval(second).unwrap();
++        assert_eq!(state.snapshot().unwrap().phase, Phase::Closing);
++    }
++
++    #[test]
++    fn approval_generations_do_not_repeat_after_retarget() {
++        let (mut state, binding) = bound();
++        let delivery = request(&mut state);
++        let first = state.approve(binding.owner, delivery.request_id).unwrap();
++        let next = state.bind(Some(binding.owner), 11).unwrap();
++        let second = state.approve(next.owner, delivery.request_id).unwrap();
++        assert!(second.approval_id > first.approval_id);
++        assert_eq!(second.request_id, first.request_id);
++    }
++
++    #[test]
++    fn approval_generation_exhaustion_does_not_change_state() {
++        let (mut state, binding) = bound();
++        let delivery = request(&mut state);
++        state.last_approval = MAX_SAFE_ID;
++        let expected = state.clone();
++        assert_eq!(
++            state.approve(binding.owner, delivery.request_id),
++            Err(CloseGuardError::IdExhausted)
++        );
++        assert_eq!(state, expected);
++        assert_eq!(request(&mut state), delivery);
++    }
 +
 +    fn bound() -> (CloseGuardState, BindingSnapshot) {
 +        let mut state = CloseGuardState::default();
