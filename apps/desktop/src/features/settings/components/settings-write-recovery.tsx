@@ -23,8 +23,9 @@ export function SettingsWriteRecovery({
 }) {
   const state = useSyncExternalStore(
     (listener) => store.subscribe(listener),
-    store.getWriteRecoveryState,
+    () => store.getWriteRecoveryState(),
   )
+
   const run = useDesktopEffect()
   const current = useRef({ store, run, onError })
 
