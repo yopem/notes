@@ -430,4 +430,6 @@ synchronous calculations in ordinary TypeScript.
     persisted files and screenshots before recording a pass.
   - **Cleanup:** Close only the test processes. Remove only the disposable
     directory after its evidence is reviewed. Do not touch personal data.
-  - **Status:** Pending; desktop Effect caller migration is in progress.
+  - **Status:** Pending. The named core tests passed with 81 tests and 343
+    assertions. Scoped core lint passed with zero warnings. Native runtime,
+    draft recovery and restart checks remain unrun; see the local evidence.
