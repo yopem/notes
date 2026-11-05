@@ -78,6 +78,47 @@ async function selectNoteRow(app: App, title: string) {
   throw new Error(`Note row did not paint after wheel navigation: ${title}`)
 }
 
+async function noteRowsAreOrdered(
+  app: App,
+  {
+    titles,
+    message,
+  }: { titles: readonly [string, string, ...string[]]; message: string },
+) {
+  const deadline = Date.now() + 5000
+  let orderedSamples = 0
+  let paintedY: number[] = []
+
+  while (Date.now() < deadline) {
+    const positions = await Promise.all(
+      titles.map((title) =>
+        app.getByTestId("note-row").getByText(title).bounds(),
+      ),
+    )
+    let ordered = true
+
+    for (const [index, position] of positions.entries()) {
+      const previous = positions[index - 1]
+
+      if (
+        position.width <= 0 ||
+        position.height <= 0 ||
+        (previous && previous.y >= position.y)
+      ) {
+        ordered = false
+      }
+    }
+
+    paintedY = positions.map((position) => position.y)
+    orderedSamples = ordered ? orderedSamples + 1 : 0
+
+    if (orderedSamples >= 2) return
+    await Bun.sleep(25)
+  }
+
+  assert.fail(`${message}; painted y positions: ${paintedY.join(", ")}`)
+}
+
 async function absent(app: App, testId: string) {
   const deadline = Date.now() + 5000
 
@@ -639,29 +680,20 @@ export async function verifyRegressions(
   await app.getByTestId("setting-noteSortOrder-none").click()
   await app.getByTestId("settings-close").click()
 
-  const [workspacePinned, workspaceTen, workspaceTwo] = await Promise.all([
-    app.getByTestId("note-row").getByText("Sort note pinned").bounds(),
-    app.getByTestId("note-row").getByText("Sort note 10").bounds(),
-    app.getByTestId("note-row").getByText("Sort note 2").bounds(),
-  ])
-
-  assert(
-    workspacePinned.y < workspaceTen.y && workspaceTen.y < workspaceTwo.y,
-    "Workspace order follows creation order within the pin group",
-  )
+  await noteRowsAreOrdered(app, {
+    titles: ["Sort note pinned", "Sort note 10", "Sort note 2"],
+    message: "Workspace order follows creation order within the pin group",
+  })
   await app.getByTestId("settings-open").click()
   await app.getByTestId("settings-tab-navigation").click()
   await app.getByTestId("setting-noteSortOrder-name-asc").click()
   await textIs(app, "setting-current-noteSortOrder", "name-asc")
   await app.getByTestId("settings-close").click()
 
-  const [pinned, two, ten] = await Promise.all([
-    app.getByTestId("note-row").getByText("Sort note pinned").bounds(),
-    app.getByTestId("note-row").getByText("Sort note 2").bounds(),
-    app.getByTestId("note-row").getByText("Sort note 10").bounds(),
-  ])
-
-  assert(pinned.y < two.y && two.y < ten.y, "Pinned and natural name order")
+  await noteRowsAreOrdered(app, {
+    titles: ["Sort note pinned", "Sort note 2", "Sort note 10"],
+    message: "Pinned and natural name order",
+  })
   await app.getByTestId("note-row").getByText("Sort note 2").click()
   const sortedEditor = await app.getByTestId("note-body").element()
   await app.getByTestId("note-title").fill("Sort note 20")
@@ -670,24 +702,21 @@ export async function verifyRegressions(
     (await app.getByTestId("note-body").element()).id,
     sortedEditor.id,
   )
-  assert(
-    (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y <
-      (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y,
-    "Editing keeps the current list order",
-  )
+  await noteRowsAreOrdered(app, {
+    titles: ["Sort note 20", "Sort note 10"],
+    message: "Editing keeps the current list order",
+  })
   await app.getByTestId("note-row").getByText("Sort note 10").click()
-  assert(
-    (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y <
-      (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y,
-    "Leaving the edited note applies the current name order",
-  )
+  await noteRowsAreOrdered(app, {
+    titles: ["Sort note 10", "Sort note 20"],
+    message: "Leaving the edited note applies the current name order",
+  })
   await app.getByTestId("note-row").getByText("Sort note 20").click()
   await app.getByTestId("note-sort").click()
-  assert(
-    (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y <
-      (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y,
-    "Reversing name sort uses the committed preference",
-  )
+  await noteRowsAreOrdered(app, {
+    titles: ["Sort note 20", "Sort note 10"],
+    message: "Reversing name sort uses the committed preference",
+  })
   await app.getByTestId("settings-open").click()
   await app.getByTestId("settings-tab-navigation").click()
   await textIs(app, "setting-current-noteSortOrder", "name-desc")
@@ -705,11 +734,10 @@ export async function verifyRegressions(
   }
 
   await app.getByTestId("settings-close").click()
-  assert(
-    (await app.getByTestId("note-row").getByText("Sort note 20").bounds()).y <
-      (await app.getByTestId("note-row").getByText("Sort note 10").bounds()).y,
-    "Failed preference save preserves the displayed order",
-  )
+  await noteRowsAreOrdered(app, {
+    titles: ["Sort note 20", "Sort note 10"],
+    message: "Failed preference save preserves the displayed order",
+  })
   await app.getByTestId("settings-open").click()
   await app.getByTestId("settings-tab-navigation").click()
   await app.getByTestId("setting-noteSortOrder-name-asc").click()
