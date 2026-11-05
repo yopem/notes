@@ -71,6 +71,7 @@ data.
 | Guard normal menu/keyboard quit                              | QA-064                                                                                 |
 | Fence each asynchronous close attempt                        | QA-065                                                                                 |
 | Atomically freeze native title/body input                    | QA-066                                                                                 |
+| Fill the compact note-list pane and show empty feedback      | QA-067                                                                                 |
 
 ## Storage and configuration
 
@@ -256,9 +257,18 @@ data.
     immutable files each, owned zero exits and lock/runtime cleanup. Evidence:
     `native-isolation/accepted-portable-standalone.json` and
     `native-close-lifecycle/v2/standalone-build.txt`. The earlier failing
-    resource fixture was fixed before app launch; its error is retained. Compact
-    separate-process restart and other-platform acceptance remain unrun, so the
-    full case stays open.
+    resource fixture was fixed before app launch; its error is retained.
+    Separate-process portable restart also passes at 09d1ed6 in
+    `app-run-20261105T222355Z-136271`: distinct PIDs 39/98, 1000×760 then
+    700×760, unchanged workspace/settings at restart, exact native title/body,
+    compact duplicate/trash/final deletion and owned zero exits/lock cleanup.
+    The executable hash is
+    `00f6640f3c48f95034764b23903d99863aeafc7134db5654401750cbd17d4313`. All 95
+    snapshot files were rehashed and three screenshots were inspected; see
+    `native-isolation/accepted-portable-compact-restart.json`. Shutdown used
+    SIGTERM, not ordinary close. Screenshot review found a fixed-width compact
+    note-list column; QA-067 covers that layout gap. Other platforms remain
+    unrun, so the full case stays open.
 
 - [ ] **QA-009 — P1 — Moved domain service regressions**
   - **Purpose:** Preserve vault safety, tasks, recurrence, templates, assistant
@@ -2019,6 +2029,48 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Cancel only the current owned test lease before normal cleanup.
     Reap only test-owned children and inspect lock/runtime removal. Keep the
     user's host, files and processes unchanged.
-  - **Status:** Pending implementation. Native quiescence, pair capture and
-    revision-aware event handling do not exist yet. Current delivered-draft
-    remount and close-owner tests do not establish this guarantee.
+  - **Status:** Pending integration. Ignored source prototypes have seven
+    standalone lease-policy cases and five codec cases passing. Per-field holds
+    have two focused capture cases plus 22 existing input and seven protocol
+    cases passing; those counts overlap. Review found unapplied pre-capture
+    props and held acknowledgement queues need reconciliation. Nonzero wheel,
+    drag, full history/callback/layout and native-key coverage remain
+    incomplete. No tracked pair coordinator, NAPI command, published host,
+    revision-aware event fence or UI protection exists. Current delivered-draft
+    remount and close-owner tests do not prove this guarantee.
+
+- [ ] **QA-067 — P2 — Use the full compact note-list pane**
+  - **Purpose:** Remove the blank column beside the note list at 700 pixels.
+    Keep empty-state feedback below its header, not below an empty virtual list.
+  - **Prerequisites:** Private standalone setup; isolated disposable workspace;
+    the current native host; rebuilt binary after the layout change. Preserve
+    the wide two-pane editor and existing compact restart assertions.
+  - **Inputs:** 1000×760 first process; 700×760 second process; `Task plans Ω`;
+    body `- [ ] Call 🌿\n\nActual native input readback.`; `name-asc` sort;
+    final empty Trash. Use the existing compact regression's isolated notes.
+  - **Steps:**
+    1. From the repository root, run the project-local native desktop typecheck,
+       zero-warning lint and format check for the changed files; rebuild with
+       `bun run build` and retain hashes.
+    2. Run the existing private `binary-compact-restart` harness with bundled
+       fonts and an exact committed source revision. Keep the existing
+       separate-PID, persistence, resource-mask, duplicate and trash assertions.
+    3. Extend `verifyCompactRegression` before implementation to require the
+       note-list panel to fill the client width within 48 pixels and the empty
+       feedback to start within 180 pixels below the panel's top.
+    4. Inspect the 1000-pixel, restored 700-pixel and empty-Trash screenshots.
+       Record full-width bounds and check that the editor is absent on Back.
+  - **Expected results:** Compact lists use the available pane width without a
+    second blank column. Empty feedback stays near the header. The restored
+    editor still has exact Unicode text; wide list/editor panes remain intact.
+    Layout changes do not change note content, sort persistence or selection.
+  - **Evidence:** `docs/artifacts/native-isolation/compact-restart/`; save build
+    checks, binary/host hashes, private reports, full-width bounds and inspected
+    screenshots. Preserve the earlier restart acceptance as a separate result.
+  - **Cleanup:** Stop and reap only the two test-owned application processes and
+    private compositor. Inspect lock/runtime removal; do not touch user windows,
+    source data or the published native host.
+  - **Status:** Pending implementation and native rerun. The inspected 09d1ed6
+    compact screenshot has a fixed 286-pixel list and empty feedback below an
+    unused virtual-list spacer. Its restart assertions passed, but they did not
+    measure this layout.
