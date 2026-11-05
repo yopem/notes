@@ -1,19 +1,36 @@
 import { render } from "@gpuix/react"
 import { defaultDataDirectory, readEnvironment } from "@still-notes/env/server"
+import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect"
 
+import type { NotesError } from "@/features/notes/errors"
+import type { SettingsError } from "@/features/settings/store"
+
+import { EffectBoundary } from "@/components/effect-boundary"
 import { RecoveryScreen } from "@/components/recovery-screen"
-import { NotesStore } from "@/features/notes/store"
-import { SettingsStore } from "@/features/settings/store"
+import { Notes } from "@/features/notes/store"
+import { Settings } from "@/features/settings/store"
 import { App } from "@/features/workspace/components/workspace-shell"
-
-declare global {
-  var stillNotesStore: NotesStore | undefined
-  var stillNotesSettings: SettingsStore | undefined
-}
 
 const directory = defaultDataDirectory()
 
 const environment = readEnvironment()
+
+const desktopLayer = Layer.mergeAll(
+  Notes.layer(directory),
+  Settings.layer(directory),
+)
+
+declare global {
+  var stillNotesRuntime:
+    | ManagedRuntime.ManagedRuntime<
+        Notes | Settings,
+        NotesError | SettingsError
+      >
+    | undefined
+}
+
+const runtime = (globalThis.stillNotesRuntime ??=
+  ManagedRuntime.make(desktopLayer))
 
 const options = {
   title: "Still Notes",
@@ -24,21 +41,51 @@ const options = {
   windowBackground: "opaque" as const,
 }
 
-try {
-  if (!globalThis.stillNotesStore) {
-    globalThis.stillNotesStore = new NotesStore(directory)
-    process.once("exit", () => globalThis.stillNotesStore?.close())
-    process.once("SIGTERM", () => process.exit(0))
-    process.once("SIGINT", () => process.exit(0))
-  }
+function runDesktopEffect<Success, Failure>(
+  program: Effect.Effect<Success, Failure>,
+) {
+  const exit = runtime.runSyncExit(program)
 
-  globalThis.stillNotesSettings ??= new SettingsStore(directory)
+  if (Exit.isFailure(exit)) throw Cause.squash(exit.cause)
+
+  return exit.value
+}
+
+function releaseResources() {
+  Effect.runSync(runtime.disposeEffect)
+}
+
+function shutdown() {
+  process.exit(0)
+}
+
+try {
+  const startup = runtime.runSyncExit(
+    Effect.gen(function* () {
+      const store = yield* Notes
+      const settings = yield* Settings
+
+      return { store, settings }
+    }),
+  )
+
+  if (Exit.isFailure(startup)) throw Cause.squash(startup.cause)
+
+  process.removeListener("exit", releaseResources)
+  process.once("exit", releaseResources)
+  process.removeListener("SIGTERM", shutdown)
+  process.once("SIGTERM", shutdown)
+  process.removeListener("SIGINT", shutdown)
+  process.once("SIGINT", shutdown)
+
   render(
-    <App
-      store={globalThis.stillNotesStore}
-      dataDirectory={directory}
-      settings={globalThis.stillNotesSettings}
-    />,
+    <EffectBoundary run={runDesktopEffect}>
+      <App
+        store={startup.value.store}
+        dataDirectory={directory}
+        settings={startup.value.settings}
+      />
+    </EffectBoundary>,
     options,
   )
 } catch (cause) {

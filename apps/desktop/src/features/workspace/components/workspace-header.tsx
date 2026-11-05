@@ -6,6 +6,7 @@ import { useLayoutEffect, useRef, useState } from "react"
 import type { Palette } from "@/components/ui/theme"
 import type { SettingsStore } from "@/features/settings/store"
 
+import { useDesktopEffect } from "@/components/effect-boundary"
 import { Button, Label } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
 import { attempt } from "@/features/workspace/attempt"
@@ -43,15 +44,20 @@ export function WorkspaceHeader({
   onHelp: () => void
   onError: (message: string) => void
 }) {
+  const run = useDesktopEffect()
   const styles = getWorkspaceStyles(color)
-  const current = useRef({ theme, settings, onError })
+  const current = useRef({ theme, settings, onError, run })
 
   const [toggleTheme] = useState(function createThemeHandler() {
     return function toggleTheme() {
-      const { theme, settings, onError } = current.current
+      const { theme, settings, onError, run } = current.current
       onError(
         attempt(() =>
-          settings.update({ themeMode: theme === "light" ? "dark" : "light" }),
+          run(
+            settings.update({
+              themeMode: theme === "light" ? "dark" : "light",
+            }),
+          ),
         ),
       )
     }
@@ -59,9 +65,9 @@ export function WorkspaceHeader({
 
   useLayoutEffect(
     function updateThemeTarget() {
-      current.current = { theme, settings, onError }
+      current.current = { theme, settings, onError, run }
     },
-    [theme, settings, onError],
+    [theme, settings, onError, run],
   )
 
   return (

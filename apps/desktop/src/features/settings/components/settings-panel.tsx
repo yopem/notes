@@ -6,6 +6,7 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 
 import type { Palette } from "@/components/ui/theme"
 
+import { useDesktopEffect } from "@/components/effect-boundary"
 import { Button, Label } from "@/components/ui/controls"
 import {
   getSettingsStyles,
@@ -275,18 +276,19 @@ export function PreferenceControl({
   color: Palette
   onError: (message: string) => void
 }) {
+  const run = useDesktopEffect()
   const [input, setInput] = useState(() => initialPreferenceInput(value))
   const boolean = Schema.decodeUnknownResult(booleanPreferenceSchema)(value)
   const options = choices[name]
   const styles = getSettingsStyles(color)
-  const latest = useRef({ name, value, store, onError, input })
+  const latest = useRef({ name, value, store, onError, input, run })
 
   // Commit current bindings before native events use the stable handlers.
   useLayoutEffect(
     function updatePreferenceBindings() {
-      latest.current = { name, value, store, onError, input }
+      latest.current = { name, value, store, onError, input, run }
     },
-    [name, value, store, onError, input],
+    [name, value, store, onError, input, run],
   )
 
   const [actions] = useState(() => {
@@ -294,7 +296,7 @@ export function PreferenceControl({
       const current = latest.current
 
       try {
-        current.store.setField(current.name, next)
+        current.run(current.store.setField(current.name, next))
         current.onError("")
       } catch (cause) {
         current.onError(cause instanceof Error ? cause.message : String(cause))
