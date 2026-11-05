@@ -1792,6 +1792,63 @@ describe("native Markdown vault", () => {
     expect(existsSync(join(directory, ".still-notes/vault.lock"))).toBe(false)
     expect(readFileSync(journalPath, "utf8")).toBe(journal)
   })
+  test("pending recovery blocks ordinary and no-op mutations before they return", () => {
+    const directory = root()
+    const vault = open(directory)
+    const note = Effect.runSync(
+      vault.createNote("inbox", "A", "", "original"),
+    )
+    const asset = Effect.runSync(
+      vault.createAsset("a.txt", Buffer.from("asset")),
+    )
+    Effect.runSync(vault.createFolder("root", "Books/New"))
+    const metadataPath = join(directory, ".still-notes/state.json")
+    const metadata = readFileSync(metadataPath)
+    const journalPath = join(directory, ".still-notes/transaction.json")
+    const journal = JSON.stringify({ version: 1, files: [], directories: [] })
+    const operations = [
+      vault.createNote("inbox", "Blocked"),
+      vault.writeNote(note.path, "changed", { expectedContent: "original" }),
+      vault.appendToNote(note.path, "", "end", {
+        expectedContent: "original",
+      }),
+      vault.renameNote(note.path, "A"),
+      vault.moveNote(note.path, "inbox"),
+      vault.renameFolder("root", "Books/New", "Books/New"),
+      vault.createFolder("root", "Blocked"),
+      vault.renameAsset(asset.path, "a.txt"),
+      vault.moveAsset(asset.path, "assets"),
+      vault.createAsset("blocked.txt", Buffer.from("blocked")),
+    ]
+    writeFileSync(journalPath, journal)
+
+    for (const operation of operations) {
+      const failure = Effect.runSync(Effect.flip(operation))
+      expect(failure.message).toMatch(/journal.*close.*reopen/i)
+      expect(readFileSync(journalPath, "utf8")).toBe(journal)
+      expect(readFileSync(metadataPath)).toEqual(metadata)
+      expect(readFileSync(join(directory, note.path), "utf8")).toBe(
+        "original",
+      )
+      expect(readFileSync(join(directory, asset.path), "utf8")).toBe("asset")
+    }
+
+    expect(existsSync(join(directory, "inbox/Blocked.md"))).toBe(false)
+    expect(existsSync(join(directory, "Blocked"))).toBe(false)
+    expect(existsSync(join(directory, "assets/blocked.txt"))).toBe(false)
+    expect(Effect.runSync(vault.readNote(note.path)).body).toBe("original")
+    vault.close()
+    const reopened = open(directory)
+    expect(existsSync(journalPath)).toBe(false)
+    expect(
+      Effect.runSync(
+        reopened.appendToNote(note.path, "", "end", {
+          expectedContent: "original",
+        }),
+      ).body,
+    ).toBe("original")
+    expect(readFileSync(metadataPath)).toEqual(metadata)
+  })
   test("interrupted journal rolls back on restart, leaving unrelated temporary files untouched", () => {
     const directory = root()
     const vault = open(directory)
