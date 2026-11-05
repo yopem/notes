@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import {
   mkdtempSync,
   readFileSync,
@@ -33,7 +34,9 @@ describe("SettingsStore real file integration", () => {
     const store = new SettingsStore(root)
     expect(store.getSnapshot().editorFontSize).toBe(16)
     expect(store.getSnapshot().tabsEnabled).toBe(true)
-    store.update({ editorFontSize: 21, themeMode: "dark", wordWrap: false })
+    Effect.runSync(
+      store.update({ editorFontSize: 21, themeMode: "dark", wordWrap: false }),
+    )
     const reopened = new SettingsStore(root)
     expect(reopened.getSnapshot().editorFontSize).toBe(21)
     expect(reopened.getSnapshot().themeMode).toBe("dark")
@@ -60,10 +63,10 @@ describe("SettingsStore real file integration", () => {
       calls += 1
     })
 
-    store.update({ editorFontSize: 19 })
+    Effect.runSync(store.update({ editorFontSize: 19 }))
     expect(calls).toBe(1)
     unsubscribe()
-    store.update({ editorFontSize: 20 })
+    Effect.runSync(store.update({ editorFontSize: 20 }))
     expect(calls).toBe(1)
   })
 
@@ -72,9 +75,15 @@ describe("SettingsStore real file integration", () => {
     const store = new SettingsStore(root)
     const snapshot = store.getSnapshot()
     const bytes = readFileSync(join(root, "settings.json"))
-    expect(() => store.update({ editorFontSize: -1 })).toThrow(Error)
-    expect(() => store.update({ editorLineHeight: 30 })).toThrow(Error)
-    expect(() => store.update({ taskReminderTime: "99:99" })).toThrow(Error)
+    expect(() => Effect.runSync(store.update({ editorFontSize: -1 }))).toThrow(
+      Error,
+    )
+    expect(() =>
+      Effect.runSync(store.update({ editorLineHeight: 30 })),
+    ).toThrow(Error)
+    expect(() =>
+      Effect.runSync(store.update({ taskReminderTime: "99:99" })),
+    ).toThrow(Error)
     expect(store.getSnapshot()).toBe(snapshot)
     expect(readFileSync(join(root, "settings.json"))).toEqual(bytes)
   })
@@ -99,7 +108,9 @@ describe("SettingsStore real file integration", () => {
     const path = join(root, "settings.json")
     const external = readFileSync(path, "utf8") + "\n"
     writeFileSync(path, external)
-    expect(() => store.update({ editorFontSize: 18 })).toThrow(/outside/)
+    expect(() => Effect.runSync(store.update({ editorFontSize: 18 }))).toThrow(
+      /outside/,
+    )
     expect(store.getSnapshot()).toBe(snapshot)
     expect(readFileSync(path, "utf8")).toBe(external)
   })

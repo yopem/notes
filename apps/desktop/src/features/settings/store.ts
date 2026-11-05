@@ -1,4 +1,12 @@
-import { Effect, Option, Schema, SchemaTransformation, Struct } from "effect"
+import {
+  Context,
+  Effect,
+  Layer,
+  Option,
+  Schema,
+  SchemaTransformation,
+  Struct,
+} from "effect"
 import {
   closeSync,
   constants,
@@ -435,6 +443,15 @@ function readSettings(path: string) {
   }
 }
 
+export class SettingsError extends Schema.TaggedError<SettingsError>()(
+  "SettingsError",
+  {
+    operation: Schema.Literals(["open", "save"]),
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
 export class SettingsStore {
   private readonly path: string
   private readonly directory: string
@@ -484,40 +501,83 @@ export class SettingsStore {
   }
 
   setField(name: keyof Preferences, input: PreferenceInput) {
-    this.update(
-      Schema.decodeUnknownSync(preferencesSchema, {
-        onExcessProperty: "error",
-        errors: "all",
-      })({ ...this.snapshot, [name]: input }),
-    )
+    return this.savePreferences(() => ({ ...this.snapshot, [name]: input }))
   }
 
   update(patch: Partial<Preferences>) {
-    const next = Schema.decodeUnknownSync(preferencesSchema, {
-      onExcessProperty: "error",
-      errors: "all",
-    })({ ...this.snapshot, ...patch })
+    return this.savePreferences(() => ({ ...this.snapshot, ...patch }))
+  }
 
-    const bytes =
-      JSON.stringify({ version: 1, preferences: next }, null, 2) + "\n"
+  private savePreferences(values: () => object) {
+    return Effect.try({
+      try: () => {
+        const next = Schema.decodeUnknownSync(preferencesSchema, {
+          onExcessProperty: "error",
+          errors: "all",
+        })(values())
 
-    if (Buffer.byteLength(bytes, "utf8") > 1024 * 1024)
-      throw new Error("Settings exceed the 1 MB limit")
+        const bytes =
+          JSON.stringify({ version: 1, preferences: next }, null, 2) + "\n"
 
-    if (readSettings(this.path) !== this.bytes)
-      throw new Error(
-        "Settings changed outside this instance. Reopen before saving.",
-      )
-    atomicWrite(this.path, bytes, this.directory)
-    this.snapshot = next
-    this.bytes = bytes
+        if (Buffer.byteLength(bytes, "utf8") > 1024 * 1024)
+          throw new Error("Settings exceed the 1 MB limit")
 
-    for (const listener of this.listeners) {
-      try {
-        listener()
-      } catch (cause) {
-        console.warn("Settings subscriber failed", cause)
-      }
-    }
+        if (readSettings(this.path) !== this.bytes)
+          throw new Error(
+            "Settings changed outside this instance. Reopen before saving.",
+          )
+        atomicWrite(this.path, bytes, this.directory)
+        this.snapshot = next
+        this.bytes = bytes
+        let failures = 0
+
+        for (const listener of this.listeners) {
+          try {
+            listener()
+          } catch {
+            failures += 1
+          }
+        }
+
+        return failures
+      },
+      catch: (cause) =>
+        new SettingsError({
+          operation: "save",
+          message:
+            cause instanceof Error ? cause.message : "Cannot save settings",
+          cause,
+        }),
+    }).pipe(
+      Effect.uninterruptible,
+      Effect.flatMap(function reportFailedSubscribers(failedSubscribers) {
+        return failedSubscribers > 0
+          ? Effect.logWarning("Settings subscriber failed").pipe(
+              Effect.annotateLogs({ failedSubscribers }),
+            )
+          : Effect.void
+      }),
+      Effect.withSpan("Settings.save"),
+    )
+  }
+}
+
+export class Settings extends Context.Service<Settings, SettingsStore>()(
+  "@still-notes/desktop/Settings",
+) {
+  static layer(directory: string) {
+    return Layer.effect(
+      Settings,
+      Effect.try({
+        try: () => new SettingsStore(directory),
+        catch: (cause) =>
+          new SettingsError({
+            operation: "open",
+            message:
+              cause instanceof Error ? cause.message : "Cannot open settings",
+            cause,
+          }),
+      }).pipe(Effect.withSpan("Settings.open")),
+    )
   }
 }
