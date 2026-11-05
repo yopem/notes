@@ -132,6 +132,7 @@ describe("NotesStore real disk integration", () => {
       store.createNotebook("Deferred"),
       store.renameNotebook(note.notebookId, "Renamed"),
       store.createNote(),
+      store.duplicateNote(note.id),
       store.updateNote(note.id, { body: "Deferred" }),
       store.togglePin(note.id),
       store.trashNote(note.id),
@@ -281,6 +282,135 @@ describe("NotesStore real disk integration", () => {
       restarted.getSnapshot().notebooks.find((item) => item.id === notebook.id)
         ?.name,
     ).toBe("Projects")
+  })
+
+  test("duplicates a non-selected note with fresh fields and persists it", () => {
+    const root = directory()
+    writeFileSync(primary(root), JSON.stringify(fixture()))
+    const store = open(root)
+    const source = store.getSnapshot().notes[0]
+    expect(source).toBeDefined()
+    if (!source) throw new Error("Missing source")
+    Effect.runSync(store.togglePin(source.id))
+    Effect.runSync(store.selectNote(null))
+    const before = store.getSnapshot()
+    const original = before.notes[0]
+    const copy = Effect.runSync(store.duplicateNote(source.id))
+    expect(copy.id).not.toBe(source.id)
+    expect(copy).toMatchObject({
+      notebookId: source.notebookId,
+      title: "Welcome example copy",
+      body: source.body,
+      pinned: false,
+      trashedAt: null,
+    })
+    expect(copy.createdAt).toBe(copy.updatedAt)
+    expect(Date.parse(copy.createdAt)).toBeGreaterThan(Date.parse(source.createdAt))
+    expect(Object.isFrozen(copy)).toBe(true)
+    expect(store.getSnapshot().selectedNoteId).toBe(copy.id)
+    expect(store.getSnapshot().notes[0]).toEqual(original)
+    Effect.runSync(store.updateNote(copy.id, { body: "Copy only" }))
+    expect(store.getSnapshot().notes[0]).toEqual(original)
+    const saved = store.getSnapshot()
+    store.close()
+    expect(open(root).getSnapshot()).toEqual(saved)
+  })
+
+  test("duplicate names are exact, case-sensitive, notebook-scoped, and include trash", () => {
+    const store = open()
+    const source = Effect.runSync(store.createNote())
+    Effect.runSync(store.updateNote(source.id, { title: "Café e\u0301 🌱" }))
+    const first = Effect.runSync(store.duplicateNote(source.id))
+    expect(first.title).toBe("Café e\u0301 🌱 copy")
+    Effect.runSync(store.trashNote(first.id))
+    const second = Effect.runSync(store.duplicateNote(source.id))
+    expect(second.title).toBe("Café e\u0301 🌱 copy 2")
+    const other = Effect.runSync(store.createNotebook("Other"))
+    const otherSource = Effect.runSync(store.createNote(other.id))
+    Effect.runSync(store.updateNote(otherSource.id, { title: "Café e\u0301 🌱" }))
+    expect(Effect.runSync(store.duplicateNote(otherSource.id)).title).toBe(
+      "Café e\u0301 🌱 copy",
+    )
+    Effect.runSync(store.updateNote(source.id, { title: "café e\u0301 🌱" }))
+    expect(Effect.runSync(store.duplicateNote(source.id)).title).toBe(
+      "café e\u0301 🌱 copy",
+    )
+    Effect.runSync(store.updateNote(source.id, { title: "  \t" }))
+    expect(Effect.runSync(store.duplicateNote(source.id)).title).toBe(
+      "Untitled note copy",
+    )
+    expect(Effect.runSync(store.duplicateNote(source.id)).title).toBe(
+      "Untitled note copy 2",
+    )
+  })
+
+  test("duplicate applies a validated draft without changing the source", () => {
+    const root = directory()
+    const store = open(root)
+    const source = Effect.runSync(store.createNote())
+    Effect.runSync(store.updateNote(source.id, { title: "Saved", body: "Saved body" }))
+    const original = store.getSnapshot().notes.find((note) => note.id === source.id)
+    const draft = { title: "Draft Ω", body: "Unsaved café 日本語\n" }
+    const copy = Effect.runSync(store.duplicateNote(source.id, draft))
+    expect(copy.title).toBe("Draft Ω copy")
+    expect(copy.body).toBe(draft.body)
+    expect(draft).toEqual({ title: "Draft Ω", body: "Unsaved café 日本語\n" })
+    expect(store.getSnapshot().notes.find((note) => note.id === source.id)).toEqual(original)
+    expect(Effect.runSync(store.duplicateNote(source.id, { body: "partial" })).title).toBe(
+      "Saved copy",
+    )
+    const exact = "é".repeat(bodyLimit / 2)
+    expect(Effect.runSync(store.duplicateNote(source.id, { body: exact })).body).toBe(exact)
+    const snapshot = store.getSnapshot()
+    const bytes = readFileSync(primary(root))
+    const error = Effect.runSync(
+      Effect.flip(store.duplicateNote(source.id, { body: "é".repeat(bodyLimit / 2 + 1) })),
+    )
+    expect(error).toBeInstanceOf(NotesError)
+    expect(error.operation).toBe("duplicateNote")
+    expect(store.getSnapshot()).toBe(snapshot)
+    expect(readFileSync(primary(root))).toEqual(bytes)
+  })
+
+  test("duplicate rejects missing and trashed notes without changing state", () => {
+    const root = directory()
+    const store = open(root)
+    const source = Effect.runSync(store.createNote())
+    Effect.runSync(store.trashNote(source.id))
+    const snapshot = store.getSnapshot()
+    const bytes = readFileSync(primary(root))
+    for (const id of [source.id, "missing", ""]) {
+      const error = Effect.runSync(Effect.flip(store.duplicateNote(id)))
+      expect(error).toBeInstanceOf(NotesError)
+      expect(error.operation).toBe("duplicateNote")
+      expect(store.getSnapshot()).toBe(snapshot)
+      expect(readFileSync(primary(root))).toEqual(bytes)
+    }
+  })
+
+  test("duplicate failures preserve memory, disk, selection, and notifications", () => {
+    const root = directory()
+    const store = open(root)
+    const source = Effect.runSync(store.createNote())
+    const before = store.getSnapshot()
+    const bytes = readFileSync(primary(root))
+    let notifications = 0
+    store.subscribe(() => { notifications += 1 })
+    mkdirSync(backup(root))
+    writeFileSync(join(backup(root), "block"), "do not replace")
+    const draft = { title: "Unsaved", body: "Draft Ω" }
+    expect(Effect.runSync(Effect.flip(store.duplicateNote(source.id, draft))).operation).toBe("duplicateNote")
+    expect(store.getSnapshot()).toBe(before)
+    expect(readFileSync(primary(root))).toEqual(bytes)
+    expect(notifications).toBe(0)
+    rmSync(backup(root), { recursive: true })
+    const external = bytes.toString() + " "
+    writeFileSync(primary(root), external)
+    expect(Effect.runSync(Effect.flip(store.duplicateNote(source.id, draft))).message).toMatch(/changed/i)
+    expect(store.getSnapshot()).toBe(before)
+    expect(readFileSync(primary(root), "utf8")).toBe(external)
+    expect(notifications).toBe(0)
+    expect(draft).toEqual({ title: "Unsaved", body: "Draft Ω" })
   })
 
   test("snapshots and returned records cannot mutate persisted state", () => {
@@ -902,6 +1032,12 @@ describe("NotesStore real disk integration", () => {
         () => Effect.runSync(store.setTheme("system")),
         () => Effect.runSync(store.createNotebook(42)),
         () => Effect.runSync(store.updateNote(note.id, { body: null })),
+        () => Effect.runSync(store.duplicateNote(note.id, null)),
+        () => Effect.runSync(store.duplicateNote(note.id, [])),
+        () => Effect.runSync(store.duplicateNote(note.id, { title: 42 })),
+        () => Effect.runSync(store.duplicateNote(note.id, { body: null })),
+        () => Effect.runSync(store.duplicateNote(note.id, { pinned: true })),
+        () => Effect.runSync(store.duplicateNote(null)),
         () => Effect.runSync(store.updateNote(note.id, { pinned: true })),
         () => Effect.runSync(store.importMarkdown([42])),
         () => Effect.runSync(store.selectNote(undefined)),
