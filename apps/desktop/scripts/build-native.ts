@@ -269,6 +269,12 @@ assert(
   "NAPI declarations lack the close guard",
 )
 
+assert.match(
+  declarations,
+  /registerFontsAsyncV1\([^\n]+\): Promise<number>/,
+  "NAPI declarations lack asynchronous font batches",
+)
+
 let target: string
 
 if (process.platform === "linux") target = `linux-${process.arch}-gnu`
@@ -293,6 +299,7 @@ Schema.decodeUnknownSync(
     editorCommand: Schema.declare(Predicate.isFunction),
     armCloseGuard: Schema.declare(Predicate.isFunction),
     closeWindow: Schema.declare(Predicate.isFunction),
+    registerFontsAsyncV1: Schema.declare(Predicate.isFunction),
   }),
 )(prototype)
 
