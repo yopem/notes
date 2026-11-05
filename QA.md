@@ -1788,6 +1788,8 @@ mark those cases passed until capture works and the evidence is inspected.
     artifact for builds. Parent owns default addon publication and live QA.
   - **Inputs:** Old and new binding targets `1101` and `2202`, stale target
     `3303`, a pending close request, and overlapping old/new JS controllers.
+    Also use independent renderer scopes with identical numeric owner and
+    request IDs to check that one cannot authorize removal of the other.
   - **Steps:**
     1. Before implementation, add lifecycle cases to the existing native bridge
        test files and native patch test modules. Define a separate
@@ -1798,14 +1800,19 @@ mark those cases passed until capture works and the evidence is inspected.
     3. Dispose the old controller after binding the new one. Check fresh event
        routing, old controller rejection, idempotent cleanup, and a fail-closed
        interval without a JS listener. Keep unguarded native behavior unchanged.
-    4. Run the affected existing native editor/addon tests and isolated native
+    4. Queue an approval whose renderer scope does not match the target native
+       view, even when numeric owner/request IDs match. Repeat with an unbound
+       view. Check that neither removes a window or changes the other scope. The
+       matching scope must still complete a current approval.
+    5. Run the affected existing native editor/addon tests and isolated native
        build checks. Record exact commands and hashes in the handoff. Do not
        publish the addon or claim live close safety from non-GUI tests.
   - **Expected results:** No disarm interval, lost pending request or stale
     controller close is permitted. Callback cleanup removes only its owner. Root
     replacement does not create a second native host. Cancellation, if added,
     clears only the pending request and keeps the native veto active. Input
-    reconciliation and draft decisions remain separate requirements.
+    reconciliation and draft decisions remain separate requirements. Approval
+    must authenticate the target window's renderer scope, not only numeric IDs.
   - **Evidence:** Save typed protocol cases, build/patch checks, addon/source
     hashes and ownership results under `docs/artifacts/native-close-lifecycle/`.
     Live native evidence also needs the QA-056 private compositor and QA-025
@@ -2041,13 +2048,15 @@ mark those cases passed until capture works and the evidence is inspected.
     user's host, files and processes unchanged.
   - **Status:** Pending integration. Ignored source prototypes have seven
     standalone lease-policy cases and five codec cases passing. Per-field holds
-    have two focused capture cases plus 22 existing input and seven protocol
-    cases passing; those counts overlap. Review found unapplied pre-capture
-    props and held acknowledgement queues need reconciliation. Nonzero wheel,
-    drag, full history/callback/layout and native-key coverage remain
-    incomplete. No tracked pair coordinator, NAPI command, published host,
-    revision-aware event fence or UI protection exists. Current delivered-draft
-    remount and close-owner tests do not prove this guarantee.
+    and prop reconciliation are tracked in 17bbc4c. Two reproduced prop/held-ACK
+    regressions pass after repair, with 24 affected input and seven protocol
+    tests passing; counts overlap. Evidence is `native-input-fence/gates/`.
+    Native owned metadata, typed optional transport and pair coordination are in
+    progress, not accepted. Nonzero wheel, drag, full history/callback/layout
+    and native-key coverage remain incomplete. No complete pair NAPI command,
+    published input-fence host, revision-aware JS event fence or UI protection
+    exists. Current delivered-draft remount and close-owner tests do not prove
+    this guarantee.
 
 - [x] **QA-067 — P2 — Use the full compact note-list pane**
   - **Purpose:** Remove the blank column beside the note list at 700 pixels.
