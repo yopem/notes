@@ -122,7 +122,11 @@ function saveReport(name: string, dataDirectory: string, steps: string[]) {
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), report)
 }
 
-export async function verifyRegressions(app: App, dataDirectory: string) {
+export async function verifyRegressions(
+  app: App,
+  dataDirectory: string,
+  options: { chooseFolder?: (path: string) => Promise<void> } = {},
+) {
   assert(
     resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
     "Regression checks require a disposable native E2E data directory.",
@@ -154,6 +158,12 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await textIs(app, "note-title", "Task malformed")
   assert.equal(readFileSync(workspacePath, "utf8"), beforeFolder)
   steps.push("Folder disclosure and cancellation preserve the JSON workspace")
+  await verifyFolderPreview(app, dataDirectory, options.chooseFolder)
+  steps.push(
+    options.chooseFolder
+      ? "Folder preview: native picker route"
+      : "Folder preview: explicit path route; native picker not tested",
+  )
   const taskBytes = readFileSync(workspacePath, "utf8")
   await app.getByTestId("nav-tasks").click()
   await app.getByText("Read-only task discovery").waitFor()
@@ -713,7 +723,7 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
 export async function verifyFolderPreview(
   app: App,
   dataDirectory: string,
-  chooseFolder: (path: string) => Promise<void>,
+  chooseFolder?: (path: string) => Promise<void>,
 ) {
   assert(
     resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
@@ -740,10 +750,27 @@ export async function verifyFolderPreview(
   async function open() {
     await app.getByTestId("open-folder").click()
     await app.getByTestId("folder-warning").waitFor()
-    await app.getByTestId("folder-choose").click()
-    await chooseFolder(folder)
+    if (chooseFolder) {
+      await app.getByTestId("folder-choose").click()
+      await chooseFolder(folder)
+    } else {
+      await app.getByTestId("folder-path").fill(folder)
+      await textIs(app, "folder-path", folder)
+      await app.getByTestId("folder-path").press("enter")
+    }
   }
 
+  await app.getByTestId("open-folder").click()
+  await app.getByTestId("folder-warning").waitFor()
+  await app.getByTestId("folder-path").fill("../relative")
+  await textIs(app, "folder-path", "../relative")
+  await app.getByTestId("folder-path").press("enter")
+  await textIs(app, "folder-open-error", "Enter an absolute folder path without NUL characters.")
+  await textIs(app, "folder-path", "../relative")
+  await absent(app, "folder-preview")
+  assert.deepEqual(readFileSync(workspacePath), before)
+  assert.equal(existsSync(join(dataDirectory, "relative")), false)
+  await app.getByTestId("folder-cancel").click()
   await open()
   await app.getByTestId("folder-preview").waitFor()
   assert.equal(existsSync(lock), false)
@@ -786,7 +813,10 @@ export async function verifyFolderPreview(
   assert.deepEqual(readFileSync(workspacePath), before)
   assert.equal(readFileSync(asset, "utf8"), "asset")
   saveReport("native-folder-preview-regression.json", dataDirectory, [
-    "Explicit native picker after disclosure; list and keyboard read of exact inert source",
+    "Relative path rejected without changing JSON; input retained",
+    chooseFolder
+      ? "Native picker after disclosure; list and keyboard read of exact inert source"
+      : "Explicit absolute path after disclosure; list and keyboard read of exact inert source; native picker not tested",
     "Refresh replaces stale contents and clears deleted selection; empty state has no editor",
     "Recovery journal refuses refresh and reopen, preserves bytes, and leaves no lock",
     "Back preserves exact JSON editor values and workspace bytes",
