@@ -65,7 +65,8 @@ data.
 QA-053 | | Reserved path aliases and distinct legacy folders | QA-047, QA-049 |
 | Development startup and shutdown | QA-048 | | Actual native input, verified
 addon and private capture | QA-051, QA-054, QA-055, QA-056 | | Native action,
-font setup and remount draft safety | QA-057, QA-058, QA-059 |
+font setup and remount draft safety | QA-057, QA-058, QA-059 | | Typed folder
+entry and picker-independent access | QA-060 |
 
 ## Storage and configuration
 
@@ -1621,3 +1622,36 @@ mark those cases passed until capture works and the evidence is inspected.
     previous root on remount. Failed drafts currently live in hook state and
     refs, while the application runtime is reused globally. No live remount or
     compatibility-preservation acceptance has run.
+
+- [ ] **QA-060 — P1 — Open a read-only folder with an explicit path**
+  - **Purpose:** Support keyboard-only folder entry and systems without a usable
+    native picker, without changing preview safety or JSON notes.
+  - **Prerequisites:** QA-056 private setup with the documented bundled-font
+    workflow fixture, a fresh isolated data directory, and the implemented
+    folder path field. Keep the native picker as a separate supported route.
+  - **Inputs:** A private `folder-preview-regression/Books/A.md` containing
+    `Preview Ω`, an inert unsafe-link example and a wiki-link example from the
+    existing native folder scenario. Use `../relative` as invalid input.
+  - **Steps:**
+    1. Before implementation, update the existing `verifyFolderPreview` scenario
+       in `apps/desktop/scripts/native-regressions.ts` to select the explicit
+       path route when no external native-picker driver is provided.
+    2. Open disclosure, enter `../relative` and submit. Check the specific
+       absolute-path error and that preview did not open or mutate JSON data.
+    3. Enter the exact private absolute fixture path and use the keyboard to
+       open it. Read, refresh, externally replace and delete only fixture notes.
+       Check empty state, Back, and an unchanged original JSON workspace.
+    4. Repeat with the existing pending-journal fixture and with a pending JSON
+       draft or uncertain write. Check preserved bytes and released locks.
+  - **Expected results:** Disclosure comes first. Labels, validation and focus
+    remain usable without a native dialog. Both entry routes call the same
+    guarded, scoped preview workflow. Content stays inert and read-only;
+    refresh/reopen conflicts preserve exact files and original JSON state.
+  - **Evidence:** Save actual native path values, errors, trees, private
+    screenshots, exact fixture/workspace bytes, lock checks and source hashes
+    under `docs/artifacts/native-isolation/app-run-*/`.
+  - **Cleanup:** Stop only owned processes and remove private data after
+    evidence inspection. Restore no user setting and change no global fonts.
+  - **Status:** Pending implementation. Existing preview requires a native
+    picker and its current scenario needs an external picker driver. Native
+    picker acceptance remains separate from this explicit-path case.
