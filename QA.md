@@ -403,3 +403,31 @@ synchronous calculations in ordinary TypeScript.
   - **Cleanup:** Close only owned processes and scopes. Remove isolated test
     data after evidence review. Leave user data and configuration untouched.
   - **Status:** Pending; user explicitly includes existing desktop code.
+
+- [ ] **QA-015 — P0 — Effect runtime resource and write boundaries**
+  - **Purpose:** Check that the desktop runtime acquires one notes lock, runs
+    deferred mutations, preserves failed drafts, and releases the lock.
+  - **Prerequisites:** Shared setup and an isolated local display. No other
+    Still Notes process may use the disposable data directory. Use the pinned
+    Bun from `node_modules/.bin` and the existing native automation tools.
+  - **Inputs:** The existing Unicode note, failed-save and restart scenarios in
+    `apps/desktop/scripts/native-e2e.ts` and `native-regressions.ts`.
+  - **Steps:**
+    1. From `apps/desktop`, run
+       `../../node_modules/.bin/bun test tests/store.test.ts tests/settings.test.ts`.
+    2. From the repository root, run `bun run test:native`. Record the
+       disposable data path and inspect the generated
+       `docs/artifacts/native-e2e.json`.
+    3. Confirm the failed-save scenario exports the draft without marking it
+       saved, then retries it after the cause is removed.
+    4. Confirm the restart scenario opens the same data after shutdown and
+       retains the note and settings values.
+  - **Expected results:** The named tests pass. The native report shows each
+    requested step passed. The draft export contains the exact unsaved text.
+    Restart opens the stored data without a false lock or missing edits.
+  - **Evidence:** Copy the sanitized test output and native report to
+    `docs/artifacts/effect-migration/QA-015/`. Inspect the draft export,
+    persisted files and screenshots before recording a pass.
+  - **Cleanup:** Close only the test processes. Remove only the disposable
+    directory after its evidence is reviewed. Do not touch personal data.
+  - **Status:** Pending; desktop Effect caller migration is in progress.
