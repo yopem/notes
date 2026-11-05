@@ -1119,9 +1119,10 @@ mark those cases passed until capture works and the evidence is inspected.
     workspace hashes under `docs/artifacts/tasks/QA-043/`.
   - **Cleanup:** Stop only the test app and remove its isolated data after
     evidence review.
-  - **Status:** Blocked. The task view is not implemented. GPUix needs a
-    verified live-region announcement API for changing results. Screenshot
-    capture is also blocked by QA-015.
+  - **Status:** Pending. The read-only view is implemented with explicit search
+    submission and a focusable result summary. Native interaction, focus
+    announcements and screen-reader behavior remain unverified. Screenshot
+    capture is blocked by QA-015.
 
 - [ ] **QA-044 — P0 — Show pending draft tasks without saving them**
   - **Purpose:** Task discovery must use unsaved draft content without clearing
@@ -1141,9 +1142,10 @@ mark those cases passed until capture works and the evidence is inspected.
     under `docs/artifacts/tasks/QA-044/`.
   - **Cleanup:** Restore only test-owned workspace bytes, close the test app and
     remove isolated data after evidence review.
-  - **Status:** Blocked. The task view is not implemented. GPUix needs a
-    verified live-region announcement API for changing results. Screenshot
-    capture is also blocked by QA-015.
+  - **Status:** Pending. The read-only view is implemented with explicit search
+    submission and a focusable result summary. Native interaction, focus
+    announcements and screen-reader behavior remain unverified. Screenshot
+    capture is blocked by QA-015.
 
 - [ ] **QA-045 — P1 — Report task parsing errors and empty results**
   - **Purpose:** Distinguish a task parse failure from a genuinely empty view.
@@ -1164,9 +1166,10 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save sanitized app trees, screenshots and the tested revision
     under `docs/artifacts/tasks/QA-045/`.
   - **Cleanup:** Stop only the test app and remove isolated data after review.
-  - **Status:** Blocked. The task view is not implemented. GPUix needs a
-    verified live-region announcement API for changing results. Screenshot
-    capture is also blocked by QA-015.
+  - **Status:** Pending. The read-only view is implemented with explicit search
+    submission and a focusable result summary. Native interaction, focus
+    announcements and screen-reader behavior remain unverified. Screenshot
+    capture is blocked by QA-015.
 
 - [ ] **QA-046 — P0 — Duplicate immediately after typing**
   - **Purpose:** Ensure a fast duplicate action does not copy an older render
