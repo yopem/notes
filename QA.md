@@ -1214,3 +1214,26 @@ mark those cases passed until capture works and the evidence is inspected.
     evidence review.
   - **Status:** Pending. Source review identified a case-sensitive comparison;
     no case-insensitive platform run has verified the defect or repair.
+
+- [ ] **QA-048 — P1 — Development startup and shutdown**
+  - **Purpose:** Distinguish a normal Turbo shutdown message from a desktop
+    startup error and confirm the development process exits cleanly.
+  - **Prerequisites:** No other development process; an isolated data directory;
+    project-local pinned Bun; a working GPUix display. Do not use personal data.
+  - **Inputs:** `GPUIX_BACKGROUND=1` and `STILL_NOTES_DATA_DIR` set to the
+    absolute path of an empty test-owned directory.
+  - **Steps:**
+    1. From the repository root, run `bun run dev` with the stated environment
+       values and save its output to a local artifact.
+    2. Confirm the test-owned window opens and leave it idle.
+    3. Send Ctrl+C once to that command and wait for Turbo to stop its tasks.
+    4. Check that its child process exits and its test workspace lock is gone.
+  - **Expected results:** The desktop starts without an earlier error. Turbo may
+    report cache finalization and task shutdown after Ctrl+C; this message alone
+    is not an error. The test process exits without a stale lock.
+  - **Evidence:** Save sanitized command output, exit status, tested revision
+    and process cleanup result under `docs/artifacts/dev/QA-048/`.
+  - **Cleanup:** Stop only processes started by this case and remove the
+    isolated directory after evidence review.
+  - **Status:** Blocked. GPUix initialization has stalled in isolated controls;
+    the reported shutdown line alone does not identify its cause.
