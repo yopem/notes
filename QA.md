@@ -514,7 +514,8 @@ mark those cases passed until capture works and the evidence is inspected.
     note text.
   - **Cleanup:** Close only the test app. After evidence review, remove only the
     recorded `VAULT` and isolated app data directories.
-  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+  - **Status:** Blocked. The native host has no documented close veto for
+    unsaved drafts, and screenshot capture is blocked by QA-015.
 
 - [ ] **QA-018 — P0 — Save a selected Markdown file**
   - **Purpose:** Save an edit to the selected folder note without changing JSON.
@@ -532,7 +533,9 @@ mark those cases passed until capture works and the evidence is inspected.
     and screenshots under `docs/artifacts/vault-workspace/QA-018/`.
   - **Cleanup:** Close the test app and remove only the recorded isolated data
     after evidence review.
-  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+  - **Status:** Blocked. The current hash check and file replacement are not
+    atomic against an external writer. Resolve concurrent-write protection
+    before enabling editing. Screenshot capture is blocked by QA-015.
 
 - [ ] **QA-019 — P0 — Preserve a draft on an external edit**
   - **Purpose:** Reject a stale write without overwriting disk or losing a
@@ -552,7 +555,9 @@ mark those cases passed until capture works and the evidence is inspected.
     and screenshots in `docs/artifacts/vault-workspace/QA-019/`.
   - **Cleanup:** Close only the test app and remove the recorded isolated data
     after evidence review.
-  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+  - **Status:** Blocked. The current hash check and file replacement are not
+    atomic against an external writer. Resolve concurrent-write protection
+    before enabling editing. Screenshot capture is blocked by QA-015.
 
 - [ ] **QA-020 — P0 — Cancel folder selection and failed open**
   - **Purpose:** Prevent a canceled or unsafe folder open from altering data.
