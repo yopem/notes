@@ -15,6 +15,7 @@
     "test:markdown": "bun test src/markdown.test.ts"
   },
   "dependencies": {
+    "effect": "4.1.2",
     "mdast-util-to-string": "4.0.0",
     "remark-frontmatter": "5.0.0",
     "remark-gfm": "4.0.1",

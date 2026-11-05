@@ -22,6 +22,7 @@
     "@still-notes/env": "workspace:*",
     "@still-notes/notes": "workspace:*",
     "date-fns": "4.1.0",
+    "effect": "4.1.2",
     "mdast-util-frontmatter": "2.0.1",
     "mdast-util-gfm": "3.1.0",
     "mdast-util-math": "3.0.0",

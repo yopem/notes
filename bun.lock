@@ -10,6 +10,7 @@
         "@yopem/oxlint-config": "0.7.1",
         "@yopem/typescript-config": "0.2.5",
         "bun": "1.4.4-canary.20261104.1",
+        "effect": "4.1.2",
         "eslint-plugin-oxfmt": "0.26.0",
         "turbo": "2.11.10",
       },
@@ -23,6 +24,7 @@
         "@still-notes/env": "workspace:*",
         "@still-notes/notes": "workspace:*",
         "date-fns": "4.1.0",
+        "effect": "4.1.2",
         "mdast-util-frontmatter": "2.0.1",
         "mdast-util-gfm": "3.1.0",
         "mdast-util-math": "3.0.0",
@@ -42,6 +44,7 @@
       "name": "@still-notes/env",
       "version": "0.1.0",
       "dependencies": {
+        "effect": "4.1.2",
         "zod": "4.6.7",
       },
       "devDependencies": {
@@ -52,6 +55,7 @@
       "name": "@still-notes/notes",
       "version": "0.1.0",
       "dependencies": {
+        "effect": "4.1.2",
         "mdast-util-to-string": "4.0.0",
         "remark-frontmatter": "5.0.0",
         "remark-gfm": "4.0.1",
@@ -374,6 +378,8 @@
     "devlop": ["devlop@1.1.0", "", { "dependencies": { "dequal": "^2.0.0" } }, "sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA=="],
 
     "editorconfig": ["editorconfig@3.0.2", "", { "dependencies": { "@one-ini/wasm": "0.2.1", "commander": "^14.0.3", "minimatch": "~10.2.4", "semver": "^7.7.4" }, "bin": { "editorconfig": "bin/editorconfig" } }, "sha512-T0ix8GhtxyKVfUFEcvdNDt3YGqlwkFHbD4/5bgFUDgFmxhI/cSRAeJ87/Sz//Cq8Eam6JX/e23RkoFO71P7aAA=="],
+
+    "effect": ["effect@4.1.2", "", {}, "sha512-d3Oah1WyKxFLFh19yWheS5IXIVaITzxZ71JkE1rkUozq/6EcJSU5nPk5bF2QrSygZ3SQoiNQB8TsxFriyMeMaQ=="],
 
     "escape-string-regexp": ["escape-string-regexp@5.0.0", "", {}, "sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw=="],
 
