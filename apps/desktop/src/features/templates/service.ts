@@ -1,3 +1,4 @@
+import { DateTime, Effect, Schema } from "effect"
 import {
   closeSync,
   existsSync,
@@ -8,7 +9,6 @@ import {
   unlinkSync,
 } from "node:fs"
 import { basename, dirname } from "node:path"
-import { z } from "zod"
 
 import { sourceDateFormat } from "@/features/tasks/periodic"
 import {
@@ -16,22 +16,26 @@ import {
   relativeServicePathSchema,
   resolveServicePath,
 } from "@/features/tasks/service"
+import { TemplateError, templateIO } from "@/features/templates/errors"
 import { atomicWrite } from "@/platform/files"
 
-const templateInputSchema = z.object({
-  name: z.string().trim().min(1).max(256),
-  description: z.string().max(4096).default(""),
-  category: z.enum(["Engineering", "Personal", "Custom"]).default("Custom"),
-  body: z.string().max(2 * 1024 * 1024),
-  titleTemplate: z.string().max(1024).optional(),
-  targetDirectory: relativeServicePathSchema.optional(),
-  builtinId: z
-    .string()
-    .regex(/^builtin:[a-z]+$/)
-    .optional(),
+const templateInputSchema = Schema.Struct({
+  name: Schema.Trim.check(Schema.isBetweenLength(1, 256)),
+  description: Schema.String.check(Schema.isMaxLength(4096)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  category: Schema.Literals(["Engineering", "Personal", "Custom"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("Custom")),
+  ),
+  body: Schema.String.check(Schema.isMaxLength(2 * 1024 * 1024)),
+  titleTemplate: Schema.optional(Schema.String.check(Schema.isMaxLength(1024))),
+  targetDirectory: Schema.optional(relativeServicePathSchema),
+  builtinId: Schema.optional(
+    Schema.String.check(Schema.isPattern(/^builtin:[a-z]+$/)),
+  ),
 })
 
-export type TemplateInput = z.input<typeof templateInputSchema>
+export type TemplateInput = typeof templateInputSchema.Encoded
 
 export interface NoteTemplate {
   id: string
@@ -174,12 +178,15 @@ export function renderTemplate(
   input: string,
   context: TemplateContext,
 ): RenderedTemplate {
-  z.string().parse(input)
-  const now = z.date().parse(context.now ?? new Date())
+  Schema.decodeUnknownSync(Schema.String)(input)
 
-  const variables = z
-    .record(z.string(), z.string())
-    .parse(context.variables ?? {})
+  const now = Schema.decodeUnknownSync(Schema.Date)(
+    context.now ?? DateTime.toDateUtc(DateTime.nowUnsafe()),
+  )
+
+  const variables = Schema.decodeUnknownSync(
+    Schema.Record(Schema.String, Schema.String),
+  )(context.variables ?? {})
 
   let cursorOffset: number | null = null
   let body = ""
@@ -219,15 +226,21 @@ export function insertTemplate(
   template: NoteTemplate,
   context: TemplateContext,
 ) {
-  const range = z
-    .strictObject({
-      from: z.number().int().min(0).max(body.length),
-      to: z.number().int().min(0).max(body.length),
-    })
-    .refine(function ordered(value) {
-      return value.from <= value.to
-    })
-    .parse(selection)
+  const range = Schema.decodeUnknownSync(
+    Schema.Struct({
+      from: Schema.Int.check(
+        Schema.isBetween({ minimum: 0, maximum: body.length }),
+      ),
+      to: Schema.Int.check(
+        Schema.isBetween({ minimum: 0, maximum: body.length }),
+      ),
+    }).check(
+      Schema.makeFilter(function ordered(value) {
+        return value.from <= value.to
+      }),
+    ),
+    { onExcessProperty: "error" },
+  )(selection)
 
   const rendered = renderTemplate(template.body, context)
 
@@ -237,35 +250,45 @@ export function insertTemplate(
   }
 }
 
-export function createFromTemplate(
+export const createFromTemplate = Effect.fn("createFromTemplate")(function* (
   template: NoteTemplate,
   context: TemplateContext,
 ) {
-  const title = renderTemplate(
-    template.titleTemplate ?? "{{title}}",
-    context,
-  ).body.trim()
+  const now = context.now ?? (yield* DateTime.nowAsDate)
+  const renderContext = { ...context, now }
 
-  relativeServicePathSchema.parse(title)
+  const renderedTitle = yield* templateIO("render", () =>
+    renderTemplate(template.titleTemplate ?? "{{title}}", renderContext),
+  )
+
+  const title = renderedTitle.body.trim()
+  yield* Schema.decodeUnknownEffect(relativeServicePathSchema)(title)
 
   if (title.includes("/") || title.startsWith("."))
-    throw new Error("Unsafe template title")
+    return yield* new TemplateError({
+      operation: "render",
+      message: "Unsafe template title",
+    })
 
   if (template.targetDirectory)
-    relativeServicePathSchema.parse(template.targetDirectory)
+    yield* Schema.decodeUnknownEffect(relativeServicePathSchema)(
+      template.targetDirectory,
+    )
   const path = `${template.targetDirectory ? `${template.targetDirectory}/` : ""}${title}.md`
-  relativeServicePathSchema.parse(path)
+  yield* Schema.decodeUnknownEffect(relativeServicePathSchema)(path)
 
-  return {
-    path,
-    title,
-    ...renderTemplate(template.body, { ...context, title }),
-  }
-}
+  const rendered = yield* templateIO("render", () =>
+    renderTemplate(template.body, { ...renderContext, title }),
+  )
 
-const preferencesSchema = z.strictObject({
-  version: z.literal(1),
-  hidden: z.array(z.string().regex(/^builtin:[a-z]+$/)).max(100),
+  return { path, title, ...rendered }
+})
+
+const preferencesSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  hidden: Schema.Array(
+    Schema.String.check(Schema.isPattern(/^builtin:[a-z]+$/)),
+  ).check(Schema.isMaxLength(100)),
 })
 
 const headerKeys = new Set([
@@ -283,17 +306,19 @@ const sidecar = ".still-notes/templates"
 
 const preferences = ".still-notes/templates.json"
 
-const libraryOptionsSchema = z.strictObject({
-  templateFolder: relativeServicePathSchema
-    .refine(function visible(path) {
-      return (
-        path.length <= 512 &&
-        path.split("/").every(function segment(part) {
-          return !part.startsWith(".")
-        })
-      )
-    })
-    .optional(),
+const libraryOptionsSchema = Schema.Struct({
+  templateFolder: Schema.optional(
+    relativeServicePathSchema.check(
+      Schema.makeFilter(function visible(path) {
+        return (
+          path.length <= 512 &&
+          path.split("/").every(function segment(part) {
+            return !part.startsWith(".")
+          })
+        )
+      }),
+    ),
+  ),
 })
 
 function parseTemplate(
@@ -328,7 +353,7 @@ function parseTemplate(
     value("targetdirectory") ??
     [value("targetfolder"), value("targetsubpath")].filter(Boolean).join("/")
 
-  const input = templateInputSchema.parse({
+  const input = Schema.decodeUnknownSync(templateInputSchema)({
     name: value("name") ?? stem,
     description: value("description") ?? "",
     category:
@@ -352,7 +377,7 @@ function parseTemplate(
   }
 }
 
-function composeTemplate(input: z.output<typeof templateInputSchema>) {
+function composeTemplate(input: typeof templateInputSchema.Type) {
   const fields = Object.entries({
     name: input.name,
     description: input.description,
@@ -372,16 +397,18 @@ function composeTemplate(input: z.output<typeof templateInputSchema>) {
 }
 
 export class TemplateLibrary {
-  private readonly options: z.output<typeof libraryOptionsSchema>
+  private readonly options: typeof libraryOptionsSchema.Type
   constructor(
     private readonly root: string,
-    options: z.input<typeof libraryOptionsSchema> = {},
+    options: typeof libraryOptionsSchema.Encoded = {},
   ) {
-    this.options = libraryOptionsSchema.parse(options)
+    this.options = Schema.decodeUnknownSync(libraryOptionsSchema, {
+      onExcessProperty: "error",
+    })(options)
     resolveServicePath(root, preferences)
   }
   isTemplatePath(path: string) {
-    relativeServicePathSchema.parse(path)
+    Schema.decodeUnknownSync(relativeServicePathSchema)(path)
     const folder = this.options.templateFolder
 
     return (
@@ -393,7 +420,9 @@ export class TemplateLibrary {
     const path = resolveServicePath(this.root, preferences)
 
     return existsSync(path)
-      ? preferencesSchema.parse(JSON.parse(readFileSync(path, "utf8")))
+      ? Schema.decodeUnknownSync(Schema.fromJsonString(preferencesSchema), {
+          onExcessProperty: "error",
+        })(readFileSync(path, "utf8"))
       : { version: 1 as const, hidden: [] }
   }
   private files(
@@ -405,7 +434,10 @@ export class TemplateLibrary {
     if (!existsSync(absolute)) return []
 
     if (!lstatSync(absolute).isDirectory())
-      throw new Error("Template directory is not a directory")
+      throw new TemplateError({
+        operation: "read",
+        message: "Template directory is not a directory",
+      })
     const result: { path: string; raw: string }[] = []
 
     for (const name of readdirSync(absolute).sort()) {
@@ -418,27 +450,37 @@ export class TemplateLibrary {
         result.push(...this.files(relative, true))
       else if (stat.isFile() && /\.md$/i.test(name)) {
         if (stat.size > 2 * 1024 * 1024)
-          throw new Error("Template file is too large")
+          throw new TemplateError({
+            operation: "read",
+            message: "Template file is too large",
+          })
         result.push({ path: relative, raw: readFileSync(path, "utf8") })
       }
     }
 
     return result
   }
-  list(options: { includeHidden?: boolean } = {}) {
-    const state = this.state()
+  list = Effect.fn("TemplateLibrary.list")(function* (
+    this: TemplateLibrary,
+    options: { includeHidden?: boolean } = {},
+  ) {
+    const state = yield* templateIO("read", () => this.state())
     const hidden = new Set(state.hidden)
 
-    const custom = this.files(sidecar, false).map(function template(file) {
-      return parseTemplate(file.raw, file.path)
-    })
+    const custom = yield* templateIO("read", () =>
+      this.files(sidecar, false).map(function template(file) {
+        return parseTemplate(file.raw, file.path)
+      }),
+    )
 
     const folder = this.options.templateFolder
 
     const folderTemplates = folder
-      ? this.files(folder, true).map(function template(file) {
-          return parseTemplate(file.raw, file.path, folder)
-        })
+      ? yield* templateIO("read", () =>
+          this.files(folder, true).map(function template(file) {
+            return parseTemplate(file.raw, file.path, folder)
+          }),
+        )
       : []
 
     const overrides = new Set(
@@ -471,33 +513,52 @@ export class TemplateLibrary {
           left.id.localeCompare(right.id)
         )
       })
-  }
-  find(id: string) {
-    return this.list().find(function same(template) {
+  })
+  find = Effect.fn("TemplateLibrary.find")(function* (
+    this: TemplateLibrary,
+    id: string,
+  ) {
+    const templates = yield* this.list()
+
+    return templates.find(function same(template) {
       return template.id === id || template.builtinId === id
     })
-  }
-  private locked<T>(operation: () => T): T {
-    const path = resolveServicePath(
-      this.root,
-      ".still-notes/templates.lock",
-      true,
+  })
+  private locked<A, E, R>(operation: Effect.Effect<A, E, R>) {
+    const root = this.root
+
+    // Keep lock cleanup failures in the typed error channel.
+    return Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const lock = yield* templateIO("lock", () => {
+          const path = resolveServicePath(
+            root,
+            ".still-notes/templates.lock",
+            true,
+          )
+
+          return { path, fd: openSync(path, "wx", 0o600) }
+        })
+
+        const result = yield* Effect.exit(restore(operation))
+        yield* templateIO("lock", () => {
+          try {
+            closeSync(lock.fd)
+          } finally {
+            unlinkSync(lock.path)
+          }
+        })
+
+        return yield* result
+      }),
     )
-
-    const fd = openSync(path, "wx", 0o600)
-
-    try {
-      return operation()
-    } finally {
-      closeSync(fd)
-      unlinkSync(path)
-    }
   }
-  save(
+  save = Effect.fn("TemplateLibrary.save")(function* (
+    this: TemplateLibrary,
     input: TemplateInput,
     previous?: { sourcePath: string; expectedRaw: string },
   ) {
-    const value = templateInputSchema.parse(input)
+    const value = yield* Schema.decodeUnknownEffect(templateInputSchema)(input)
 
     if (
       value.builtinId &&
@@ -505,115 +566,166 @@ export class TemplateLibrary {
         return template.id === value.builtinId
       })
     )
-      throw new Error("Unknown built-in template")
+      return yield* new TemplateError({
+        operation: "write",
+        message: "Unknown built-in template",
+      })
     const raw = composeTemplate(value)
 
-    return this.locked(() => {
-      let relative: string
+    const root = this.root
+    const templates = this.list({ includeHidden: true })
 
-      if (previous) {
-        relative = previous.sourcePath
+    return yield* this.locked(
+      Effect.gen(function* () {
+        let relative: string
 
-        if (
-          !relative.startsWith(`${sidecar}/`) ||
-          relative.slice(sidecar.length + 1).includes("/") ||
-          !relative.endsWith(".md")
-        )
-          throw new Error("Only sidecar templates can be edited here")
-        const path = resolveServicePath(this.root, relative)
+        if (previous) {
+          relative = previous.sourcePath
 
-        if (readFileSync(path, "utf8") !== previous.expectedRaw)
-          throw new Error("Template source changed")
-      } else {
-        if (
-          value.builtinId &&
-          this.list({ includeHidden: true }).some(function same(template) {
-            return template.builtinId === value.builtinId
-          })
-        )
-          throw new Error("Template override exists; edit its current source")
+          if (
+            !relative.startsWith(`${sidecar}/`) ||
+            relative.slice(sidecar.length + 1).includes("/") ||
+            !relative.endsWith(".md")
+          )
+            return yield* new TemplateError({
+              operation: "write",
+              message: "Only sidecar templates can be edited here",
+            })
 
-        const slug =
-          value.name
-            .toLowerCase()
-            .replace(/[^\p{L}\d]+/gu, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 80) || "template"
+          const current = yield* templateIO("read", () =>
+            readFileSync(resolveServicePath(root, relative), "utf8"),
+          )
 
-        let counter = 1
-        relative = `${sidecar}/${slug}.md`
+          if (current !== previous.expectedRaw)
+            return yield* new TemplateError({
+              operation: "write",
+              message: "Template source changed",
+            })
+        } else {
+          if (
+            value.builtinId &&
+            (yield* templates).some(function same(template) {
+              return template.builtinId === value.builtinId
+            })
+          )
+            return yield* new TemplateError({
+              operation: "write",
+              message: "Template override exists; edit its current source",
+            })
 
-        while (existsSync(resolveServicePath(this.root, relative, true))) {
-          counter += 1
-          relative = `${sidecar}/${slug}-${counter}.md`
+          const slug =
+            value.name
+              .toLowerCase()
+              .replace(/[^\p{L}\d]+/gu, "-")
+              .replace(/^-+|-+$/g, "")
+              .slice(0, 80) || "template"
+
+          let counter = 1
+          relative = `${sidecar}/${slug}.md`
+
+          while (
+            yield* templateIO("read", () =>
+              existsSync(resolveServicePath(root, relative, true)),
+            )
+          ) {
+            counter += 1
+            relative = `${sidecar}/${slug}-${counter}.md`
+          }
         }
-      }
 
-      const path = resolveServicePath(this.root, relative, true)
-      atomicWrite(path, raw, dirname(path))
+        return yield* templateIO("write", () => {
+          const path = resolveServicePath(root, relative, true)
+          atomicWrite(path, raw, dirname(path))
 
-      return parseTemplate(raw, relative)
-    })
-  }
+          return parseTemplate(raw, relative)
+        })
+      }),
+    )
+  })
   remove(sourcePath: string, expectedRaw: string) {
-    return this.locked(() => {
-      if (
-        !sourcePath.startsWith(`${sidecar}/`) ||
-        sourcePath.slice(sidecar.length + 1).includes("/") ||
-        !sourcePath.endsWith(".md")
-      )
-        throw new Error("Only sidecar templates can be removed here")
-      const path = resolveServicePath(this.root, sourcePath)
+    return this.locked(
+      templateIO("write", () => {
+        if (
+          !sourcePath.startsWith(`${sidecar}/`) ||
+          sourcePath.slice(sidecar.length + 1).includes("/") ||
+          !sourcePath.endsWith(".md")
+        )
+          throw new TemplateError({
+            operation: "write",
+            message: "Only sidecar templates can be removed here",
+          })
+        const path = resolveServicePath(this.root, sourcePath)
 
-      if (readFileSync(path, "utf8") !== expectedRaw)
-        throw new Error("Template source changed")
-      unlinkSync(path)
-    })
+        if (readFileSync(path, "utf8") !== expectedRaw)
+          throw new TemplateError({
+            operation: "write",
+            message: "Template source changed",
+          })
+        unlinkSync(path)
+      }),
+    )
   }
-  setHidden(id: string, hidden: boolean) {
+  setHidden = Effect.fn("TemplateLibrary.setHidden")(function* (
+    this: TemplateLibrary,
+    id: string,
+    hidden: boolean,
+  ) {
     if (
       !builtinTemplates().some(function same(template) {
         return template.id === id
       })
     )
-      throw new Error("Unknown built-in template")
-    this.locked(() => {
-      const state = this.state()
-      const ids = new Set(state.hidden)
+      return yield* new TemplateError({
+        operation: "write",
+        message: "Unknown built-in template",
+      })
+    yield* this.locked(
+      templateIO("write", () => {
+        const state = this.state()
+        const ids = new Set(state.hidden)
 
-      if (hidden) ids.add(id)
-      else ids.delete(id)
-      const path = resolveServicePath(this.root, preferences, true)
-      atomicWrite(
-        path,
-        JSON.stringify({ version: 1, hidden: [...ids] }),
-        dirname(path),
-      )
-    })
-  }
-  resetBuiltin(id: string) {
+        if (hidden) ids.add(id)
+        else ids.delete(id)
+        const path = resolveServicePath(this.root, preferences, true)
+        atomicWrite(
+          path,
+          JSON.stringify({ version: 1, hidden: [...ids] }),
+          dirname(path),
+        )
+      }),
+    )
+  })
+  resetBuiltin = Effect.fn("TemplateLibrary.resetBuiltin")(function* (
+    this: TemplateLibrary,
+    id: string,
+  ) {
     if (
       !builtinTemplates().some(function same(template) {
         return template.id === id
       })
     )
-      throw new Error("Unknown built-in template")
-    this.locked(() => {
-      for (const file of this.files(sidecar, false))
-        if (parseTemplate(file.raw, file.path).builtinId === id)
-          unlinkSync(resolveServicePath(this.root, file.path))
-      const state = this.state()
-      const path = resolveServicePath(this.root, preferences, true)
-      atomicWrite(
-        path,
-        JSON.stringify({
-          version: 1,
-          hidden: state.hidden.filter(function other(value) {
-            return value !== id
+      return yield* new TemplateError({
+        operation: "write",
+        message: "Unknown built-in template",
+      })
+    yield* this.locked(
+      templateIO("write", () => {
+        for (const file of this.files(sidecar, false))
+          if (parseTemplate(file.raw, file.path).builtinId === id)
+            unlinkSync(resolveServicePath(this.root, file.path))
+        const state = this.state()
+        const path = resolveServicePath(this.root, preferences, true)
+        atomicWrite(
+          path,
+          JSON.stringify({
+            version: 1,
+            hidden: state.hidden.filter(function other(value) {
+              return value !== id
+            }),
           }),
-        }),
-        dirname(path),
-      )
-    })
-  }
+          dirname(path),
+        )
+      }),
+    )
+  })
 }

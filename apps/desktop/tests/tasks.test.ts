@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import {
   mkdtempSync,
   readFileSync,
@@ -393,12 +394,16 @@ describe("real reminder ledger", () => {
     const directory = root()
     const start = new Date(2024, 2, 1, 9).getTime()
     const ledger = new ReminderLedger(directory, start)
-    ledger.claim(reminders, start)
-    expect(ledger.claim(reminders, now.getTime())).toHaveLength(2)
+    Effect.runSync(ledger.claim(reminders, start))
+    expect(Effect.runSync(ledger.claim(reminders, now.getTime()))).toHaveLength(
+      2,
+    )
     expect(
-      new ReminderLedger(directory, now.getTime()).claim(
-        reminders,
-        now.getTime(),
+      Effect.runSync(
+        new ReminderLedger(directory, now.getTime()).claim(
+          reminders,
+          now.getTime(),
+        ),
       ),
     ).toEqual([])
     expect(readFileSync(join(directory, "reminders.json"), "utf8")).toContain(
@@ -417,16 +422,18 @@ describe("real reminder ledger", () => {
 
     const one = new ReminderLedger(directory, at - 1)
     const two = new ReminderLedger(directory, at - 1)
-    expect(one.claim(items, at)).toHaveLength(1)
-    expect(two.claim(items, at)).toEqual([])
+    expect(Effect.runSync(one.claim(items, at))).toHaveLength(1)
+    expect(Effect.runSync(two.claim(items, at))).toEqual([])
     writeFileSync(join(directory, "reminders.json"), "broken")
-    expect(() => one.claim(items, at)).toThrow()
+    expect(() => Effect.runSync(one.claim(items, at))).toThrow()
     expect(readFileSync(join(directory, "reminders.json"), "utf8")).toBe(
       "broken",
     )
     const outside = root()
     const linked = root()
     symlinkSync(join(outside, "state.json"), join(linked, "reminders.json"))
-    expect(() => new ReminderLedger(linked, at).claim(items, at)).toThrow()
+    expect(() =>
+      Effect.runSync(new ReminderLedger(linked, at).claim(items, at)),
+    ).toThrow()
   })
 })

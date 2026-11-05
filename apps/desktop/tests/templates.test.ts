@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import {
   mkdirSync,
   mkdtempSync,
@@ -109,13 +110,15 @@ describe("template content APIs", () => {
       insertTemplate("abc", { from: 3, to: 2 }, template(), context),
     ).toThrow()
 
-    const created = createFromTemplate(
-      {
-        ...template(),
-        titleTemplate: "Meeting {{date}}",
-        targetDirectory: "Work",
-      },
-      context,
+    const created = Effect.runSync(
+      createFromTemplate(
+        {
+          ...template(),
+          titleTemplate: "Meeting {{date}}",
+          targetDirectory: "Work",
+        },
+        context,
+      ),
     )
 
     expect(created).toMatchObject({
@@ -124,12 +127,19 @@ describe("template content APIs", () => {
       body: "# Meeting 2024-02-29\n",
     })
     expect(() =>
-      createFromTemplate({ ...template(), targetDirectory: "../bad" }, context),
+      Effect.runSync(
+        createFromTemplate(
+          { ...template(), targetDirectory: "../bad" },
+          context,
+        ),
+      ),
     ).toThrow()
     expect(() =>
-      createFromTemplate(
-        { ...template(), titleTemplate: "../escape" },
-        context,
+      Effect.runSync(
+        createFromTemplate(
+          { ...template(), titleTemplate: "../escape" },
+          context,
+        ),
       ),
     ).toThrow()
   })
@@ -152,7 +162,7 @@ describe("real template library", () => {
       templateFolder: "Templates",
     })
 
-    const items = library.list()
+    const items = Effect.runSync(library.list())
     expect(
       items.find((item) => item.id === "folder:Work/日本語")?.body,
     ).toContain("tags: [project]")
@@ -175,20 +185,24 @@ describe("real template library", () => {
       category: "Custom" as const,
     }
 
-    const one = library.save(input)
-    const two = library.save(input)
+    const one = Effect.runSync(library.save(input))
+    const two = Effect.runSync(library.save(input))
     expect(one.sourcePath).not.toBe(two.sourcePath)
     expect(
-      new TemplateLibrary(directory).list().find((item) => item.id === one.id),
+      Effect.runSync(new TemplateLibrary(directory).list()).find(
+        (item) => item.id === one.id,
+      ),
     ).toMatchObject(input)
 
     if (!one.sourcePath || one.raw === undefined)
       throw new Error("Missing saved source")
     writeFileSync(join(directory, one.sourcePath), "external")
     expect(() =>
-      library.save(
-        { ...input, name: "Changed" },
-        { sourcePath: one.sourcePath ?? "", expectedRaw: one.raw ?? "" },
+      Effect.runSync(
+        library.save(
+          { ...input, name: "Changed" },
+          { sourcePath: one.sourcePath ?? "", expectedRaw: one.raw ?? "" },
+        ),
       ),
     ).toThrow("changed")
     expect(readFileSync(join(directory, one.sourcePath), "utf8")).toBe(
@@ -199,26 +213,28 @@ describe("real template library", () => {
   test("built-in overrides, hide/restore and reset survive restart", () => {
     const directory = root()
     const library = new TemplateLibrary(directory)
-    const original = library.find("builtin:daily")
+    const original = Effect.runSync(library.find("builtin:daily"))
 
     if (!original) throw new Error("Missing daily template")
 
-    const saved = library.save({
-      ...original,
-      body: "custom daily",
-      builtinId: original.id,
-    })
+    const saved = Effect.runSync(
+      library.save({
+        ...original,
+        body: "custom daily",
+        builtinId: original.id,
+      }),
+    )
 
-    expect(library.find(original.id)?.body).toBe("custom daily")
-    library.setHidden(original.id, true)
+    expect(Effect.runSync(library.find(original.id))?.body).toBe("custom daily")
+    Effect.runSync(library.setHidden(original.id, true))
     expect(
-      new TemplateLibrary(directory)
-        .list()
-        .some((item) => item.id === saved.id),
+      Effect.runSync(new TemplateLibrary(directory).list()).some(
+        (item) => item.id === saved.id,
+      ),
     ).toBe(false)
-    library.setHidden(original.id, false)
-    library.resetBuiltin(original.id)
-    expect(library.find(original.id)?.body).toBe(original.body)
+    Effect.runSync(library.setHidden(original.id, false))
+    Effect.runSync(library.resetBuiltin(original.id))
+    expect(Effect.runSync(library.find(original.id))?.body).toBe(original.body)
   })
 
   test("fails closed for traversal, symlinks, corrupt preferences and external state edits", () => {
@@ -231,21 +247,27 @@ describe("real template library", () => {
       join(directory, "Templates", "linked.md"),
     )
     expect(() =>
-      new TemplateLibrary(directory, { templateFolder: "Templates" }).list(),
+      Effect.runSync(
+        new TemplateLibrary(directory, { templateFolder: "Templates" }).list(),
+      ),
     ).toThrow()
     expect(
       () => new TemplateLibrary(directory, { templateFolder: "../outside" }),
     ).toThrow()
     const linked = join(root(), "alias")
     symlinkSync(outside, linked)
-    expect(() => new TemplateLibrary(linked).list()).toThrow()
+    expect(() => Effect.runSync(new TemplateLibrary(linked).list())).toThrow()
     const library = new TemplateLibrary(root())
     expect(() =>
-      library.save({ name: "Bad", body: "x", targetDirectory: "../bad" }),
+      Effect.runSync(
+        library.save({ name: "Bad", body: "x", targetDirectory: "../bad" }),
+      ),
     ).toThrow()
     mkdirSync(join(directory, ".still-notes"), { recursive: true })
     writeFileSync(join(directory, ".still-notes", "templates.json"), "broken")
-    expect(() => new TemplateLibrary(directory).list()).toThrow()
+    expect(() =>
+      Effect.runSync(new TemplateLibrary(directory).list()),
+    ).toThrow()
     expect(
       readFileSync(join(directory, ".still-notes", "templates.json"), "utf8"),
     ).toBe("broken")

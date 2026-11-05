@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 
 import {
   classifyPeriodic,
@@ -37,12 +38,13 @@ describe("periodic source date patterns", () => {
       locale: "en-US",
     }
 
-    expect(periodicLocation(new Date(2024, 1, 29), raw).path).toBe(
-      "Daily/2024/02/20240229.md",
-    )
-    expect(classifyPeriodic("Daily/2024/02/20240229.md", [raw])?.date).toBe(
-      "2024-02-29",
-    )
+    expect(
+      Effect.runSync(periodicLocation(new Date(2024, 1, 29), raw)).path,
+    ).toBe("Daily/2024/02/20240229.md")
+    expect(
+      Effect.runSync(classifyPeriodic("Daily/2024/02/20240229.md", [raw]))
+        ?.date,
+    ).toBe("2024-02-29")
 
     const short: PeriodicPattern = {
       ...raw,
@@ -50,9 +52,9 @@ describe("periodic source date patterns", () => {
       titlePattern: "yy-MM-dd",
     }
 
-    expect(classifyPeriodic("Old/24-02-29.md", [short])?.date).toBe(
-      "2024-02-29",
-    )
+    expect(
+      Effect.runSync(classifyPeriodic("Old/24-02-29.md", [short]))?.date,
+    ).toBe("2024-02-29")
     expect(sourceDateFormat(new Date(2024, 1, 29), "yyyy-Www")).toBe("2024-W09")
   })
   test("supports localized tokens, source dialects and literals", () => {
@@ -73,29 +75,41 @@ describe("periodic source date patterns", () => {
   })
 
   test("weekly anchors use ISO year even when Monday crosses calendar year", () => {
-    expect(periodicLocation(new Date(2021, 0, 1), weekly)).toMatchObject({
+    expect(
+      Effect.runSync(periodicLocation(new Date(2021, 0, 1), weekly)),
+    ).toMatchObject({
       path: "Weeks/2020/2020-W53.md",
       date: "2020-12-28",
     })
-    expect(periodicLocation(new Date(2018, 11, 31), weekly)).toMatchObject({
+    expect(
+      Effect.runSync(periodicLocation(new Date(2018, 11, 31), weekly)),
+    ).toMatchObject({
       path: "Weeks/2019/2019-W01.md",
       date: "2018-12-31",
     })
-    expect(classifyPeriodic("Weeks/2020/2020-W53.md", [weekly])?.date).toBe(
-      "2020-12-28",
-    )
-    expect(classifyPeriodic("Weeks/2021/2021-W53.md", [weekly])).toBeNull()
+    expect(
+      Effect.runSync(classifyPeriodic("Weeks/2020/2020-W53.md", [weekly]))
+        ?.date,
+    ).toBe("2020-12-28")
+    expect(
+      Effect.runSync(classifyPeriodic("Weeks/2021/2021-W53.md", [weekly])),
+    ).toBeNull()
   })
 
   test("daily and monthly directory patterns round-trip localized names", () => {
-    expect(periodicLocation(new Date(2024, 1, 29, 23), daily).path).toBe(
-      "Daily/2024/02/2024-02-29.md",
-    )
-    expect(classifyPeriodic("Daily/2024/02/2024-02-29.md", [daily])?.date).toBe(
-      "2024-02-29",
-    )
-    expect(classifyPeriodic("Daily/2025/02/2025-02-29.md", [daily])).toBeNull()
-    expect(classifyPeriodic("Daily/2024/02/2024-2-29.md", [daily])).toBeNull()
+    expect(
+      Effect.runSync(periodicLocation(new Date(2024, 1, 29, 23), daily)).path,
+    ).toBe("Daily/2024/02/2024-02-29.md")
+    expect(
+      Effect.runSync(classifyPeriodic("Daily/2024/02/2024-02-29.md", [daily]))
+        ?.date,
+    ).toBe("2024-02-29")
+    expect(
+      Effect.runSync(classifyPeriodic("Daily/2025/02/2025-02-29.md", [daily])),
+    ).toBeNull()
+    expect(
+      Effect.runSync(classifyPeriodic("Daily/2024/02/2024-2-29.md", [daily])),
+    ).toBeNull()
 
     const monthly: PeriodicPattern = {
       kind: "monthly",
@@ -104,12 +118,16 @@ describe("periodic source date patterns", () => {
       locale: "fr",
     }
 
-    expect(periodicLocation(new Date(2024, 1, 29), monthly)).toMatchObject({
+    expect(
+      Effect.runSync(periodicLocation(new Date(2024, 1, 29), monthly)),
+    ).toMatchObject({
       path: "Journal/2024/février 2024.md",
       date: "2024-02-01",
     })
     expect(
-      classifyPeriodic("Journal/2024/février 2024.md", [monthly])?.date,
+      Effect.runSync(
+        classifyPeriodic("Journal/2024/février 2024.md", [monthly]),
+      )?.date,
     ).toBe("2024-02-01")
   })
 
@@ -121,9 +139,11 @@ describe("periodic source date patterns", () => {
     }
 
     expect(
-      classifyPeriodic("Old/29-02-2024.md", [daily], [legacy]),
+      Effect.runSync(classifyPeriodic("Old/29-02-2024.md", [daily], [legacy])),
     ).toMatchObject({ kind: "daily", date: "2024-02-29", legacy: true })
-    expect(classifyPeriodic("Else/2024-02-29.md", [daily])).toBeNull()
+    expect(
+      Effect.runSync(classifyPeriodic("Else/2024-02-29.md", [daily])),
+    ).toBeNull()
 
     for (const directory of [
       "../outside",
@@ -133,13 +153,19 @@ describe("periodic source date patterns", () => {
       "Daily\\bad",
     ])
       expect(() =>
-        periodicLocation(new Date(2024, 1, 29), { ...daily, directory }),
+        Effect.runSync(
+          periodicLocation(new Date(2024, 1, 29), { ...daily, directory }),
+        ),
       ).toThrow()
     expect(() =>
-      periodicLocation(new Date(), { ...daily, titlePattern: "'../bad'" }),
+      Effect.runSync(
+        periodicLocation(new Date(), { ...daily, titlePattern: "'../bad'" }),
+      ),
     ).toThrow()
     expect(() =>
-      periodicLocation(new Date(), { ...daily, titlePattern: "MMMM" }),
+      Effect.runSync(
+        periodicLocation(new Date(), { ...daily, titlePattern: "MMMM" }),
+      ),
     ).toThrow()
   })
 })
@@ -152,7 +178,7 @@ describe("daily task domain", () => {
       body: "- [ ] implied\n- [ ] explicit due:2024-03-05\n- [>] moved",
     }
 
-    const tasks = inferDailyDue(parseTasks(note), [daily])
+    const tasks = Effect.runSync(inferDailyDue(parseTasks(note), [daily]))
     expect(tasks[0]).toMatchObject({ due: "2024-02-29", dueInferred: true })
     expect(tasks[1]?.due).toBe("2024-03-05")
     expect(tasks[2]?.due).toBeUndefined()
@@ -171,7 +197,10 @@ describe("daily task domain", () => {
       body: "# Today\n",
     }
 
-    const changes = rolloverDailyTasks([source], today, "2024-02-29", [daily])
+    const changes = Effect.runSync(
+      rolloverDailyTasks([source], today, "2024-02-29", [daily]),
+    )
+
     expect(changes).toHaveLength(2)
     const updated = changes.find((item) => item.path === source.path)
     const target = changes.find((item) => item.path === today.path)
@@ -186,10 +215,14 @@ describe("daily task domain", () => {
 
     if (updated && target)
       expect(
-        rolloverDailyTasks([updated], target, "2024-02-29", [daily]),
+        Effect.runSync(
+          rolloverDailyTasks([updated], target, "2024-02-29", [daily]),
+        ),
       ).toEqual([])
     expect(() =>
-      rolloverDailyTasks([source], today, "2024-03-01", [daily]),
+      Effect.runSync(
+        rolloverDailyTasks([source], today, "2024-03-01", [daily]),
+      ),
     ).toThrow()
   })
 })

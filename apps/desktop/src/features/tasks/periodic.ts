@@ -1,14 +1,8 @@
-import {
-  addDays,
-  format,
-  getISOWeekYear,
-  isValid,
-  startOfISOWeek,
-  startOfMonth,
-} from "date-fns"
+import { format, getISOWeekYear } from "date-fns"
 import * as locales from "date-fns/locale"
-import { z } from "zod"
+import { DateTime, Effect, Schema } from "effect"
 
+import { PeriodicError } from "@/features/tasks/errors"
 import {
   forwardTask,
   parseTasks,
@@ -18,15 +12,17 @@ import {
   type TaskNote,
 } from "@/features/tasks/service"
 
-const patternSchema = z.strictObject({
-  kind: z.enum(["daily", "weekly", "monthly"]),
-  directory: z.string().max(1024),
-  titlePattern: z.string().min(1).max(256),
-  locale: z.string().default("en-US"),
-  templateId: z.string().optional(),
+const patternSchema = Schema.Struct({
+  kind: Schema.Literals(["daily", "weekly", "monthly"]),
+  directory: Schema.String.check(Schema.isMaxLength(1024)),
+  titlePattern: Schema.String.check(Schema.isBetweenLength(1, 256)),
+  locale: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("en-US")),
+  ),
+  templateId: Schema.optional(Schema.String),
 })
 
-export type PeriodicPattern = z.input<typeof patternSchema>
+export type PeriodicPattern = typeof patternSchema.Encoded
 
 export interface PeriodicLocation {
   kind: PeriodicPattern["kind"]
@@ -73,13 +69,14 @@ function literal(token: string) {
       : token.slice(1, -1).replace(/''/g, "'")
 }
 
+// DateTime uses Intl options, not the stored token and locale contract.
 export function sourceDateFormat(
   date: Date,
   pattern: string,
   locale = "en-US",
   weekYear = false,
 ) {
-  if (!isValid(date)) throw new Error("Invalid periodic date")
+  Schema.decodeUnknownSync(Schema.Date)(date)
   const selected = dateLocale(locale)
 
   return pattern.replace(tokenExpression, function convert(token) {
@@ -96,17 +93,27 @@ export function sourceDateFormat(
 }
 
 function localIso(date: Date) {
-  return taskDateSchema.parse(sourceDateFormat(date, "yyyy-MM-dd"))
+  return Schema.decodeUnknownSync(taskDateSchema)(
+    DateTime.formatIsoDate(
+      DateTime.makeZonedUnsafe(date, { timeZone: DateTime.zoneMakeLocal() }),
+    ),
+  )
 }
 
 function anchor(date: Date, kind: PeriodicPattern["kind"]) {
+  const local = DateTime.makeZonedUnsafe(date, {
+    timeZone: DateTime.zoneMakeLocal(),
+  })
+
   switch (kind) {
     case "weekly":
-      return startOfISOWeek(date)
+      return DateTime.toDateUtc(
+        DateTime.startOf(local, "week", { weekStartsOn: 1 }),
+      )
     case "monthly":
-      return startOfMonth(date)
+      return DateTime.toDateUtc(DateTime.startOf(local, "month"))
     case "daily":
-      return date
+      return DateTime.toDateUtc(local)
   }
 }
 
@@ -168,9 +175,7 @@ function directoryFormat(directory: string) {
     : null
 }
 
-function validatePattern(input: PeriodicPattern) {
-  const pattern = patternSchema.parse(input)
-
+function validatePattern(pattern: typeof patternSchema.Type) {
   const tokens = new Set(
     patternTokens(
       `${titleFormat(pattern.titlePattern)} ${directoryFormat(pattern.directory) ?? ""}`,
@@ -205,7 +210,7 @@ function validatePattern(input: PeriodicPattern) {
 
 function locationForPattern(
   date: Date,
-  pattern: z.output<typeof patternSchema>,
+  pattern: typeof patternSchema.Type,
 ): PeriodicLocation {
   const day = anchor(date, pattern.kind)
   const weekYear = pattern.kind === "weekly"
@@ -218,7 +223,7 @@ function locationForPattern(
 
   if (directory.includes("{{")) throw new Error("Unknown directory variable")
 
-  if (directory) relativeServicePathSchema.parse(directory)
+  if (directory) Schema.decodeUnknownSync(relativeServicePathSchema)(directory)
 
   const title = sourceDateFormat(
     day,
@@ -227,12 +232,12 @@ function locationForPattern(
     weekYear,
   )
 
-  relativeServicePathSchema.parse(title)
+  Schema.decodeUnknownSync(relativeServicePathSchema)(title)
 
   if (title.includes("/") || title.startsWith("."))
     throw new Error("Unsafe periodic title")
   const path = `${directory ? `${directory}/` : ""}${title}.md`
-  relativeServicePathSchema.parse(path)
+  Schema.decodeUnknownSync(relativeServicePathSchema)(path)
 
   return {
     kind: pattern.kind,
@@ -244,11 +249,21 @@ function locationForPattern(
   }
 }
 
-export function periodicLocation(date: Date, pattern: PeriodicPattern) {
-  if (!isValid(date)) throw new Error("Invalid periodic date")
+export const periodicLocation = Effect.fn("periodicLocation")(function* (
+  date: Date,
+  input: PeriodicPattern,
+) {
+  yield* Schema.decodeUnknownEffect(Schema.Date)(date)
 
-  return locationForPattern(date, validatePattern(pattern))
-}
+  const pattern = yield* Schema.decodeUnknownEffect(patternSchema, {
+    onExcessProperty: "error",
+  })(input)
+
+  return yield* Effect.try({
+    try: () => locationForPattern(date, validatePattern(pattern)),
+    catch: (cause) => new PeriodicError({ operation: "location", cause }),
+  })
+})
 
 function escapeRegex(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -289,19 +304,23 @@ function matchPatternYears(pattern: string, path: string) {
   return [...new Set(candidates)]
 }
 
-export function classifyPeriodic(
+export const classifyPeriodic = Effect.fn("classifyPeriodic")(function* (
   path: string,
   current: readonly PeriodicPattern[],
   legacy: readonly PeriodicPattern[] = [],
 ) {
-  if (
-    !relativeServicePathSchema.safeParse(path).success ||
-    !path.endsWith(".md")
-  )
+  if (!Schema.is(relativeServicePathSchema)(path) || !path.endsWith(".md"))
     return null
 
   for (const [index, input] of [...current, ...legacy].entries()) {
-    const pattern = validatePattern(input)
+    const decoded = yield* Schema.decodeUnknownEffect(patternSchema, {
+      onExcessProperty: "error",
+    })(input)
+
+    const pattern = yield* Effect.try({
+      try: () => validatePattern(decoded),
+      catch: (cause) => new PeriodicError({ operation: "classify", cause }),
+    })
 
     const directory =
       directoryFormat(pattern.directory) ?? quotedLiteral(pattern.directory)
@@ -314,39 +333,59 @@ export function classifyPeriodic(
 
     for (const year of years) {
       if (year < 1 || year > 9999) continue
-      const start = new Date(0)
-      start.setFullYear(year, 0, 1)
-      start.setHours(12, 0, 0, 0)
+
+      const start = DateTime.makeZonedUnsafe(
+        { year, month: 1, day: 1, hour: 12 },
+        { timeZone: DateTime.zoneMakeLocal(), adjustForTimeZone: true },
+      )
 
       if (pattern.kind === "weekly") {
-        const jan4 = new Date(start)
-        jan4.setDate(4)
-        let day = startOfISOWeek(jan4)
+        const jan4 = DateTime.setParts(start, { day: 4 })
+
+        const end = DateTime.startOf(
+          DateTime.setParts(jan4, { year: year + 1 }),
+          "week",
+          { weekStartsOn: 1 },
+        )
+
+        let day = DateTime.startOf(jan4, "week", { weekStartsOn: 1 })
 
         for (
           let week = 0;
-          week < 53 && getISOWeekYear(day) === year;
-          week += 1, day = addDays(day, 7)
+          week < 53 && DateTime.isLessThan(day, end);
+          week += 1, day = DateTime.add(day, { weeks: 1 })
         ) {
-          const location = locationForPattern(day, pattern)
+          const location = yield* Effect.try({
+            try: () => locationForPattern(DateTime.toDateUtc(day), pattern),
+            catch: (cause) =>
+              new PeriodicError({ operation: "classify", cause }),
+          })
 
           if (location.path === path) matches.set(location.date, location)
         }
       } else if (pattern.kind === "monthly") {
         for (let month = 0; month < 12; month += 1) {
-          const day = new Date(start)
-          day.setMonth(month, 1)
-          const location = locationForPattern(day, pattern)
+          const day = DateTime.setParts(start, { month: month + 1, day: 1 })
+
+          const location = yield* Effect.try({
+            try: () => locationForPattern(DateTime.toDateUtc(day), pattern),
+            catch: (cause) =>
+              new PeriodicError({ operation: "classify", cause }),
+          })
 
           if (location.path === path) matches.set(location.date, location)
         }
       } else {
         for (
           let day = start;
-          day.getFullYear() === year;
-          day = addDays(day, 1)
+          DateTime.getPart(day, "year") === year;
+          day = DateTime.add(day, { days: 1 })
         ) {
-          const location = locationForPattern(day, pattern)
+          const location = yield* Effect.try({
+            try: () => locationForPattern(DateTime.toDateUtc(day), pattern),
+            catch: (cause) =>
+              new PeriodicError({ operation: "classify", cause }),
+          })
 
           if (location.path === path) matches.set(location.date, location)
         }
@@ -363,20 +402,30 @@ export function classifyPeriodic(
   }
 
   return null
-}
+})
 
-export function inferDailyDue(
+export const inferDailyDue = Effect.fn("inferDailyDue")(function* (
   tasks: readonly Task[],
   patterns: readonly PeriodicPattern[],
   legacy: readonly PeriodicPattern[] = [],
 ) {
   const dates = new Map<string, string | undefined>()
 
-  return tasks.map(function infer(task) {
-    if (task.due || task.state === "forwarded") return task
+  const inferred: Task[] = []
+
+  for (const task of tasks) {
+    if (task.due || task.state === "forwarded") {
+      inferred.push(task)
+      continue
+    }
 
     if (!dates.has(task.sourcePath)) {
-      const periodic = classifyPeriodic(task.sourcePath, patterns, legacy)
+      const periodic = yield* classifyPeriodic(
+        task.sourcePath,
+        patterns,
+        legacy,
+      )
+
       dates.set(
         task.sourcePath,
         periodic?.kind === "daily" ? periodic.date : undefined,
@@ -385,22 +434,27 @@ export function inferDailyDue(
 
     const due = dates.get(task.sourcePath)
 
-    return due ? { ...task, due, dueInferred: true } : task
-  })
-}
+    inferred.push(due ? { ...task, due, dueInferred: true } : task)
+  }
 
-export function rolloverDailyTasks(
+  return inferred
+})
+
+export const rolloverDailyTasks = Effect.fn("rolloverDailyTasks")(function* (
   notes: readonly TaskNote[],
   target: TaskNote,
   today: string,
   patterns: readonly PeriodicPattern[],
   legacy: readonly PeriodicPattern[] = [],
-): TaskNote[] {
-  taskDateSchema.parse(today)
-  const targetPeriod = classifyPeriodic(target.path, patterns, legacy)
+) {
+  yield* Schema.decodeUnknownEffect(taskDateSchema)(today)
+  const targetPeriod = yield* classifyPeriodic(target.path, patterns, legacy)
 
   if (targetPeriod?.kind !== "daily" || targetPeriod.date !== today)
-    throw new Error("Rollover target must be today's daily note")
+    return yield* new PeriodicError({
+      operation: "rollover",
+      cause: "Rollover target must be today's daily note",
+    })
 
   if (
     new Set(
@@ -409,7 +463,10 @@ export function rolloverDailyTasks(
       }),
     ).size !== notes.length
   )
-    throw new Error("Duplicate rollover source")
+    return yield* new PeriodicError({
+      operation: "rollover",
+      cause: "Duplicate rollover source",
+    })
   let destination = target
   const changed: TaskNote[] = []
 
@@ -418,12 +475,17 @@ export function rolloverDailyTasks(
   })) {
     if (original.path === target.path || original.trashed || original.archived)
       continue
-    const period = classifyPeriodic(original.path, patterns, legacy)
+    const period = yield* classifyPeriodic(original.path, patterns, legacy)
 
     if (period?.kind !== "daily" || period.date >= today) continue
     let source = original
 
-    const eligible = parseTasks(source).filter(function include(task) {
+    const sourceTasks = yield* Effect.try({
+      try: () => parseTasks(source),
+      catch: (cause) => new PeriodicError({ operation: "rollover", cause }),
+    })
+
+    const eligible = sourceTasks.filter(function include(task) {
       return (
         task.kind === "checkbox" &&
         !task.parentId &&
@@ -433,12 +495,25 @@ export function rolloverDailyTasks(
     })
 
     for (const candidate of eligible) {
-      const task = parseTasks(source).find(function same(value) {
-        return value.id === candidate.id
+      const task = yield* Effect.try({
+        try: () =>
+          parseTasks(source).find(function same(value) {
+            return value.id === candidate.id
+          }),
+        catch: (cause) => new PeriodicError({ operation: "rollover", cause }),
       })
 
-      if (!task) throw new Error("Rollover source changed")
-      const forwarded = forwardTask(source, task, destination)
+      if (!task)
+        return yield* new PeriodicError({
+          operation: "rollover",
+          cause: "Rollover source changed",
+        })
+
+      const forwarded = yield* Effect.try({
+        try: () => forwardTask(source, task, destination),
+        catch: (cause) => new PeriodicError({ operation: "rollover", cause }),
+      })
+
       source = forwarded.source
       destination = forwarded.target
     }
@@ -447,4 +522,4 @@ export function rolloverDailyTasks(
   }
 
   return destination.body === target.body ? [] : [...changed, destination]
-}
+})

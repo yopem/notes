@@ -1,3 +1,4 @@
+import { DateTime, Duration, Effect, Option, Schema } from "effect"
 import { createHash } from "node:crypto"
 import {
   closeSync,
@@ -10,42 +11,44 @@ import {
   unlinkSync,
 } from "node:fs"
 import { dirname, isAbsolute, join, resolve } from "node:path"
-import { z } from "zod"
 
+import { ReminderError, TaskError } from "@/features/tasks/errors"
 import { atomicWrite } from "@/platform/files"
 
-export const relativeServicePathSchema = z
-  .string()
-  .min(1)
-  .max(2048)
-  .refine(function safe(value) {
-    return (
-      !isAbsolute(value) &&
-      !/[\\:\p{Cc}<>"|?*]/u.test(value) &&
-      value.split("/").every(function segment(part) {
-        return (
-          part.length > 0 &&
-          part !== "." &&
-          part !== ".." &&
-          part.trim() === part &&
-          !part.endsWith(".") &&
-          Buffer.byteLength(part) <= 210 &&
-          !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
-        )
-      })
-    )
-  }, "Unsafe relative path")
+export const relativeServicePathSchema = Schema.String.check(
+  Schema.isBetweenLength(1, 2048),
+  Schema.makeFilter(
+    function safe(value) {
+      return (
+        !isAbsolute(value) &&
+        !/[\\:\p{Cc}<>"|?*]/u.test(value) &&
+        value.split("/").every(function segment(part) {
+          return (
+            part.length > 0 &&
+            part !== "." &&
+            part !== ".." &&
+            part.trim() === part &&
+            !part.endsWith(".") &&
+            Buffer.byteLength(part) <= 210 &&
+            !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
+          )
+        })
+      )
+    },
+    { expected: "a safe relative path" },
+  ),
+)
 
 export function resolveServicePath(
   root: string,
   relative: string,
   createParents = false,
 ) {
-  relativeServicePathSchema.parse(relative)
+  Schema.decodeUnknownSync(relativeServicePathSchema)(relative)
   const base = resolve(root)
 
   if (realpathSync(base) !== base || !lstatSync(base).isDirectory())
-    throw new Error("Unsafe service root")
+    throw new TaskError({ message: "Unsafe service root" })
   const parts = relative.split("/")
   let current = base
 
@@ -57,7 +60,7 @@ export function resolveServicePath(
       const stat = lstatSync(current)
 
       if (stat.isSymbolicLink() || (!last && !stat.isDirectory()))
-        throw new Error("Unsafe service path")
+        throw new TaskError({ message: "Unsafe service path" })
     } catch (error) {
       if (
         !(error instanceof Error) ||
@@ -73,17 +76,29 @@ export function resolveServicePath(
   return current
 }
 
-export const taskDateSchema = z.iso.date()
+export const taskDateSchema = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/),
+  Schema.makeFilter(
+    function calendarDate(value) {
+      const date = DateTime.make(`${value}T00:00:00Z`)
 
-const noteSchema = z.object({
+      return (
+        Option.isSome(date) && DateTime.formatIsoDateUtc(date.value) === value
+      )
+    },
+    { expected: "a valid calendar date" },
+  ),
+)
+
+const noteSchema = Schema.Struct({
   path: relativeServicePathSchema,
-  title: z.string(),
-  body: z.string().max(8 * 1024 * 1024),
-  archived: z.boolean().optional(),
-  trashed: z.boolean().optional(),
+  title: Schema.String,
+  body: Schema.String.check(Schema.isMaxLength(8 * 1024 * 1024)),
+  archived: Schema.optional(Schema.Boolean),
+  trashed: Schema.optional(Schema.Boolean),
 })
 
-export type TaskNote = z.infer<typeof noteSchema>
+export type TaskNote = typeof noteSchema.Type
 
 export type TaskState =
   "open" | "done" | "forwarded" | "cancelled" | "in-progress" | "waiting"
@@ -127,7 +142,7 @@ function unquote(value: string) {
 
   if (clean.startsWith('"') && clean.endsWith('"')) {
     try {
-      return z.string().parse(JSON.parse(clean))
+      return Schema.decodeUnknownSync(Schema.String)(JSON.parse(clean))
     } catch {
       return clean.slice(1, -1)
     }
@@ -183,7 +198,7 @@ function scalar(value: string | string[] | undefined) {
 }
 
 function dateValue(value: string | undefined) {
-  return taskDateSchema.safeParse(value).success ? value : undefined
+  return Schema.is(taskDateSchema)(value) ? value : undefined
 }
 
 function priorityValue(value: string | undefined): TaskPriority | undefined {
@@ -278,7 +293,7 @@ export function parseTasks(
   note: TaskNote,
   options: { includeExcluded?: boolean } = {},
 ): Task[] {
-  noteSchema.parse(note)
+  Schema.decodeUnknownSync(noteSchema)(note)
   const frontmatter = readTaskFrontmatter(note.body)
   const defaults = frontmatter.fields
   const mode = scalar(defaults.tasks)?.toLowerCase()
@@ -610,11 +625,11 @@ export function selectTasks(tasks: readonly Task[], filter: TaskFilter = {}) {
     ...(filter.folders ?? []),
     ...(filter.excludeFolders ?? []),
   ])
-    relativeServicePathSchema.parse(folder)
+    Schema.decodeUnknownSync(relativeServicePathSchema)(folder)
 
-  if (filter.dueFrom) taskDateSchema.parse(filter.dueFrom)
+  if (filter.dueFrom) Schema.decodeUnknownSync(taskDateSchema)(filter.dueFrom)
 
-  if (filter.dueTo) taskDateSchema.parse(filter.dueTo)
+  if (filter.dueTo) Schema.decodeUnknownSync(taskDateSchema)(filter.dueTo)
   const ranks = { high: 0, med: 1, low: 2 }
 
   const order = new Map(
@@ -710,29 +725,44 @@ export function bucketTasks(tasks: readonly Task[], field = "due") {
   return groups
 }
 
-const fieldKeySchema = z.string().regex(/^[a-z][\w-]*$/i)
+const fieldKeySchema = Schema.String.check(Schema.isPattern(/^[a-z][\w-]*$/i))
 
-const fieldValueSchema = z.string().regex(/^[\p{L}\d][\p{L}\d/_-]*$/u)
+const fieldValueSchema = Schema.String.check(
+  Schema.isPattern(/^[\p{L}\d][\p{L}\d/_-]*$/u),
+)
 
-const patchSchema = z.strictObject({
-  state: z
-    .enum(["open", "done", "forwarded", "cancelled", "in-progress", "waiting"])
-    .optional(),
-  status: fieldValueSchema.nullable().optional(),
-  due: taskDateSchema.nullable().optional(),
-  scheduled: taskDateSchema.nullable().optional(),
-  completed: taskDateSchema.nullable().optional(),
-  priority: z.enum(["high", "med", "low"]).nullable().optional(),
-  fields: z.record(fieldKeySchema, fieldValueSchema.nullable()).optional(),
+const patchSchema = Schema.Struct({
+  state: Schema.optional(
+    Schema.Literals([
+      "open",
+      "done",
+      "forwarded",
+      "cancelled",
+      "in-progress",
+      "waiting",
+    ]),
+  ),
+  status: Schema.optional(Schema.NullOr(fieldValueSchema)),
+  due: Schema.optional(Schema.NullOr(taskDateSchema)),
+  scheduled: Schema.optional(Schema.NullOr(taskDateSchema)),
+  completed: Schema.optional(Schema.NullOr(taskDateSchema)),
+  priority: Schema.optional(
+    Schema.NullOr(Schema.Literals(["high", "med", "low"])),
+  ),
+  fields: Schema.optional(
+    Schema.Record(fieldKeySchema, Schema.NullOr(fieldValueSchema)),
+  ),
 })
 
-export type TaskPatch = z.infer<typeof patchSchema>
+export type TaskPatch = typeof patchSchema.Type
 
 function checkedSource(note: TaskNote, task: Task) {
-  noteSchema.parse(note)
+  Schema.decodeUnknownSync(noteSchema)(note)
 
   if (note.path !== task.sourcePath || digest(note.body) !== task.sourceHash)
-    throw new Error("Task source changed; rescan before editing")
+    throw new TaskError({
+      message: "Task source changed; rescan before editing",
+    })
 
   const actual = parseTasks(note, { includeExcluded: true }).find(
     function same(value) {
@@ -741,7 +771,9 @@ function checkedSource(note: TaskNote, task: Task) {
   )
 
   if (!actual || actual.rawText !== task.rawText || actual.start !== task.start)
-    throw new Error("Task source changed; rescan before editing")
+    throw new TaskError({
+      message: "Task source changed; rescan before editing",
+    })
 }
 
 function replaceRange(text: string, start: number, end: number, value: string) {
@@ -796,7 +828,8 @@ function inlineEdit(line: string, key: string, value: string | null) {
 function frontmatterEdit(body: string, key: string, value: string | null) {
   const frontmatter = readTaskFrontmatter(body)
 
-  if (!frontmatter.end) throw new Error("Task frontmatter missing")
+  if (!frontmatter.end)
+    throw new TaskError({ message: "Task frontmatter missing" })
   const eol = body.includes("\r\n") ? "\r\n" : "\n"
   const expression = new RegExp(`^(${key}:[ \\t]*)(.*)$`, "im")
   const header = body.slice(0, frontmatter.end)
@@ -835,7 +868,7 @@ function frontmatterEdit(body: string, key: string, value: string | null) {
 
 export function editTask(note: TaskNote, task: Task, patch: TaskPatch) {
   checkedSource(note, task)
-  patchSchema.parse(patch)
+  Schema.decodeUnknownSync(patchSchema, { onExcessProperty: "error" })(patch)
 
   const values = new Map<string, string | null>(
     Object.entries(patch.fields ?? {}),
@@ -919,7 +952,9 @@ export function parseRepeatRule(raw: string): RepeatRule | null {
   const interval = /^(\d{1,3})([dwmy])$/.exec(value)
 
   if (interval && Number(interval[1]) > 0) {
-    const unit = z.enum(["d", "w", "m", "y"]).parse(interval[2])
+    const unit = Schema.decodeUnknownSync(
+      Schema.Literals(["d", "w", "m", "y"]),
+    )(interval[2])
 
     return { kind: "interval", every: Number(interval[1]), unit, afterDone }
   }
@@ -944,35 +979,27 @@ export function parseRepeatRule(raw: string): RepeatRule | null {
 }
 
 function utcDate(iso: string) {
-  taskDateSchema.parse(iso)
+  Schema.decodeUnknownSync(taskDateSchema)(iso)
 
-  return new Date(`${iso}T00:00:00Z`)
-}
-
-function isoDate(date: Date) {
-  return taskDateSchema.parse(date.toISOString().slice(0, 10))
+  return DateTime.makeUnsafe(`${iso}T00:00:00Z`)
 }
 
 function shiftDate(iso: string, amount: number, unit: "d" | "w" | "m" | "y") {
-  const date = utcDate(iso)
+  const parts = {
+    d: { days: amount },
+    w: { weeks: amount },
+    m: { months: amount },
+    y: { years: amount },
+  }[unit]
 
-  if (unit === "d" || unit === "w")
-    date.setUTCDate(date.getUTCDate() + amount * (unit === "w" ? 7 : 1))
-  else {
-    const day = date.getUTCDate()
-    date.setUTCDate(1)
-    date.setUTCMonth(date.getUTCMonth() + amount * (unit === "y" ? 12 : 1))
-    const end = new Date(date.getTime())
-    end.setUTCMonth(end.getUTCMonth() + 1, 0)
-    date.setUTCDate(Math.min(day, end.getUTCDate()))
-  }
-
-  return isoDate(date)
+  return Schema.decodeUnknownSync(taskDateSchema)(
+    DateTime.formatIsoDateUtc(DateTime.add(utcDate(iso), parts)),
+  )
 }
 
 export function nextRepeatDate(rule: RepeatRule, base: string, today: string) {
-  taskDateSchema.parse(base)
-  taskDateSchema.parse(today)
+  Schema.decodeUnknownSync(taskDateSchema)(base)
+  Schema.decodeUnknownSync(taskDateSchema)(today)
 
   if (rule.kind === "weekdays") {
     if (
@@ -981,18 +1008,19 @@ export function nextRepeatDate(rule: RepeatRule, base: string, today: string) {
         return !Number.isInteger(day) || day < 0 || day > 6
       })
     )
-      throw new Error("Invalid repeat weekdays")
+      throw new TaskError({ message: "Invalid repeat weekdays" })
     let date = base > today ? base : today
     const weekdays = new Set(rule.days)
 
     for (let step = 0; step < 7; step += 1) {
       date = shiftDate(date, 1, "d")
 
-      if (weekdays.has(utcDate(date).getUTCDay())) return date
+      if (weekdays.has(DateTime.getPartUtc(utcDate(date), "weekDay")))
+        return date
     }
   } else {
     if (!Number.isInteger(rule.every) || rule.every < 1 || rule.every > 999)
-      throw new Error("Invalid repeat interval")
+      throw new TaskError({ message: "Invalid repeat interval" })
 
     if (rule.afterDone) return shiftDate(today, rule.every, rule.unit)
     const baseDate = utcDate(base)
@@ -1001,15 +1029,17 @@ export function nextRepeatDate(rule: RepeatRule, base: string, today: string) {
     const distance =
       rule.unit === "d" || rule.unit === "w"
         ? Math.floor(
-            (todayDate.getTime() - baseDate.getTime()) /
-              86400000 /
+            Duration.toMillis(DateTime.distance(baseDate, todayDate)) /
+              Duration.toMillis(Duration.days(1)) /
               (rule.unit === "w" ? 7 : 1),
           )
-        : (todayDate.getUTCFullYear() - baseDate.getUTCFullYear()) *
+        : (DateTime.getPartUtc(todayDate, "year") -
+            DateTime.getPartUtc(baseDate, "year")) *
             (rule.unit === "y" ? 1 : 12) +
           (rule.unit === "y"
             ? 0
-            : todayDate.getUTCMonth() - baseDate.getUTCMonth())
+            : DateTime.getPartUtc(todayDate, "month") -
+              DateTime.getPartUtc(baseDate, "month"))
 
     let count = Math.max(1, Math.floor(distance / rule.every))
     let next = shiftDate(base, count * rule.every, rule.unit)
@@ -1022,7 +1052,7 @@ export function nextRepeatDate(rule: RepeatRule, base: string, today: string) {
     return next
   }
 
-  throw new Error("Invalid recurrence")
+  throw new TaskError({ message: "Invalid recurrence" })
 }
 
 function blockWithEdits(note: TaskNote, task: Task, reset: boolean) {
@@ -1046,9 +1076,11 @@ function blockWithEdits(note: TaskNote, task: Task, reset: boolean) {
       child.state !== "waiting"
     )
       continue
-    const patch: TaskPatch = { state: reset ? "open" : "cancelled" }
 
-    if (reset) patch.completed = null
+    const patch: TaskPatch = reset
+      ? { state: "open", completed: null }
+      : { state: "cancelled" }
+
     const edited = editTask(note, child, patch)
 
     const newLine = edited.slice(
@@ -1074,7 +1106,7 @@ export function completeTask(
   options: { fallbackDue?: string; skip?: boolean } = {},
 ) {
   checkedSource(note, task)
-  taskDateSchema.parse(today)
+  Schema.decodeUnknownSync(taskDateSchema)(today)
 
   if (
     task.state === "done" ||
@@ -1085,7 +1117,9 @@ export function completeTask(
   const repeat = parseRepeatRule(task.fields.repeat ?? "")
 
   if (repeat && task.kind === "note")
-    throw new Error("Use completeNoteTask for recurring note tasks")
+    throw new TaskError({
+      message: "Use completeNoteTask for recurring note tasks",
+    })
 
   if (!repeat)
     return editTask(note, task, {
@@ -1149,9 +1183,10 @@ export function completeNoteTask(
   today: string,
 ): NoteCompletion {
   checkedSource(note, task)
-  taskDateSchema.parse(today)
+  Schema.decodeUnknownSync(taskDateSchema)(today)
 
-  if (task.kind !== "note") throw new Error("A whole-note task is required")
+  if (task.kind !== "note")
+    throw new TaskError({ message: "A whole-note task is required" })
 
   if (["done", "cancelled", "forwarded"].includes(task.state))
     return { record: note }
@@ -1181,7 +1216,7 @@ export function completeNoteTask(
     body: nextBody,
   }
 
-  relativeServicePathSchema.parse(next.path)
+  Schema.decodeUnknownSync(relativeServicePathSchema)(next.path)
 
   for (const child of parseTasks(record)
     .filter(function checkbox(value) {
@@ -1247,7 +1282,7 @@ function forwardBlock(block: string) {
 
 export function forwardTask(source: TaskNote, task: Task, target: TaskNote) {
   checkedSource(source, task)
-  noteSchema.parse(target)
+  Schema.decodeUnknownSync(noteSchema)(target)
 
   if (
     source.path === target.path ||
@@ -1257,7 +1292,7 @@ export function forwardTask(source: TaskNote, task: Task, target: TaskNote) {
     target.trashed ||
     /[[\]#]/.test(source.path + target.path)
   )
-    throw new Error("Cannot forward this task")
+    throw new TaskError({ message: "Cannot forward this task" })
   const eol = target.body.includes("\r\n") ? "\r\n" : "\n"
   const origin = editTask(source, task, { state: "forwarded" })
 
@@ -1302,7 +1337,7 @@ export function forwardTask(source: TaskNote, task: Task, target: TaskNote) {
       return value.start === insertion.length && value.kind === "checkbox"
     })
   )
-    throw new Error("Destination does not accept tasks")
+    throw new TaskError({ message: "Destination does not accept tasks" })
 
   return {
     source: {
@@ -1313,16 +1348,16 @@ export function forwardTask(source: TaskNote, task: Task, target: TaskNote) {
   }
 }
 
-const reminderSchema = z.strictObject({
-  key: z.string().min(1).max(2048),
-  taskId: z.string(),
+const reminderSchema = Schema.Struct({
+  key: Schema.String.check(Schema.isBetweenLength(1, 2048)),
+  taskId: Schema.String,
   path: relativeServicePathSchema,
-  line: z.number().int().nonnegative(),
-  title: z.string(),
-  fireAt: z.number().finite(),
+  line: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  title: Schema.String,
+  fireAt: Schema.Finite,
 })
 
-export type TaskReminder = z.infer<typeof reminderSchema>
+export type TaskReminder = typeof reminderSchema.Type
 
 function clock(raw: string) {
   let match = /^(\d{1,2})(\d{2})?(am|pm)$/.exec(raw)
@@ -1354,24 +1389,24 @@ export function computeReminders(
     lookbackHours?: number
   },
 ): TaskReminder[] {
-  const now = z.date().parse(options.now).getTime()
+  const now = DateTime.toEpochMillis(
+    DateTime.fromDateUnsafe(Schema.decodeUnknownSync(Schema.Date)(options.now)),
+  )
+
   const defaultTime = options.defaultTime ?? "09:00"
   const fallback = /^(\d{2}):(\d{2})$/.exec(defaultTime)
   const fallbackClock = clock(defaultTime.replace(":", ""))
 
-  if (!fallback || !fallbackClock) throw new Error("Invalid reminder time")
+  if (!fallback || !fallbackClock)
+    throw new TaskError({ message: "Invalid reminder time" })
 
-  const horizon = z
-    .number()
-    .min(0)
-    .max(366)
-    .parse(options.horizonDays ?? 7)
+  const horizon = Schema.decodeUnknownSync(
+    Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 366 })),
+  )(options.horizonDays ?? 7)
 
-  const lookback = z
-    .number()
-    .min(0)
-    .max(168)
-    .parse(options.lookbackHours ?? 24)
+  const lookback = Schema.decodeUnknownSync(
+    Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 168 })),
+  )(options.lookbackHours ?? 24)
 
   const output: TaskReminder[] = []
 
@@ -1388,18 +1423,27 @@ export function computeReminders(
     const days = /^(\d{1,2})d(?:-(.+))?$/.exec(raw)
     const time = days && !days[2] ? fallbackClock : clock(days?.[2] ?? raw)
 
-    if (!time || !taskDateSchema.safeParse(task.due).success) continue
-    const parts = task.due.split("-").map(Number)
-    const date = new Date(0)
-    date.setFullYear(
-      parts[0] ?? 0,
-      (parts[1] ?? 1) - 1,
-      (parts[2] ?? 1) - Number(days?.[1] ?? 0),
-    )
-    date.setHours(time.hour, time.minute, 0, 0)
-    const fireAt = date.getTime()
+    if (!time || !Schema.is(taskDateSchema)(task.due)) continue
 
-    if (fireAt < now - lookback * 3600000 || fireAt > now + horizon * 86400000)
+    const date = DateTime.makeZonedUnsafe(utcDate(task.due), {
+      timeZone: DateTime.zoneMakeLocal(),
+      adjustForTimeZone: true,
+    }).pipe(
+      DateTime.subtract({ days: Number(days?.[1] ?? 0) }),
+      DateTime.setParts({
+        hour: time.hour,
+        minute: time.minute,
+        second: 0,
+        millisecond: 0,
+      }),
+    )
+
+    const fireAt = DateTime.toEpochMillis(date)
+
+    if (
+      fireAt < now - Duration.toMillis(Duration.hours(lookback)) ||
+      fireAt > now + Duration.toMillis(Duration.days(horizon))
+    )
       continue
     output.push({
       key: digest(JSON.stringify([task.id, task.content, fireAt])),
@@ -1418,83 +1462,115 @@ export function computeReminders(
     .slice(0, 500)
 }
 
-const ledgerSchema = z.strictObject({
-  version: z.literal(1),
-  watchedUntil: z.number().finite(),
-  fired: z.record(z.string(), z.number().finite()),
-  items: z.array(reminderSchema).max(500),
+const ledgerSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  watchedUntil: Schema.Finite,
+  fired: Schema.Record(Schema.String, Schema.Finite),
+  items: Schema.Array(reminderSchema).check(Schema.isMaxLength(500)),
 })
 
 export class ReminderLedger {
   constructor(
     private readonly root: string,
-    private readonly startedAt = Date.now(),
+    private readonly startedAt = DateTime.toEpochMillis(DateTime.nowUnsafe()),
   ) {
-    z.number().finite().parse(startedAt)
+    Schema.decodeUnknownSync(Schema.Finite)(startedAt)
     resolveServicePath(root, "reminders.json")
   }
-  claim(items: readonly TaskReminder[], now = Date.now()) {
-    z.number().finite().parse(now)
-    const schedule = z.array(reminderSchema).max(500).parse(items)
-    const path = resolveServicePath(this.root, "reminders.json")
-    const lock = resolveServicePath(this.root, "reminders.lock")
-    const fd = openSync(lock, "wx", 0o600)
+  claim = Effect.fn("ReminderLedger.claim")(function* (
+    this: ReminderLedger,
+    items: readonly TaskReminder[],
+    at?: number,
+  ) {
+    const now = at ?? DateTime.toEpochMillis(yield* DateTime.now)
+    yield* Schema.decodeUnknownEffect(Schema.Finite)(now)
 
-    try {
-      const state = existsSync(path)
-        ? ledgerSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-        : {
-            version: 1 as const,
-            watchedUntil: this.startedAt,
-            fired: {},
-            items: [],
-          }
+    const schedule = yield* Schema.decodeUnknownEffect(
+      Schema.Array(reminderSchema).check(Schema.isMaxLength(500)),
+      { onExcessProperty: "error" },
+    )(items)
 
-      const fired = { ...state.fired }
-      const from = Math.max(state.watchedUntil, now - 86400000)
+    return yield* Effect.try({
+      try: () => {
+        const path = resolveServicePath(this.root, "reminders.json")
+        const lock = resolveServicePath(this.root, "reminders.lock")
+        const fd = openSync(lock, "wx", 0o600)
 
-      const due = schedule.filter(function ready(item) {
-        return (
-          item.fireAt > from &&
-          item.fireAt <= now &&
-          !Object.hasOwn(fired, item.key)
-        )
-      })
+        try {
+          const state = existsSync(path)
+            ? Schema.decodeUnknownSync(Schema.fromJsonString(ledgerSchema), {
+                onExcessProperty: "error",
+              })(readFileSync(path, "utf8"))
+            : {
+                version: 1 as const,
+                watchedUntil: this.startedAt,
+                fired: {},
+                items: [],
+              }
 
-      const unique = [
-        ...new Map(
-          due.map(function entry(item) {
-            return [item.key, item]
-          }),
-        ).values(),
-      ]
+          const fired = { ...state.fired }
 
-      for (const item of unique) fired[item.key] = now
+          const from = Math.max(
+            state.watchedUntil,
+            now - Duration.toMillis(Duration.days(1)),
+          )
 
-      const next = ledgerSchema.parse({
-        version: 1,
-        watchedUntil: Math.max(state.watchedUntil, now),
-        fired,
-        items: schedule,
-      })
+          const due = schedule.filter(function ready(item) {
+            return (
+              item.fireAt > from &&
+              item.fireAt <= now &&
+              !Object.hasOwn(fired, item.key)
+            )
+          })
 
-      atomicWrite(
-        resolveServicePath(this.root, "reminders.json"),
-        JSON.stringify(next),
-        dirname(path),
-      )
+          const unique = [
+            ...new Map(
+              due.map(function entry(item) {
+                return [item.key, item]
+              }),
+            ).values(),
+          ]
 
-      return unique
-    } finally {
-      closeSync(fd)
-      unlinkSync(lock)
-    }
-  }
-  pending() {
-    const path = resolveServicePath(this.root, "reminders.json")
+          for (const item of unique) fired[item.key] = now
 
-    return existsSync(path)
-      ? ledgerSchema.parse(JSON.parse(readFileSync(path, "utf8"))).items
-      : []
-  }
+          const next = Schema.decodeUnknownSync(ledgerSchema, {
+            onExcessProperty: "error",
+          })({
+            version: 1,
+            watchedUntil: Math.max(state.watchedUntil, now),
+            fired,
+            items: schedule,
+          })
+
+          atomicWrite(
+            resolveServicePath(this.root, "reminders.json"),
+            JSON.stringify(next),
+            dirname(path),
+          )
+
+          return unique
+        } finally {
+          closeSync(fd)
+          unlinkSync(lock)
+        }
+      },
+      catch: (cause) => new ReminderError({ operation: "claim", cause }),
+    })
+  })
+  pending = Effect.fn("ReminderLedger.pending")(function pending(
+    this: ReminderLedger,
+  ) {
+    return Effect.try({
+      try: () => {
+        const path = resolveServicePath(this.root, "reminders.json")
+
+        return existsSync(path)
+          ? Schema.decodeUnknownSync(Schema.fromJsonString(ledgerSchema), {
+              onExcessProperty: "error",
+            })(readFileSync(path, "utf8")).items
+          : []
+      },
+      catch: (cause) => new ReminderError({ operation: "pending", cause }),
+    })
+  })
 }
