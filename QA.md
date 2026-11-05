@@ -475,10 +475,9 @@ synchronous calculations in ordinary TypeScript.
     only data created by those cases. No other cleanup is required.
   - **Status:** Passed at revision `c72cf9d` on 2026-11-05, Linux x86_64, Bun
     `1.4.4-canary.1+b9f2ec363`. The named file passed 20 tests and 119
-    assertions. The inspected output is
-    `docs/artifacts/effect-migration/ QA-017-mcp.txt`. A Promise already started
-    by an output adapter cannot be canceled by Effect, and cancellation cannot
-    undo a completed write.
+    assertions. Evidence: `docs/artifacts/effect-migration/QA-017-mcp.txt`. A
+    Promise already started by an output adapter cannot be canceled by Effect,
+    and cancellation cannot undo a completed write.
 
 ## Planned local folder workspace
 
