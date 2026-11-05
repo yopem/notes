@@ -861,11 +861,11 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/effect-migration/QA-032-vault-safety.txt`; inspect it.
   - **Cleanup:** The test closes its vaults and removes only its temporary data.
     Keep failed evidence before cleanup; never remove a user-owned lock.
-  - **Status:** Pending. Unrelated non-Markdown files are now skipped. The
-    focused run at `e263e17` had three 5-second timeouts on project-backed
-    temporary storage; see
-    `docs/artifacts/effect-migration/QA-032-vault-safety.txt`. Lock
-    initialization and root-folder coordinates remain under repair.
+  - **Status:** Pending. At `deeecbb`, the focused file passed 49 tests and 393
+    assertions with isolated `/dev/shm` storage and a 30-second test timeout.
+    Evidence: `docs/artifacts/effect-migration/QA-032-vault-safety-rerun.txt`.
+    The earlier project-backed temporary run had three timeouts. Root-folder
+    coordinates and unsupported-hard-link behavior remain unverified.
 
 - [ ] **QA-033 — P1 — Browse a folder without editing its files**
   - **Purpose:** Open and leave an explicitly selected read-only folder without
