@@ -652,8 +652,11 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/effect-migration/QA-023-mcp-bounds.txt`.
   - **Cleanup:** Close only test-owned streams and child processes; remove only
     isolated test data after inspecting evidence.
-  - **Status:** Pending. A source review found that canceled adapter Promises
-    can outlive their response and that outstanding work is unbounded.
+  - **Status:** Pending. At `e243eab`, the focused vault and MCP tests passed 69
+    tests and 504 assertions, including canceled writes and work bounds.
+    Evidence: `docs/artifacts/effect-migration/QA-023-vault-mcp.txt`. An adapter
+    or output Promise that ignores cancellation can still run after shutdown.
+    Resolve transport ownership before claiming the full case passed.
 
 - [ ] **QA-024 — P0 — Refuse recovery during read-only folder open**
   - **Purpose:** Ensure a read-only folder preview never replays or rolls back a
@@ -677,9 +680,11 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/vault-workspace/QA-024/`; inspect the files and screenshot.
   - **Cleanup:** Close only the test app. Remove only the recorded isolated
     folder and app data after evidence review.
-  - **Status:** Blocked. Normal vault construction replays pending journals; a
-    service-owned mode must refuse recovery before a read-only preview opens.
-    Client-only screenshot capture is blocked by QA-015.
+  - **Status:** Blocked. At `e243eab`, existing vault tests passed with the
+    preview mode refusing valid and malformed journals, preserving content and
+    releasing its lock. Evidence is in
+    `docs/artifacts/effect-migration/QA-023-vault-mcp.txt`. The folder preview
+    UI is not yet integrated, and screenshot capture is blocked by QA-015.
 
 - [ ] **QA-025 — P0 — Protect drafts on native close**
   - **Purpose:** Prevent an ordinary window-close request from discarding an
