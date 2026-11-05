@@ -30,6 +30,7 @@ export function NoteList({
   trash,
   sortOrder,
   onSort,
+  narrow,
 }: {
   color: Palette
   notes: Note[]
@@ -41,6 +42,7 @@ export function NoteList({
   trash: boolean
   sortOrder: Preferences["noteSortOrder"]
   onSort: () => void
+  narrow: boolean
 }) {
   const styles = getNoteListStyles(color)
 
@@ -49,7 +51,7 @@ export function NoteList({
       role="region"
       aria-label={title}
       testId="note-list-panel"
-      style={styles.frame}
+      style={narrow ? styles.compactFrame : styles.frame}
     >
       <div style={noteListStyles.header}>
         <div style={noteListStyles.headingRow}>
@@ -86,19 +88,21 @@ export function NoteList({
           </Button>
         </div>
       </div>
-      <virtual-list estimatedItemHeight={116} style={styles.list}>
-        {notes.map((note) => (
-          <NoteListItem
-            key={note.id}
-            color={color}
-            note={note}
-            selected={selectedId === note.id}
-            onSelect={onSelect}
-          />
-        ))}
-      </virtual-list>
+      {notes.length > 0 && (
+        <virtual-list estimatedItemHeight={116} style={styles.list}>
+          {notes.map((note) => (
+            <NoteListItem
+              key={note.id}
+              color={color}
+              note={note}
+              selected={selectedId === note.id}
+              onSelect={onSelect}
+            />
+          ))}
+        </virtual-list>
+      )}
       {notes.length === 0 && (
-        <div style={noteListStyles.empty}>
+        <div style={noteListStyles.empty} testId="note-list-empty">
           <Label color={color} weight={500}>
             {query
               ? "No matching notes"

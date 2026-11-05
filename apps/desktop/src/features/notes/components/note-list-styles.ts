@@ -39,6 +39,7 @@ export const noteListStyles = {
 
 type PaletteStyles = Record<
   | "frame"
+  | "compactFrame"
   | "heading"
   | "count"
   | "list"
@@ -76,15 +77,24 @@ export function getNoteListStyles(color: Palette) {
     },
   }
 
+  const frame: StyleDesc = {
+    display: "flex",
+    flexDirection: "column",
+    width: 286,
+    minWidth: 220,
+    flexShrink: 0,
+    borderRightWidth: 1,
+    borderColor: color.border,
+  }
   const styles: PaletteStyles = {
-    frame: {
-      display: "flex",
-      flexDirection: "column",
-      width: 286,
-      minWidth: 220,
-      flexShrink: 0,
-      borderRightWidth: 1,
-      borderColor: color.border,
+    frame,
+    compactFrame: {
+      ...frame,
+      width: "100%",
+      minWidth: 0,
+      flexGrow: 1,
+      flexShrink: 1,
+      borderRightWidth: 0,
     },
     heading: {
       color: color.foreground,

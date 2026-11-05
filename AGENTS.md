@@ -1603,6 +1603,9 @@ applicable category into concrete cases with the details required above.
   the underlying native renderer across root remounts. Detached roots must not
   mount application text after a late reply. After a native font request fails,
   require a restart. Do not replay an uncertain command.
+- Use the available pane width for compact note lists. Do not keep a fixed
+  desktop column when the editor is hidden. Show empty feedback below the
+  list header; do not put it after an empty virtual-list spacer.
 - Before writing Effect code, read `node_modules/effect/AGENTS.md` completely.
   Follow its linked guidance and inspect the pinned v4-or-higher source APIs.
 

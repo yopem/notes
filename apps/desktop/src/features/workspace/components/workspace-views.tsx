@@ -54,6 +54,7 @@ export function WorkspaceViews({
             trash={navigation.view.kind === "trash"}
             sortOrder={preferences.noteSortOrder}
             onSort={navigation.toggleSort}
+            narrow={narrow}
           />
         )}
       <DuplicateNoteContext value={editor.duplicateNote}>
