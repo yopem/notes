@@ -575,6 +575,7 @@ describe("MCP real stdio child", () => {
     const release = Promise.withResolvers<string>()
     const ping = Promise.withResolvers<void>()
     const cancelled = Promise.withResolvers<void>()
+    const retried = Promise.withResolvers<void>()
     const output: string[] = []
     let calls = 0
     let active = 0
@@ -592,6 +593,7 @@ describe("MCP real stdio child", () => {
           output.push(line)
           const reply = Schema.decodeUnknownSync(replySchema)(JSON.parse(line))
           if (reply.id === 9) ping.resolve()
+          if (reply.id === 8) retried.resolve()
           if (reply.id === 7 && reply.error?.code === -32600)
             cancelled.resolve()
 
@@ -624,6 +626,7 @@ describe("MCP real stdio child", () => {
       sendMessages(controller, [
         { method: "notifications/cancelled", params: { requestId: 7 } },
         write,
+        { ...write, id: 8 },
         { id: 9, method: "ping" },
       ])
       await aborted.promise
@@ -632,6 +635,7 @@ describe("MCP real stdio child", () => {
       expect(output.map((line) => JSON.parse(line)).filter((reply) => reply.id === 7)).toHaveLength(0)
       release.resolve("done")
       await cancelled.promise
+      await retried.promise
       const firstReplies = output
         .map((line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)))
         .filter((reply) => reply.id === 7)
@@ -642,7 +646,7 @@ describe("MCP real stdio child", () => {
       sendMessages(controller, [write])
       controller.close()
       await Effect.runPromise(Fiber.join(fiber))
-      expect(calls).toBe(2)
+      expect(calls).toBe(3)
       expect(maxActive).toBe(1)
       const replies = output
         .map((line) => Schema.decodeUnknownSync(replySchema)(JSON.parse(line)))
