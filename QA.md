@@ -6,9 +6,10 @@ Refactor the native desktop app into a Bun workspace monorepo. Preserve existing
 notes, settings, native assets, scripts, and tests. Then implement the remaining
 source-backed product features. This plan does not report QA execution.
 
-All cases below are pending. Run them only in a user-approved QA pass. Local
-`bun check` and type-aware lint need explicit execution approval. Do not run an
-unrelated whole-project test suite. Do not use production or personal data.
+The user explicitly approved local QA, lint, typecheck, formatting, builds and
+related checks for this work. Complete each implementation milestone before its
+QA pass. All cases below are still pending until execution and evidence review.
+Do not run an unrelated whole-project test suite or use production/personal data.
 
 ## Shared setup
 
@@ -67,7 +68,7 @@ unrelated whole-project test suite. Do not use production or personal data.
     and the final count. Record the tested revision.
   - **Cleanup:** Existing tests remove owned temporary data. Preserve failed
     evidence before deleting only those test directories.
-  - **Status:** Pending; execution approval required.
+  - **Status:** Pending; local execution approved after implementation.
 
 - [ ] **QA-006 — P0 — Environment boundary parity**
   - **Purpose:** Confirm that moving configuration to `packages/env` preserves
@@ -127,7 +128,7 @@ unrelated whole-project test suite. Do not use production or personal data.
     commands, selected projects and exact diagnostics.
   - **Cleanup:** No data cleanup. Preserve reports; remove only owned caches if
     an approved rerun requires it.
-  - **Status:** Pending; explicit local typecheck approval required.
+  - **Status:** Pending; local typecheck execution approved.
 
 - [ ] **QA-004 — P1 — Native tool and task contracts**
   - **Purpose:** Confirm that scripts use native Bun lint/format/typecheck with
@@ -166,7 +167,7 @@ unrelated whole-project test suite. Do not use production or personal data.
   - **Evidence:** `docs/artifacts/monorepo/QA-005-boundaries.txt`; inspect rule IDs
     and ensure that failures are not unrelated syntax errors.
   - **Cleanup:** Remove only the ignored probes created for this case.
-  - **Status:** Pending; probe creation and execution require QA approval.
+  - **Status:** Pending; isolated local probes and QA execution approved.
 
 ## Desktop and existing domain behavior
 
