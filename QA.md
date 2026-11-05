@@ -266,9 +266,11 @@ data.
     `00f6640f3c48f95034764b23903d99863aeafc7134db5654401750cbd17d4313`. All 95
     snapshot files were rehashed and three screenshots were inspected; see
     `native-isolation/accepted-portable-compact-restart.json`. Shutdown used
-    SIGTERM, not ordinary close. Screenshot review found a fixed-width compact
-    note-list column; QA-067 covers that layout gap. Other platforms remain
-    unrun, so the full case stays open.
+    SIGTERM, not ordinary close. The fixed-width compact column found during
+    screenshot review is repaired and privately accepted under QA-067 at
+    2e65f91. That rerun also passes separate-process restart with executable
+    `be07e8bdabb40a89d4bd508423d3c4ec2743bb0afc8def6ce3d3ce48df379aa8`. Other
+    platforms remain unrun, so the full case stays open.
 
 - [ ] **QA-009 — P1 — Moved domain service regressions**
   - **Purpose:** Preserve vault safety, tasks, recurrence, templates, assistant
@@ -1219,7 +1221,7 @@ mark those cases passed until capture works and the evidence is inspected.
     capture is available. This is delivered-draft evidence, not an OS IME or
     undelivered-input guarantee.
 
-- [ ] **QA-045 — P1 — Report task parsing errors and empty results**
+- [x] **QA-045 — P1 — Report task parsing errors and empty results**
   - **Purpose:** Distinguish a task parse failure from a genuinely empty view.
   - **Prerequisites:** Shared isolated desktop setup and implemented task view.
   - **Inputs:** A valid note without tasks; a note containing the malformed
@@ -1235,11 +1237,19 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save sanitized app trees, screenshots and the tested revision
     under `docs/artifacts/tasks/QA-045/`.
   - **Cleanup:** Stop only the test app and remove isolated data after review.
-  - **Status:** Partial native acceptance. The 84fecfe source wide scenario
-    passes malformed-note feedback and no-match search without hiding the parse
-    error. Valid-workspace empty state and correction/recovery need the expanded
-    existing native scenario before this case passes. Screenshot capture and
-    actual input values are available; screen-reader behavior remains unrun.
+  - **Status:** Passed for the private Linux task checkpoints at c0095f4 on
+    2026-11-05. Run `app-run-20261105T213341Z-3592367` retains inspected empty,
+    populated/error and corrected `Example` screenshots and trees. They show 0
+    tasks/0 errors, 2 tasks/1 error and 1 matching task/0 errors. The snapshot
+    scenario awaited the exact durable correction, reopened its source with the
+    keyboard and checked unchanged workspace bytes before its later failure. All
+    95 source hashes, private client isolation, child/compositor shutdown and
+    lock/runtime cleanup were inspected. The fixture deliberately restores
+    malformed text afterward. Independent evidence is
+    `native-isolation/accepted-task-empty-error-recovery.json`. The overall wide
+    run failed later at line 565 on a two-second key-command timeout; this is
+    not full wide or wheel acceptance. Screen-reader and other-platform checks
+    remain separate.
 
 - [ ] **QA-046 — P0 — Duplicate immediately after typing**
   - **Purpose:** Ensure a fast duplicate action does not copy an older render
@@ -2039,7 +2049,7 @@ mark those cases passed until capture works and the evidence is inspected.
     revision-aware event fence or UI protection exists. Current delivered-draft
     remount and close-owner tests do not prove this guarantee.
 
-- [ ] **QA-067 — P2 — Use the full compact note-list pane**
+- [x] **QA-067 — P2 — Use the full compact note-list pane**
   - **Purpose:** Remove the blank column beside the note list at 700 pixels.
     Keep empty-state feedback below its header, not below an empty virtual list.
   - **Prerequisites:** Private standalone setup; isolated disposable workspace;
@@ -2070,7 +2080,17 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Stop and reap only the two test-owned application processes and
     private compositor. Inspect lock/runtime removal; do not touch user windows,
     source data or the published native host.
-  - **Status:** Pending implementation and native rerun. The inspected 09d1ed6
-    compact screenshot has a fixed 286-pixel list and empty feedback below an
-    unused virtual-list spacer. Its restart assertions passed, but they did not
-    measure this layout.
+  - **Status:** Passed for private portable Linux at 2e65f91 on 2026-11-05. Test
+    d2309c1 preceded layout fix 38522de and spacing repair 2e65f91. Native
+    desktop typecheck (90 files), scoped lint with zero warnings, format and
+    standalone build passed. Run `app-run-20261105T224959Z-526126` passed the
+    unchanged 1000×760 to distinct-process 700×760 restart and compact actions.
+    The list measures 682 of 700 pixels; empty feedback starts 108 pixels below
+    its top. The final tree has no empty virtual-list spacer or note editor. All
+    95 immutable source hashes and binary hash were verified; source fonts,
+    custom host and installed SDK bindings stayed masked, with no override and
+    child working directory /. Three screenshots were inspected. Private
+    application/compositor exits, locks and runtime cleanup passed. Evidence:
+    `native-isolation/accepted-portable-compact-layout.json` and
+    `native-isolation/compact-restart/layout-checks.txt`. This is not ordinary
+    close, IME, screen-reader, native picker or other-platform acceptance.
