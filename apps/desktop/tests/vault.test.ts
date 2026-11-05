@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -17,7 +18,7 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { Vault } from "@/features/vault/service"
+import { Vault, VaultOpenError, VaultResource } from "@/features/vault/service"
 
 /*
  * Contract defined before implementation. Reference evidence:
@@ -72,6 +73,77 @@ afterEach(() => {
 })
 
 describe("native Markdown vault", () => {
+  test("acquires the vault only when the layer runs and releases its lock and watchers", () => {
+    const directory = join(root(), "deferred")
+    const layer = VaultResource.layer(directory)
+    const events: string[] = []
+    expect(existsSync(directory)).toBe(false)
+
+    const vault = Effect.runSync(
+      Effect.gen(function* () {
+        const current = yield* VaultResource
+        expect(existsSync(join(directory, ".still-notes", "vault.lock"))).toBe(
+          true,
+        )
+        expect(() => new Vault(directory)).toThrow("lock")
+        current.subscribe((event) => {
+          events.push(event.kind)
+        })
+        current.createNote("inbox", "Scoped", "", "preserved")
+
+        return current
+      }).pipe(Effect.provide(layer)),
+    )
+
+    expect(() => vault.listNotes()).toThrow("closed")
+    expect(existsSync(join(directory, ".still-notes", "vault.lock"))).toBe(
+      false,
+    )
+
+    const reopened = open(directory)
+
+    expect(reopened.readNote("inbox/Scoped.md").body).toBe("preserved")
+  })
+  test("releases the lock when the scoped workflow fails", () => {
+    const directory = root()
+
+    const result = Effect.runSync(
+      Effect.gen(function* () {
+        yield* VaultResource
+
+        return yield* Effect.fail("interrupted workflow")
+      }).pipe(
+        Effect.provide(VaultResource.layer(directory)),
+        Effect.match({ onFailure: (error) => error, onSuccess: () => "ok" }),
+      ),
+    )
+
+    expect(result).toBe("interrupted workflow")
+    expect(existsSync(join(directory, ".still-notes", "vault.lock"))).toBe(
+      false,
+    )
+
+    expect(open(directory).listNotes()).toEqual([])
+  })
+  test("reports acquisition failures as typed errors without releasing another vault's lock", () => {
+    const directory = root()
+    const original = open(directory)
+
+    const failure = Effect.runSync(
+      Effect.provide(VaultResource, VaultResource.layer(directory)).pipe(
+        Effect.match({
+          onFailure: (error) => error,
+          onSuccess: () => undefined,
+        }),
+      ),
+    )
+
+    expect(failure).toBeInstanceOf(VaultOpenError)
+    expect(failure?._tag).toBe("VaultOpenError")
+    expect(failure?.message).toContain("lock")
+    expect(() => new Vault(directory)).toThrow("lock")
+    expect(original.listNotes()).toEqual([])
+  })
   test("creates layout without seeding or moving unknown existing files", () => {
     const directory = root()
     writeFileSync(join(directory, "loose.bin"), "keep")

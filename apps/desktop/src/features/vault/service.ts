@@ -1,4 +1,4 @@
-import { Effect, Option, Schema, Struct } from "effect"
+import { Context, Effect, Layer, Option, Schema, Struct } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import {
   closeSync,
@@ -1849,5 +1849,34 @@ export class Vault {
     }
 
     this.closed = true
+  }
+}
+
+export class VaultOpenError extends Schema.TaggedError<VaultOpenError>()(
+  "VaultOpenError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class VaultResource extends Context.Service<VaultResource, Vault>()(
+  "still-notes/vault/VaultResource",
+) {
+  static layer(root: string, options: VaultOptions = {}) {
+    return Layer.effect(
+      VaultResource,
+      Effect.acquireRelease(
+        Effect.try({
+          try: () => new Vault(root, options),
+          catch: (cause) =>
+            new VaultOpenError({
+              message: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
+        }),
+        (vault) => Effect.sync(() => vault.close()),
+      ),
+    )
   }
 }
