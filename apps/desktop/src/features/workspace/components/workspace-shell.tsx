@@ -200,6 +200,14 @@ export function App({
             kind="workspace"
             onError={setError}
           />
+          {!settingsOpen && (
+            <WriteRecovery
+              store={settings}
+              color={color}
+              kind="settings"
+              onError={setError}
+            />
+          )}
           <WorkspaceMessages
             color={color}
             error={error}
