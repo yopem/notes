@@ -448,19 +448,16 @@ synchronous calculations in ordinary TypeScript.
     persisted files and screenshots before recording a pass.
   - **Cleanup:** Close only the test processes. Remove only the disposable
     directory after its evidence is reviewed. Do not touch personal data.
-  - **Status:** Blocked. Client-only screenshot capture requires a working
-    isolated compositor or a verified fix for `grim -T`. The installed headless
-    compositor cannot provide its required DRM allocator. The named core tests
-    passed with 81 tests and 343 assertions. Scoped core lint passed with zero
-    warnings. Native QA reached the welcome screen. Its saved automation tree
-    shows the test workspace, and its store lock was absent after shutdown.
-    `grim -T` exited with SIGSEGV. Later isolated controls showed GPUix native
-    initialization can stall before the automation handler starts; one
-    test-owned process was waiting during system font loading. A separate
-    successful connection then failed a bounds query. Evidence is in
-    `docs/artifacts/sorting/diagnosis/`. Draft recovery and restart remain
-    unrun. The existing user app was not stopped or captured. Resolve startup
-    and client-only capture before rerunning the native cases.
+  - **Status:** Pending native workflow acceptance. A verified private
+    Weston/pixman compositor now runs the real GPUix source app with software
+    graphics and captures only its isolated output. QA-056 passed
+    input/readback/undo and cleanup at fc60894. This removes the private-capture
+    prerequisite blocker, not the remaining draft-recovery and restart checks.
+    The host compositor grim failure and normal-environment font/startup
+    investigation remain separate. Existing test and shutdown evidence above
+    remains in docs/artifacts/effect-migration/QA-015 and
+    docs/artifacts/sorting/diagnosis. No user application was stopped or
+    captured.
 
 - [ ] **QA-017 — P0 — MCP stdio cancellation and ordering**
   - **Purpose:** Preserve the JSON-RPC protocol and release in-flight work when
@@ -1347,11 +1344,16 @@ mark those cases passed until capture works and the evidence is inspected.
     trees under `docs/artifacts/native-editor/QA-051/`.
   - **Cleanup:** Reap only test-owned processes and remove their isolated data
     after evidence review. Do not replace another app's addon or font settings.
-  - **Status:** Pending implementation. The stock native tree omits input
-    values; QA-043 stopped on this assertion, not an established source-note
-    navigation defect. Visual and screen-reader QA remain separate.
+  - **Status:** Implementation complete; broader acceptance pending. The rebuilt
+    addon passed six addon tests and Rust protocol/input/close fixtures. QA-056
+    then verified actual title/body readback, Unicode preservation,
+    deletion/typing and undo in the real app using that addon. Evidence is in
+    docs/tmp/native-input-readback and
+    docs/artifacts/native-isolation/app-run-20261105T123448Z-1319109. Existing
+    task/draft scenarios, OS composition and screen-reader verification are not
+    yet complete. Keep exact value assertions.
 
-- [ ] **QA-052 — P0 — Keep vault finalization out of unjournaled rollback**
+- [x] **QA-052 — P0 — Keep vault finalization out of unjournaled rollback**
   - **Purpose:** Prevent a failed directory sync after journal removal from
     starting rollback without a durable recovery record.
   - **Prerequisites:** Shared isolated setup, Linux parent-child ptrace support
@@ -1378,10 +1380,20 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/storage/QA-052/`.
   - **Cleanup:** Reap only owned tracees and remove their private vaults after
     evidence inspection. Retain sanitized reports and harness copies locally.
-  - **Status:** Pending. Source review found unconditional rollback after
-    successful journal unlink and failed sync. The fault is not yet reproduced.
+  - **Status:** Passed scoped Linux acceptance on 2026-11-05 at 260a5be, using
+    pinned Bun 1.4.4-canary.1+b9f2ec363 and Effect 4.1.2. The combined
+    QA-052/053 final matrix passed 20 cases, 1,096 assertions and 26 injected
+    EIOs, including 140 rejected mutation attempts. The coordinator
+    independently checked all 139 snapshots, 888 file records and 75,099 exact
+    bytes against hashes, plus all validation and cleanup records. Evidence:
+    docs/artifacts/storage/QA-052/acceptance-20261105T114439 and the
+    corresponding QA-053 directory. Current service/test hashes still match. The
+    focused vault file passed 67 tests/1,261 assertions with three existing
+    platform/layout skips. Scoped native typecheck, zero-warning lint and
+    formatting passed. This does not prove hardware power-loss, uncooperative
+    external-writer race elimination or cross-platform behavior.
 
-- [ ] **QA-053 — P0 — Retain vault recovery state after rollback failure**
+- [x] **QA-053 — P0 — Retain vault recovery state after rollback failure**
   - **Purpose:** Prevent continued mutation or false recovery instructions after
     a rollback or rollback-finalization failure.
   - **Prerequisites:** QA-052 isolated setup and its child-only fault adapter.
@@ -1404,8 +1416,16 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save fault traces, before/after hashes, errors, lock ownership
     and owned-process cleanup under `docs/artifacts/storage/QA-053/`.
   - **Cleanup:** Follow QA-052 cleanup. Do not delete another process's lock.
-  - **Status:** Pending. Transaction-stage handling and fault acceptance are not
-    implemented. Existing rollback tests do not cover these syscall points.
+  - **Status:** Passed scoped Linux acceptance on 2026-11-05 at 260a5be with the
+    QA-052 final matrix. Faults cover forward/preparation errors, incomplete
+    file/folder/metadata rollback, journal removal/finalization, no-op write
+    gates and preserved external conflicts. All case validations, exact snapshot
+    hashes and owned-process/data cleanup were inspected. Reopen either
+    reconciles known bytes or refuses a conflict; removed journals are not
+    described as present. Evidence:
+    docs/artifacts/storage/QA-053/acceptance-20261105T114439, with shared
+    inspection in QA-052. The same platform, physical-I/O and external-writer
+    limits as QA-052 remain.
 
 - [ ] **QA-054 — P1 — Use the required addon in source and binary builds**
   - **Purpose:** Prevent source launch and standalone packaging from silently
@@ -1458,50 +1478,46 @@ mark those cases passed until capture works and the evidence is inspected.
     needed; existing application processes must remain untouched.
   - **Status:** Pending implementation and execution.
 
-- [ ] **QA-056 — P1 — Verify native inputs in a private software compositor**
+- [x] **QA-056 — P1 — Verify native inputs in a private software compositor**
   - **Purpose:** Verify actual editor values, native undo and visual output
     without capturing, focusing or changing any user application.
   - **Prerequisites:** Official signed Weston and tracing packages verified
-    under `docs/artifacts/native-isolation/`, the private namespace recipe in
-    that directory, software Vulkan, the compiled addon from QA-051, and an
-    isolated writable data directory. No host display, bus or physical DRM
-    device may be visible inside the namespace.
-  - **Inputs:** Title `Task plans Ω` and body `- [ ] Call 🌿
-
-Actual native input readback.`. Use a private 1360×900 headless output, fake
-seat and kiosk shell. No personal data may be mounted.
-
-- **Steps:**
-  1. Verify package signatures again. Mount only application source,
-     dependencies, generated native code and a private writable artifact path.
-  2. Check namespace IDs, absent host display/bus/device paths, private socket
-     ownership and server credentials before starting the application.
-  3. Create the synthetic note. Read exact title/body through native automation,
-     delete/undo the title's final character and type/undo a body suffix. Check
-     the saved-state indicator and persisted synthetic data.
-  4. Save the native tree, then capture the private output through the official
-     Weston tool. Inspect the image. Confirm every client peer is owned by the
-     namespace and that no host display connection occurred.
-- **Expected results:** Native readback equals current input state, Unicode
-  remains intact, undo restores the exact values, and persistence matches. The
-  image shows the test app at 1360×900 with readable text and controls. A
-  failure cannot fall back to a host display. No user process starts, stops,
-  changes focus or appears in a capture.
-- **Evidence:** Keep commands, namespace/peer proofs, native values, app and
-  compositor logs, PNG and cleanup records under
-  `docs/artifacts/native-isolation/app-run-*/`.
-- **Cleanup:** Gracefully stop the owned app, verify its store lock is gone,
-  stop only owned compositor/trace processes, and remove the private runtime.
-  Retain sanitized synthetic data and reports for review.
-- **Status:** Failed acceptance. The source app initialized, connected only to
-  the private socket, passed exact native title/body readback and
-  delete/type/undo checks, and released its lock on clean exit. The inspected
-  image unexpectedly shows folder disclosure and the workspace still has one
-  note. Input injection can change fields behind that modal; it does not prove
-  the New note action worked. Preserve this evidence in
-  `docs/artifacts/native-isolation/app-run-20261105T121030Z-1181431/`. QA-057
-  now requires action-target verification before workflow acceptance. OS
-  composition, screen-reader and normal user-font QA remain separate.
+    under `docs/artifacts/native-isolation/`, the private namespace recipe,
+    software graphics, the compiled QA-051 addon, and isolated writable data. No
+    host display, bus or physical DRM device may be visible.
+  - **Inputs:** Title `Task plans Ω`. Body line 1 is `- [ ] Call 🌿`, followed
+    by one blank line and `Actual native input readback.`. Use a private
+    1360×900 headless output, fake seat and kiosk shell. Mount no personal data.
+  - **Steps:**
+    1. Verify package signatures. Mount only immutable source/addon snapshots,
+       dependencies and a private writable artifact path.
+    2. Check separate namespaces, absent host display/bus/device paths, socket
+       ownership and server credentials before starting the application.
+    3. Assert no initial folder modal. Create the synthetic note and require two
+       records before input changes. Check exact native title/body values,
+       delete/undo the final title character and type/undo a body suffix.
+    4. Check saved state and persisted data. Save the native tree, then capture
+       the private output with the official tool. Inspect the image and peers.
+  - **Expected results:** Readback equals current input state. Unicode remains
+    intact and undo restores exact values. The original note is unchanged. The
+    image shows readable text and controls at 1360×900, without an unexpected
+    modal. Failures cannot fall back to any host display.
+  - **Evidence:** Keep commands, namespace/peer proofs, source hashes, native
+    values, logs, PNG and cleanup records under
+    `docs/artifacts/native-isolation/app-run-*/`.
+  - **Cleanup:** Stop only owned processes. Check the store lock is gone and
+    remove the private runtime. Retain sanitized synthetic data and reports.
+  - **Status:** Passed on 2026-11-05 at fc60894. The immutable source run
+    `app-run-20261105T123448Z-1319109` passed native input and undo checks,
+    created exactly two notes, and preserved the original note and its update
+    time. The 1360×900 PNG was inspected. All six client credential records
+    belong to the private namespace; no physical DRM device was visible.
+    App/compositor exit codes were zero, the store lock was removed and only
+    namespace init plus the supervisor remained before namespace teardown. The
+    private runtime was removed. An earlier run exposed always-open disclosure;
+    fc60894 corrected its controlled state and bounded layout. QA-057 broader
+    controls, OS composition, screen-reader and normal host startup checks
+    remain separate.
 
 - [ ] **QA-057 — P0 — Preserve native action targets and modal boundaries**
   - **Purpose:** Detect wrong callback targets or stale bounds in the custom
