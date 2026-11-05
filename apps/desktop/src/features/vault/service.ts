@@ -869,8 +869,9 @@ export class Vault {
         !(forward ? entry.after : entry.before) &&
         fileStat(this.safe(entry.path))
       ) {
-        rmdirSync(this.safe(entry.path))
-        syncDirectory(dirname(this.safe(entry.path)))
+        const path = this.safe(entry.path)
+        rmdirSync(path)
+        syncDirectory(dirname(path))
       }
     }
   }
@@ -1022,14 +1023,29 @@ export class Vault {
       : folder
   }
   private reservedRoot(name: string) {
-    return [
-      "quick",
-      "archive",
-      "trash",
-      "assets",
-      internal,
-      ...(this.state.primaryNotesLocation === "inbox" ? ["inbox"] : []),
-    ].includes(asciiLowercase(name))
+    const canonical = asciiLowercase(name)
+
+    if (
+      ![
+        "quick",
+        "archive",
+        "trash",
+        "assets",
+        internal,
+        ...(this.state.primaryNotesLocation === "inbox" ? ["inbox"] : []),
+      ].includes(canonical)
+    )
+      return false
+
+    if (name === canonical) return true
+    const entries = readdirSync(this.root)
+
+    return (
+      !entries.includes(name) ||
+      !entries.includes(canonical) ||
+      !fileStat(join(this.root, name))?.isDirectory() ||
+      !fileStat(join(this.root, canonical))?.isDirectory()
+    )
   }
   private folderPath(folder: NoteFolder, subpath = "") {
     decodeArea(folder)
@@ -1079,7 +1095,7 @@ export class Vault {
     if (
       !/\.md$/i.test(id) ||
       (this.reservedRoot(first) && first !== asciiLowercase(first)) ||
-      asciiLowercase(first) === "assets"
+      first === "assets"
     )
       throw new Error("Expected a Markdown note path")
 
