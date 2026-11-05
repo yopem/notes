@@ -13,11 +13,11 @@ import {
   getButtonTextStyle,
 } from "@/components/ui/control-styles"
 import { Button, Label } from "@/components/ui/controls"
+import { WriteRecovery } from "@/components/write-recovery"
 import {
   getSettingsStyles,
   settingsStyles,
 } from "@/features/settings/components/settings-styles"
-import { SettingsWriteRecovery } from "@/features/settings/components/settings-write-recovery"
 import {
   type PreferenceInput,
   preferenceInputSchema,
@@ -512,9 +512,10 @@ export function SettingsPanel({
                 {error}
               </text>
             )}
-            <SettingsWriteRecovery
+            <WriteRecovery
               store={store}
               color={color}
+              kind="settings"
               onError={setError}
             />
             <div style={settingsStyles.list}>
