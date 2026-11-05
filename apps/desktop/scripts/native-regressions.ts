@@ -93,6 +93,7 @@ async function createNote(
   await app.getByTestId("note-body").fill(body)
 
   const after = await savedNoteIs(dataDirectory, title, body)
+
   const savedNotes = new Map(
     after.notes.map((note) => [note.id, note] as const),
   )
