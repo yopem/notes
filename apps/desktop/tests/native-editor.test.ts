@@ -417,6 +417,22 @@ describe("native font completion boundary", function fontCompletion() {
     expect(batches).toHaveLength(1)
   })
 
+  test("uses one native receiver across host wrappers", async function nativeReceiver() {
+    let calls = 0
+    const native = {
+      registerFontsAsyncV1() {
+        expect(this).toBe(native)
+        calls++
+        return Promise.resolve(2)
+      },
+    }
+    const first = registerFonts({ native })
+    expect(registerFonts({ native })).toBe(first)
+    expect(registerFonts(native)).toBe(first)
+    await first
+    expect(calls).toBe(1)
+  })
+
   test("retains failed work without replay", async function failedBatch() {
     let calls = 0
     const native = {
