@@ -1091,9 +1091,20 @@ export function runMcpStdio(options: McpStdioOptions) {
       )
 
       const outputPermit = yield* Semaphore.make(1)
+      const mutationPermit = yield* Semaphore.make(1)
       const failed = yield* Deferred.make<never, McpStdioError>()
       let firstFailure: McpStdioError | undefined
-      const pending = new Map<string | number, AbortController>()
+
+      const pending = new Map<
+        string | number,
+        {
+          controller: AbortController
+          finished: Deferred.Deferred<void>
+          completed: boolean
+          duplicates: number
+        }
+      >()
+
       const tasks = new Map<symbol, Fiber.Fiber<void, McpStdioError>>()
       let initialized = false
       let ready = false
@@ -1103,7 +1114,7 @@ export function runMcpStdio(options: McpStdioOptions) {
 
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
-          for (const controller of pending.values()) controller.abort()
+          for (const request of pending.values()) request.controller.abort()
         }),
       )
 
@@ -1154,14 +1165,27 @@ export function runMcpStdio(options: McpStdioOptions) {
               const cancelled = decodeCancel(params)
 
               if (Result.isSuccess(cancelled))
-                pending.get(cancelled.success.requestId)?.abort()
+                pending.get(cancelled.success.requestId)?.controller.abort()
             }
 
             return
           }
 
-          if (pending.has(id)) {
-            yield* rpcError(id, -32600, "Request id already active")
+          const previous = pending.get(id)
+
+          if (previous) {
+            previous.duplicates += 1
+            yield* Deferred.await(previous.finished).pipe(
+              Effect.andThen(rpcError(id, -32600, "Request id already active")),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  previous.duplicates -= 1
+
+                  if (previous.completed && previous.duplicates === 0)
+                    pending.delete(id)
+                }),
+              ),
+            )
 
             return
           }
@@ -1251,8 +1275,23 @@ export function runMcpStdio(options: McpStdioOptions) {
             return
           }
 
+          if (pending.size >= 16) {
+            yield* rpcError(id, -32000, "Server busy")
+
+            return
+          }
+
           const controller = new AbortController()
-          pending.set(id, controller)
+          const finished = yield* Deferred.make<void>()
+
+          const request = {
+            controller,
+            finished,
+            completed: false,
+            duplicates: 0,
+          }
+
+          pending.set(id, request)
 
           const cancelled = Effect.callback<never, Error>((resume) => {
             function abort() {
@@ -1287,7 +1326,7 @@ export function runMcpStdio(options: McpStdioOptions) {
 
             yield* Effect.yieldNow
 
-            const value = yield* Effect.tryPromise({
+            const invoke = Effect.tryPromise({
               try: () => {
                 controller.signal.throwIfAborted()
 
@@ -1300,6 +1339,19 @@ export function runMcpStdio(options: McpStdioOptions) {
               catch: (error) => error,
             })
 
+            const value = yield* readTools.has(name)
+              ? invoke
+              : Effect.scoped(
+                  Effect.gen(function* () {
+                    yield* Effect.raceFirst(
+                      Semaphore.takeScoped(mutationPermit, 1),
+                      cancelled,
+                    )
+
+                    return yield* invoke
+                  }),
+                )
+
             return yield* Effect.try({
               try: () => {
                 controller.signal.throwIfAborted()
@@ -1310,7 +1362,7 @@ export function runMcpStdio(options: McpStdioOptions) {
             })
           })
 
-          yield* Effect.raceFirst(execute, cancelled).pipe(
+          yield* execute.pipe(
             Effect.matchEffect({
               onFailure: (error) =>
                 controller.signal.aborted
@@ -1354,8 +1406,11 @@ export function runMcpStdio(options: McpStdioOptions) {
             }),
             Effect.onInterrupt(() => Effect.sync(() => controller.abort())),
             Effect.ensuring(
-              Effect.sync(() => {
-                pending.delete(id)
+              Effect.gen(function* () {
+                request.completed = true
+
+                if (request.duplicates === 0) pending.delete(id)
+                yield* Deferred.succeed(finished, undefined)
               }),
             ),
           )
@@ -1364,6 +1419,31 @@ export function runMcpStdio(options: McpStdioOptions) {
 
       function startLine(line: string) {
         return Effect.gen(function* () {
+          if (tasks.size >= 32) {
+            let request: unknown
+
+            try {
+              request = JSON.parse(line)
+            } catch {
+              request = undefined
+            }
+
+            const parsed = decodeRequest(request)
+
+            if (Result.isSuccess(parsed) && parsed.success.id === undefined) {
+              yield* handle(line)
+
+              return
+            }
+
+            return yield* Effect.fail(
+              new McpStdioError({
+                operation: "output",
+                cause: new Error("MCP response capacity exceeded"),
+              }),
+            )
+          }
+
           const key = Symbol()
           let complete = false
 
