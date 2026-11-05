@@ -56,10 +56,16 @@ data.
 | Zero-warning lint and Effect migration                       | QA-013, QA-014, QA-015                                                                 |
 | Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025, QA-032, QA-033, QA-034, QA-042 |
 | Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                                                         |
-| Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                                                 |
-| Note duplication and unsaved-draft safety                    | QA-038, QA-039                                                                         |
+| Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030, QA-035, QA-036, QA-037                                         |
+| Note duplication and unsaved-draft safety                    | QA-038, QA-039, QA-041, QA-046                                                         |
 | Read-only task discovery and draft safety                    | QA-043, QA-044, QA-045                                                                 |
 | Reactive system appearance                                   | QA-022                                                                                 |
+
+| Atomic write reconciliation and vault finalization | QA-040, QA-050, QA-052,
+QA-053 | | Reserved path aliases and distinct legacy folders | QA-047, QA-049 |
+| Development startup and shutdown | QA-048 | | Actual native input, verified
+addon and private capture | QA-051, QA-054, QA-055, QA-056 | | Native action,
+font setup and remount draft safety | QA-057, QA-058, QA-059 |
 
 ## Storage and configuration
 
