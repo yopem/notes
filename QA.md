@@ -1240,6 +1240,7 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Pending. At `d55cf29`, an isolated run with a test-only font
     configuration logged window creation and mount completion. After a timed
     SIGINT, Turbo logged task shutdown and the workspace lock was absent.
-    Evidence: `docs/artifacts/dev/QA-048/dev-output.txt`. The timeout wrapper
-    returned 124 as expected after its deadline. Default system-font startup,
-    visual output and exact child-process cleanup remain unverified.
+    Evidence: `docs/artifacts/dev/QA-048/dev-output.txt`. Native bridge edits
+    were also present in the worktree. The timeout wrapper returned 124 as
+    expected after its deadline. Default system-font startup, visual output and
+    exact child-process cleanup remain unverified.
