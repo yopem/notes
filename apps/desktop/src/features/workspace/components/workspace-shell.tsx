@@ -20,7 +20,7 @@ import {
   AppDialog,
   type DialogState,
 } from "@/features/workspace/components/app-dialog"
-import { Sidebar, type View } from "@/features/workspace/components/sidebar"
+import { Sidebar } from "@/features/workspace/components/sidebar"
 import { WorkspaceEmpty } from "@/features/workspace/components/workspace-empty"
 import { WorkspaceHeader } from "@/features/workspace/components/workspace-header"
 import { WorkspaceMessages } from "@/features/workspace/components/workspace-messages"
@@ -29,6 +29,8 @@ import {
   workspaceStyles,
 } from "@/features/workspace/components/workspace-styles"
 import { useNoteDrafts } from "@/features/workspace/hooks/use-note-drafts"
+import { useWorkspaceNavigation } from "@/features/workspace/hooks/use-workspace-navigation"
+import { useWorkspaceNoteIntake } from "@/features/workspace/hooks/use-workspace-note-intake"
 import { registerFonts } from "@/native/fonts"
 
 const editorModeShortcuts: Record<"4" | "5" | "6", EditorMode> = {
@@ -62,17 +64,39 @@ export function App({
   )
 
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [view, setView] = useState<View>({ kind: "all" })
-  const [query, setQuery] = useState("")
-  const [mode, setMode] = useState<EditorMode>(preferences.defaultPaneMode)
-  const [focusMode, setFocusMode] = useState(false)
-  const [navigationOpen, setNavigationOpen] = useState(false)
-  const [mobileEditor, setMobileEditor] = useState(false)
-  const [oldestFirst, setOldestFirst] = useState(false)
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
+  const navigation = useWorkspaceNavigation({
+    store,
+    workspace,
+    defaultMode: preferences.defaultPaneMode,
+    onError: setError,
+  })
+  const {
+    view,
+    query,
+    mode,
+    focusMode,
+    navigationOpen,
+    mobileEditor,
+    oldestFirst,
+    notes,
+    selected,
+    title,
+    setView,
+    setQuery,
+    setMode,
+    setActiveNoteId,
+    setMobileEditor,
+    selectNextNote,
+  } = navigation
+  const { newNote, importFiles, importPath } = useWorkspaceNoteIntake({
+    store,
+    navigation,
+    onError: setError,
+    onNotice: setNotice,
+  })
   const searchRef = useRef<PublicInstance>(null)
   const renderer = useGpuixRequired()
   const { width } = useWindowSize()
@@ -84,40 +108,6 @@ export function App({
 
   const color = palettes[theme]
   const styles = getWorkspaceStyles(color)
-  const search = query.trim().toLocaleLowerCase()
-
-  const notes = workspace.notes
-    .filter((note) => {
-      if (view.kind === "trash" ? !note.trashedAt : note.trashedAt) return false
-
-      if (view.kind === "pinned" && !note.pinned) return false
-
-      if (view.kind === "notebook" && note.notebookId !== view.notebookId)
-        return false
-
-      return (
-        !search ||
-        `${note.title}\n${note.body}`.toLocaleLowerCase().includes(search)
-      )
-    })
-    .sort(
-      (a, b) =>
-        Number(b.pinned) - Number(a.pinned) ||
-        (oldestFirst
-          ? a.updatedAt.localeCompare(b.updatedAt)
-          : b.updatedAt.localeCompare(a.updatedAt)) ||
-        a.id.localeCompare(b.id),
-    )
-
-  const selected =
-    workspace.notes.find(
-      (item) =>
-        item.id === activeNoteId &&
-        Boolean(item.trashedAt) === (view.kind === "trash"),
-    ) ??
-    notes.find((item) => item.id === workspace.selectedNoteId) ??
-    notes[0]
-
   const { drafts, hasDrafts, changeNote, retry, discardDraft } = useNoteDrafts({
     store,
     note: selected,
@@ -130,45 +120,8 @@ export function App({
     (item) => item.id === note?.notebookId,
   )
 
-  const title =
-    view.kind === "notebook"
-      ? (workspace.notebooks.find((item) => item.id === view.notebookId)
-          ?.name ?? "Notebook")
-      : {
-          all: "All notes",
-          pinned: "Pinned notes",
-          trash: "Trash",
-        }[view.kind]
-
-  function newNote() {
-    setError(
-      attempt(() => {
-        const created = store.createNote(
-          view.kind === "notebook" ? view.notebookId : undefined,
-        )
-
-        store.selectNote(created.id)
-        setActiveNoteId(created.id)
-
-        if (view.kind === "trash" || view.kind === "pinned")
-          setView({ kind: "all" })
-        setQuery("")
-        setMode("edit")
-        setMobileEditor(true)
-        setNavigationOpen(false)
-      }),
-    )
-  }
-
-  function selectNextNote(id: string) {
-    const index = notes.findIndex((item) => item.id === id)
-    setActiveNoteId(notes[index + 1]?.id ?? notes[index - 1]?.id ?? null)
-    setMobileEditor(false)
-  }
-
   function openSearch() {
-    setFocusMode(false)
-    setMobileEditor(false)
+    navigation.showSearch()
 
     if (searchRef.current) renderer.focusElement?.(searchRef.current.id)
   }
@@ -193,10 +146,10 @@ export function App({
       openSearch()
     } else if (key === "p" && event.modifiers?.shift) {
       event.preventDefault()
-      setMode(mode === "preview" ? "edit" : "preview")
+      navigation.togglePreview()
     } else if (key === "f" && event.modifiers?.shift) {
       event.preventDefault()
-      setFocusMode(!focusMode)
+      navigation.toggleKeyboardFocus()
     } else if (key === "o") {
       event.preventDefault()
       setDialog({ kind: "import" })
@@ -207,26 +160,6 @@ export function App({
       event.preventDefault()
       retry()
     }
-  }
-
-  function importFiles(paths: string[]) {
-    setError(
-      attempt(() => {
-        const imported = store.importMarkdown(
-          paths,
-          view.kind === "notebook" ? view.notebookId : undefined,
-        )
-
-        if (imported[0]) store.selectNote(imported[0].id)
-        setActiveNoteId(imported[0]?.id ?? null)
-        setView({ kind: "all" })
-        setQuery("")
-        setMode("edit")
-        setNotice(
-          `Imported ${imported.length} ${imported.length === 1 ? "note" : "notes"}. Original files unchanged.`,
-        )
-      }),
-    )
   }
 
   function confirmDialog(value: string) {
@@ -245,17 +178,7 @@ export function App({
       if (view.kind === "notebook" && view.notebookId !== value)
         selectNextNote(dialog.id)
     } else if (dialog.kind === "import") {
-      const imported = store.importMarkdown(
-        [value],
-        view.kind === "notebook" ? view.notebookId : undefined,
-      )
-
-      if (imported[0]) store.selectNote(imported[0].id)
-      setActiveNoteId(imported[0]?.id ?? null)
-      setView({ kind: "all" })
-      setQuery("")
-      setMode("edit")
-      setNotice("Markdown imported. Original file unchanged.")
+      importPath(value)
     } else if (dialog.kind === "export") {
       const destination = store.exportMarkdown(
         dialog.id,
@@ -331,13 +254,7 @@ export function App({
             notebooks={workspace.notebooks}
             notes={workspace.notes}
             view={view}
-            onView={(next) => {
-              setView(next)
-              setActiveNoteId(null)
-              setQuery("")
-              setNavigationOpen(false)
-              setMobileEditor(false)
-            }}
+            onView={navigation.changeView}
             onNewNotebook={() => setDialog({ kind: "notebook" })}
             onRename={(item) =>
               setDialog({ kind: "rename", id: item.id, name: item.name })
@@ -360,16 +277,8 @@ export function App({
             showSidebar={showSidebar}
             searchRef={searchRef}
             query={query}
-            onSearch={(event) => {
-              setQuery(event.value ?? "")
-              setActiveNoteId(null)
-              setMobileEditor(false)
-              setFocusMode(false)
-            }}
-            onShowNotebooks={() => {
-              setFocusMode(false)
-              setNavigationOpen(true)
-            }}
+            onSearch={navigation.searchNotes}
+            onShowNotebooks={navigation.showNotebooks}
             onImport={() => setDialog({ kind: "import" })}
             onSettings={() => setSettingsOpen(true)}
             onHelp={() => setDialog({ kind: "help" })}
@@ -392,15 +301,11 @@ export function App({
                 selectedId={note?.id}
                 title={title}
                 query={query}
-                onSelect={(id) => {
-                  setActiveNoteId(id)
-                  setMobileEditor(true)
-                  setError(attempt(() => store.selectNote(id)))
-                }}
+                onSelect={navigation.selectNote}
                 onNew={newNote}
                 trash={view.kind === "trash"}
                 oldestFirst={oldestFirst}
-                onSort={() => setOldestFirst(!oldestFirst)}
+                onSort={navigation.toggleSort}
               />
             )}
             {note && (!narrow || mobileEditor || focusMode) ? (
@@ -437,13 +342,10 @@ export function App({
                 onMove={() => setDialog({ kind: "move", id: note.id })}
                 onLink={openLink}
                 focusMode={focusMode}
-                onFocusMode={() => {
-                  setFocusMode(!focusMode)
-                  setNavigationOpen(false)
-                }}
+                onFocusMode={navigation.toggleFocus}
                 dirty={hasDrafts}
                 narrow={narrow}
-                onBack={() => setMobileEditor(false)}
+                onBack={navigation.showList}
               />
             ) : (
               !narrow && (
