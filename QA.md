@@ -1457,3 +1457,42 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Remove owned copies after inspection. No user cleanup is
     needed; existing application processes must remain untouched.
   - **Status:** Pending implementation and execution.
+
+- [ ] **QA-056 — P1 — Verify native inputs in a private software compositor**
+  - **Purpose:** Verify actual editor values, native undo and visual output
+    without capturing, focusing or changing any user application.
+  - **Prerequisites:** Official signed Weston and tracing packages verified
+    under `docs/artifacts/native-isolation/`, the private namespace recipe in
+    that directory, software Vulkan, the compiled addon from QA-051, and an
+    isolated writable data directory. No host display, bus or physical DRM
+    device may be visible inside the namespace.
+  - **Inputs:** Title `Task plans Ω` and body `- [ ] Call 🌿
+
+Actual native input readback.`. Use a private 1360×900 headless output, fake
+seat and kiosk shell. No personal data may be mounted.
+
+- **Steps:**
+  1. Verify package signatures again. Mount only application source,
+     dependencies, generated native code and a private writable artifact path.
+  2. Check namespace IDs, absent host display/bus/device paths, private socket
+     ownership and server credentials before starting the application.
+  3. Create the synthetic note. Read exact title/body through native automation,
+     delete/undo the title's final character and type/undo a body suffix. Check
+     the saved-state indicator and persisted synthetic data.
+  4. Save the native tree, then capture the private output through the official
+     Weston tool. Inspect the image. Confirm every client peer is owned by the
+     namespace and that no host display connection occurred.
+- **Expected results:** Native readback equals current input state, Unicode
+  remains intact, undo restores the exact values, and persistence matches. The
+  image shows the test app at 1360×900 with readable text and controls. A
+  failure cannot fall back to a host display. No user process starts, stops,
+  changes focus or appears in a capture.
+- **Evidence:** Keep commands, namespace/peer proofs, native values, app and
+  compositor logs, PNG and cleanup records under
+  `docs/artifacts/native-isolation/app-run-*/`.
+- **Cleanup:** Gracefully stop the owned app, verify its store lock is gone,
+  stop only owned compositor/trace processes, and remove the private runtime.
+  Retain sanitized synthetic data and reports for review.
+- **Status:** Pending. The official private demo and screenshot passed; GPUix
+  application compatibility has not yet been tested in that namespace. OS
+  composition, screen-reader and normal user-font QA remain separate.
