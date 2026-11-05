@@ -29,7 +29,7 @@ import {
   sep,
 } from "node:path"
 
-import { atomicWrite, syncDirectory } from "@/platform/files"
+import { atomicWrite, AtomicWriteError, syncDirectory } from "@/platform/files"
 
 const noteLimit = 2 * 1024 * 1024
 
@@ -536,6 +536,7 @@ export class Vault {
   private readonly watchers = new Set<FSWatcher>()
   private closed = false
   private locked = false
+  private transactionFailed = false
   private state: State
   private stateBytes = ""
 
@@ -751,6 +752,11 @@ export class Vault {
     this.assertOpen()
 
     if (this.readOnlyPreview) throw new Error("Vault preview is read-only")
+
+    if (this.transactionFailed)
+      throw new Error(
+        "Vault transaction requires reconciliation; close and reopen the vault before any mutation",
+      )
     const owner = this.readLock()
 
     if (owner.token !== this.owner.token || owner.pid !== this.owner.pid)
@@ -896,6 +902,25 @@ export class Vault {
     syncDirectory(this.safe(internal))
   }
 
+  private transactionFailure(message: string, causes: unknown[]) {
+    this.transactionFailed = true
+    let journalStatus: string
+
+    try {
+      journalStatus = fileStat(this.safe(journalPath))
+        ? "Recovery journal remains"
+        : "Recovery journal is absent"
+    } catch (cause) {
+      journalStatus = "Recovery journal status is unknown"
+      causes.push(cause)
+    }
+
+    return new AggregateError(
+      causes,
+      `${message}. ${journalStatus}. Close and reopen the vault before any mutation; preserve files for repair if reopening fails.`,
+    )
+  }
+
   private transaction(
     next: State,
     changes: {
@@ -988,24 +1013,51 @@ export class Vault {
 
     if (Buffer.byteLength(bytes) > transactionLimit)
       throw new Error("Transaction exceeds size limit; use smaller folders")
-    atomicWrite(this.safe(journalPath), bytes, this.safe(internal))
+    try {
+      atomicWrite(this.safe(journalPath), bytes, this.safe(internal))
+    } catch (error) {
+      if (error instanceof AtomicWriteError && error.replacementCompleted)
+        throw this.transactionFailure(
+          "Vault journal preparation completed, but its durability is not confirmed; no transaction files were applied",
+          [error],
+        )
+      throw error
+    }
+
+    let journalRemoved = false
 
     try {
       this.apply(journal, true)
       unlinkSync(this.safe(journalPath))
+      journalRemoved = true
       syncDirectory(this.safe(internal))
       this.state = next
       this.stateBytes = nextBytes
     } catch (error) {
+      if (journalRemoved)
+        throw this.transactionFailure(
+          "Vault transaction applied, but commit durability is not confirmed",
+          [error],
+        )
+
       try {
+        if (
+          !readBytes(this.safe(journalPath), transactionLimit).equals(
+            Buffer.from(bytes),
+          )
+        )
+          throw new Error("Recovery journal changed; preserve journal and files")
         this.validateJournal(journal)
         this.apply(journal, false)
         unlinkSync(this.safe(journalPath))
+        journalRemoved = true
         syncDirectory(this.safe(internal))
       } catch (rollback) {
-        throw new AggregateError(
+        throw this.transactionFailure(
+          journalRemoved
+            ? "Vault rollback applied, but its durability is not confirmed"
+            : "Vault rollback did not complete",
           [error, rollback],
-          "Vault transaction failed; preserve recovery journal",
         )
       }
 
@@ -1183,7 +1235,7 @@ export class Vault {
 
   private noteMutation<A>(operation: () => A) {
     return this.noteIO(() => {
-      if (this.readOnlyPreview) this.assertWritable()
+      this.assertWritable()
 
       return operation()
     })
@@ -1212,7 +1264,7 @@ export class Vault {
   }
   private folderMutation<A>(operation: () => A) {
     return this.folderIO(() => {
-      if (this.readOnlyPreview) this.assertWritable()
+      this.assertWritable()
 
       return operation()
     })
@@ -1747,7 +1799,7 @@ export class Vault {
 
   private assetMutation<A>(operation: () => A) {
     return this.assetIO(() => {
-      if (this.readOnlyPreview) this.assertWritable()
+      this.assertWritable()
 
       return operation()
     })
