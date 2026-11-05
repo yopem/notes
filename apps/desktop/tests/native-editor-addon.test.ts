@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
+import { Schema } from "effect"
 import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
-import { z } from "zod"
 
 const require = createRequire(import.meta.url)
 
@@ -9,13 +9,15 @@ const binding: unknown = require(
   fileURLToPath(new URL("../native/gpuix-native.node", import.meta.url)),
 )
 
-const addon = z.object({ GpuixRenderer: z.instanceof(Function) }).parse(binding)
+const addon = Schema.decodeUnknownSync(
+  Schema.Struct({ GpuixRenderer: Schema.instanceOf(Function) }),
+)(binding)
 
 const renderer: unknown = Reflect.construct(addon.GpuixRenderer, [])
 
-const bridge = z
-  .object({ editorCommand: z.instanceof(Function) })
-  .parse(renderer)
+const bridge = Schema.decodeUnknownSync(
+  Schema.Struct({ editorCommand: Schema.instanceOf(Function) }),
+)(renderer)
 
 // Do not call init. These checks must not create a window.
 test("built addon rejects invalid host IDs before UI dispatch", function invalidId() {
