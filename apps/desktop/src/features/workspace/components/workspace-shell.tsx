@@ -28,6 +28,7 @@ import {
   getWorkspaceStyles,
   workspaceStyles,
 } from "@/features/workspace/components/workspace-styles"
+import { useNoteDrafts } from "@/features/workspace/hooks/use-note-drafts"
 import { registerFonts } from "@/native/fonts"
 
 const editorModeShortcuts: Record<"4" | "5" | "6", EditorMode> = {
@@ -40,11 +41,6 @@ const linkCommands = new Map([
   ["darwin", "open"],
   ["win32", "rundll32"],
 ])
-
-interface Draft {
-  title?: string
-  body?: string
-}
 
 export function App({
   store,
@@ -77,8 +73,6 @@ export function App({
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
-  const hasDrafts = Object.keys(drafts).length > 0
   const searchRef = useRef<PublicInstance>(null)
   const renderer = useGpuixRequired()
   const { width } = useWindowSize()
@@ -124,6 +118,12 @@ export function App({
     notes.find((item) => item.id === workspace.selectedNoteId) ??
     notes[0]
 
+  const { drafts, hasDrafts, changeNote, retry, discardDraft } = useNoteDrafts({
+    store,
+    note: selected,
+    onActiveNote: setActiveNoteId,
+    onError: setError,
+  })
   const note = selected ? { ...selected, ...drafts[selected.id] } : undefined
 
   const notebook = workspace.notebooks.find(
@@ -160,39 +160,10 @@ export function App({
     )
   }
 
-  function changeNote(patch: Draft) {
-    if (!note || note.trashedAt) return
-    const id = note.id
-    const pending = { ...drafts[id], ...patch }
-    setActiveNoteId(id)
-    setDrafts((current) => ({ ...current, [id]: pending }))
-    setError(
-      attempt(() => {
-        store.updateNote(id, pending)
-        setDrafts((current) => {
-          const next = { ...current }
-          delete next[id]
-
-          return next
-        })
-      }),
-    )
-  }
-
   function selectNextNote(id: string) {
     const index = notes.findIndex((item) => item.id === id)
     setActiveNoteId(notes[index + 1]?.id ?? notes[index - 1]?.id ?? null)
     setMobileEditor(false)
-  }
-
-  function retry() {
-    setError(
-      attempt(() => {
-        for (const [id, draft] of Object.entries(drafts))
-          store.updateNote(id, draft)
-        setDrafts({})
-      }),
-    )
   }
 
   function openSearch() {
@@ -296,12 +267,7 @@ export function App({
     } else if (dialog.kind === "delete") {
       store.deleteNote(dialog.id)
       selectNextNote(dialog.id)
-      setDrafts((current) => {
-        const next = { ...current }
-        delete next[dialog.id]
-
-        return next
-      })
+      discardDraft(dialog.id)
     }
 
     setDialog(null)
