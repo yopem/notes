@@ -1,18 +1,10 @@
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
 import { createRequire } from "node:module"
-import { fileURLToPath } from "node:url"
 
 const require = createRequire(import.meta.url)
 
-const nativeAddonArgument = process.argv.find((argument) =>
-  argument.startsWith("--native-addon="),
-)
-
-const binding: unknown = require(
-  nativeAddonArgument?.slice("--native-addon=".length) ??
-    fileURLToPath(new URL("../native/gpuix-native.node", import.meta.url)),
-)
+const binding: unknown = require("@gpuix/native")
 
 const addon = Schema.decodeUnknownSync(
   Schema.Struct({ GpuixRenderer: Schema.instanceOf(Function) }),
