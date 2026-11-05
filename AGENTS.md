@@ -1605,3 +1605,28 @@ applicable category into concrete cases with the details required above.
   require a restart. Do not replay an uncertain command.
 - Before writing Effect code, read `node_modules/effect/AGENTS.md` completely.
   Follow its linked guidance and inspect the pinned v4-or-higher source APIs.
+
+## Native close ownership
+
+- Verify the required custom host before launch and packaging. Require all four
+  CloseOwnerV2 methods and the actual Promise return from approval. Do not use
+  the legacy arm or close methods for a versioned owner.
+- Keep native ownership at window scope. Retarget by the expected owner under
+  one lock. Preserve the veto and pending request across root replacement.
+  Release detaches only that owner; it must not disarm the window.
+- Give each approval attempt a non-reused internal identity. Check the owner,
+  request, and attempt at UI execution before removal. Old reply failures and
+  timeouts must not cancel or revoke a newer attempt for the same request.
+- Begin the closing state before window removal while holding the owner lock.
+  Invoke external request callbacks only after releasing that lock. Veto when
+  ownership is unavailable or identity counters are exhausted.
+- Check both SDK root identity and native owner identity before a controller
+  cancels or approves. Old cleanup must not release a newer owner or remove its
+  handler. Decode protocol 2 replies strictly. Keep internal attempt identities
+  out of the public owner/request wire contract.
+- Keep normal menu and keyboard quit behind the native owner guard, independent
+  of transient root handlers. Verify each platform path; menu source changes
+  do not prove Dock quit, OS shutdown, or forced termination safety.
+- A bridge or fake-host test does not prove draft-safe close behavior. Complete
+  native input handoff, save/recovery decisions, and isolated ordinary-close
+  acceptance before making that claim.
