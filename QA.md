@@ -100,7 +100,7 @@ data.
 
 ## Workspace layout and native tooling
 
-- [ ] **QA-002 — P1 — Single-lockfile workspace install**
+- [x] **QA-002 — P1 — Single-lockfile workspace install**
   - **Purpose:** Confirm that each workspace has its own manifest and TypeScript
     configuration, with root-owned tooling and one dependency lockfile.
   - **Prerequisites:** Shared setup; committed refactor and network/cache access
@@ -118,7 +118,9 @@ data.
   - **Evidence:** `docs/artifacts/monorepo/QA-002-install.txt`; inspect exit
     status, manifest ownership and unchanged lockfile.
   - **Cleanup:** No source cleanup. Do not delete unrelated dependency caches.
-  - **Status:** Pending; install must use the committed runtime.
+  - **Status:** Passed on revision `8794918` on 2026-11-05, Linux x86_64, Bun
+    `1.4.4-canary.1+b9f2ec363`. The frozen install made no changes. The
+    inspected evidence is `docs/artifacts/monorepo/QA-002-install.txt`.
 
 - [ ] **QA-003 — P1 — Concrete exports and import ownership**
   - **Purpose:** Confirm that moved modules resolve through concrete package
