@@ -1,17 +1,11 @@
 import type { App } from "@gpuix/react/automation"
 
+import { Schema } from "effect"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { z } from "zod"
 
-const savedPreferencesSchema = z.object({
-  preferences: z.object({
-    editorFontSize: z.number(),
-    wordWrap: z.boolean(),
-    themeMode: z.string(),
-  }),
-})
+import { settingsFileSchema } from "@/features/settings/store"
 
 async function savedEditorPreferences(
   dataDirectory: string,
@@ -20,9 +14,9 @@ async function savedEditorPreferences(
 ) {
   const deadline = Date.now() + 5000
 
-  let saved = savedPreferencesSchema.parse(
-    JSON.parse(readFileSync(join(dataDirectory, "settings.json"), "utf8")),
-  )
+  let saved = Schema.decodeUnknownSync(settingsFileSchema, {
+    onExcessProperty: "error",
+  })(JSON.parse(readFileSync(join(dataDirectory, "settings.json"), "utf8")))
 
   while (
     (saved.preferences.editorFontSize !== fontSize ||
@@ -30,9 +24,9 @@ async function savedEditorPreferences(
     Date.now() < deadline
   ) {
     await Bun.sleep(16)
-    saved = savedPreferencesSchema.parse(
-      JSON.parse(readFileSync(join(dataDirectory, "settings.json"), "utf8")),
-    )
+    saved = Schema.decodeUnknownSync(settingsFileSchema, {
+      onExcessProperty: "error",
+    })(JSON.parse(readFileSync(join(dataDirectory, "settings.json"), "utf8")))
   }
 
   assert.equal(saved.preferences.editorFontSize, fontSize)

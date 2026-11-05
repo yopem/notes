@@ -1,3 +1,4 @@
+import { Effect, Option, Schema, SchemaTransformation, Struct } from "effect"
 import {
   closeSync,
   constants,
@@ -8,200 +9,398 @@ import {
   realpathSync,
 } from "node:fs"
 import { join, resolve } from "node:path"
-import { z } from "zod"
 
 import { atomicWrite } from "@/platform/files"
 
-const stringList = z.array(z.string()).default([]).readonly()
+function frozen<S extends Schema.Constraint & { readonly Type: object }>(
+  schema: S,
+) {
+  // A declaration keeps the frozen value; a struct target would copy it.
+  const target = Schema.declare<S["Type"]>(Schema.is(Schema.toType(schema)))
 
-const stringMap = z.record(z.string(), z.string()).default({}).readonly()
+  return Schema.decodeTo<typeof target, S>(
+    target,
+    SchemaTransformation.transform<S["Type"], S["Type"]>({
+      decode: (value) => Object.freeze(value),
+      encode: (value) => value,
+    }),
+  )(schema)
+}
 
-const keymap = z
-  .record(z.string(), z.union([z.string(), z.array(z.string()).readonly()]))
-  .default({})
-  .readonly()
+const stringList = Schema.Array(Schema.String)
+  .pipe(Schema.withDecodingDefault(Effect.succeed([])))
+  .pipe(frozen)
 
-const jsonMap = z.record(z.string(), z.json()).default({}).readonly()
+const stringMap = Schema.Record(Schema.String, Schema.String)
+  .pipe(Schema.withDecodingDefault(Effect.succeed({})))
+  .pipe(frozen)
 
-const fontName = z.string().max(256).nullable().default(null)
+const keymap = Schema.Record(
+  Schema.String,
+  Schema.Union([Schema.String, Schema.Array(Schema.String).pipe(frozen)]),
+)
+  .pipe(Schema.withDecodingDefault(Effect.succeed({})))
+  .pipe(frozen)
 
-const width = z.number().int().min(320).max(2400)
+const jsonMap = Schema.Record(Schema.String, Schema.Json)
+  .pipe(Schema.withDecodingDefault(Effect.succeed({})))
+  .pipe(frozen)
 
-const preferencesSchema = z
-  .strictObject({
-    vimMode: z.boolean().default(false),
-    vimInsertEscape: z.string().max(16).default(""),
-    vimYankToClipboard: z.boolean().default(false),
-    vimBlockImeInNormalMode: z.boolean().default(true),
-    vimWrappedLineMotions: z.enum(["display", "logical"]).default("display"),
-    whichKeyHints: z.boolean().default(true),
-    whichKeyHintMode: z.enum(["timed", "always", "off"]).default("timed"),
-    whichKeyHintTimeoutMs: z.number().int().min(0).max(10000).default(900),
-    keymapOverrides: keymap,
-    commandKeymaps: keymap,
-    ignoredKeys: stringList,
-    externalApplicationSchemes: stringList,
-    vaultTextSearchBackend: z
-      .enum(["auto", "builtin", "ripgrep"])
-      .default("auto"),
-    ripgrepBinaryPath: fontName,
-    fzfBinaryPath: fontName,
-    searchTaggedBlocks: z.boolean().default(true),
-    livePreview: z.boolean().default(true),
-    showHeadingLevelLabels: z.boolean().default(false),
-    listIndentGuides: z.boolean().default(true),
-    linkPopoverOnHover: z.boolean().default(true),
-    renderTablesInLivePreview: z.boolean().default(true),
-    detectCodeLanguages: z.boolean().default(true),
-    completedTaskStyle: z
-      .enum(["none", "strikethrough", "gray", "gray-strikethrough"])
-      .default("none"),
-    mathRenderer: z.enum(["katex", "typst"]).default("katex"),
-    typstTagPreambles: z.boolean().default(false),
-    harperEnabled: z.boolean().default(false),
-    harperDialect: z
-      .enum(["american", "british", "canadian", "australian"])
-      .default("american"),
-    looseMathDelimiters: z.boolean().default(false),
-    keepViewModeAcrossNotes: z.boolean().default(false),
-    keepPanelsAcrossNotes: z.boolean().default(true),
-    persistUndoHistory: z.boolean().default(false),
-    defaultPaneMode: z.enum(["edit", "split", "preview"]).default("edit"),
-    syncTitleHeadingOnRename: z.boolean().default(true),
-    reviewAgentEdits: z.boolean().default(true),
-    usageCount: z.boolean().default(false),
-    markdownSnippets: z.boolean().default(true),
-    textReplacementsEnabled: z.boolean().default(true),
-    textReplacements: z
-      .record(z.string(), z.string())
-      .default({ "->": "→" })
-      .readonly(),
-    autoPairs: z.boolean().default(true),
-    autoPairQuotesInProse: z.boolean().default(false),
-    hideBuiltinTemplates: z.boolean().default(false),
-    tabsEnabled: z.boolean().default(true),
-    wrapTabs: z.boolean().default(false),
-    editorFontSize: z.number().min(10).max(40).default(16),
-    mathFontScale: z.number().min(50).max(300).default(100),
-    editorLineHeight: z.number().min(1).max(3).default(1.7),
-    editorTabSize: z.number().int().min(1).max(16).default(4),
-    editorScrollOff: z.number().int().min(0).max(100).default(0),
-    timeFormat: z.enum(["12h", "24h"]).default("24h"),
-    previewMaxWidth: width.default(920),
-    editorMaxWidth: width.default(920),
-    lineNumberMode: z.enum(["off", "absolute", "relative"]).default("off"),
-    lineNumberPosition: z.enum(["text", "edge"]).default("text"),
-    viewSettingsScope: z.enum(["global", "vault"]).default("global"),
-    wordWrap: z.boolean().default(true),
-    previewSmoothScroll: z.boolean().default(true),
-    pdfEmbedInEditMode: z
-      .enum(["compact", "full", "hidden"])
-      .default("compact"),
-    pdfExportUseTheme: z.boolean().default(false),
-    themeId: z.string().default("yopem-light"),
-    themeFamily: z.string().default("yopem"),
-    themeMode: z.enum(["light", "dark", "system"]).default("system"),
-    enabledOverrides: z.record(z.string(), z.boolean()).default({}).readonly(),
-    themeTweaks: jsonMap,
-    darkSidebar: z.boolean().default(false),
-    showWindowTitleBar: z.boolean().default(true),
-    showStatusBar: z.boolean().default(true),
-    showSidebarChevrons: z.boolean().default(true),
-    contentAlign: z.enum(["left", "center"]).default("center"),
-    noteCoverPlacement: z.enum(["scroll", "fixed"]).default("scroll"),
-    unifiedSidebar: z.boolean().default(true),
-    interfaceFont: fontName,
-    textFont: fontName,
-    monoFont: fontName,
-    workflowsEnabled: z.boolean().default(false),
-    workflowEventTriggers: z.boolean().default(true),
-    hiddenWorkflowPresets: stringList,
-    atlasEnabled: z.boolean().default(true),
-    systemFolderLabels: stringMap,
-    noteSortOrder: z
-      .enum([
-        "none",
-        "updated-desc",
-        "updated-asc",
-        "created-desc",
-        "created-asc",
-        "name-asc",
-        "name-desc",
-      ])
-      .default("none"),
-    assetSortOrder: z
-      .enum([
-        "name-asc",
-        "name-desc",
-        "updated-desc",
-        "updated-asc",
-        "size-asc",
-        "size-desc",
-      ])
-      .default("name-asc"),
-    groupByKind: z.boolean().default(true),
-    nestedTags: z.boolean().default(true),
-    autoReveal: z.boolean().default(false),
-    quickNoteDateTitle: z.boolean().default(false),
-    quickNoteTitlePrefix: z.string().max(200).default("Quick Note"),
-    autoCalendarPanel: z.boolean().default(true),
-    calendarWeekStart: z
-      .enum(["monday", "sunday", "saturday"])
-      .default("monday"),
-    calendarShowWeekNumbers: z.boolean().default(true),
-    tasksViewMode: z
-      .enum(["list", "kanban", "calendar", "timeline", "gallery"])
-      .default("list"),
-    showArchivedTasks: z.boolean().default(false),
-    kanbanGroupBy: z
-      .enum(["status", "folder", "tag", "priority", "due"])
-      .default("status"),
-    kanbanCardSort: z
-      .enum(["manual", "updated", "created", "title", "due", "priority"])
-      .default("manual"),
-    hideEmptyTasks: z.boolean().default(true),
-    taskReminders: z.boolean().default(true),
-    taskReminderTime: z
-      .string()
-      .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
-      .default("09:00"),
-    kanbanWipLimits: z
-      .record(z.string(), z.number().int().min(0).max(10000))
-      .default({})
-      .readonly(),
-    kanbanColumnColors: stringMap,
-    kanbanLanes: z.enum(["none", "folder", "tag", "priority"]).default("none"),
-    tasksListOrder: z
-      .enum(["note", "due", "priority", "created"])
-      .default("note"),
-    timelineRange: z
-      .enum(["week", "two-weeks", "month", "quarter", "year"])
-      .default("two-weeks"),
-    gallerySort: z.enum(["updated", "created", "title"]).default("updated"),
-    galleryIncludeSubfolders: z.boolean().default(false),
-    kanbanFolderRoot: z.string().default(""),
-    kanbanColumnTitles: stringMap,
-    kanbanStatuses: stringList,
-    savedTaskFilters: jsonMap,
-    recentVaults: stringList,
-    activeVault: z.string().nullable().default(null),
-  })
-  .readonly()
+const fontName = Schema.String.check(Schema.isMaxLength(256))
+  .pipe(Schema.NullOr)
+  .pipe(Schema.withDecodingDefault(Effect.succeed(null)))
 
-const settingsFileSchema = z.strictObject({
-  version: z.literal(1),
+const width = Schema.Finite.check(Schema.isInt())
+  .check(Schema.isGreaterThanOrEqualTo(320))
+  .check(Schema.isLessThanOrEqualTo(2400))
+
+const preferenceFields = {
+  vimMode: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  vimInsertEscape: Schema.String.check(Schema.isMaxLength(16)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  vimYankToClipboard: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  vimBlockImeInNormalMode: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  vimWrappedLineMotions: Schema.Literals(["display", "logical"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("display")),
+  ),
+  whichKeyHints: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  whichKeyHintMode: Schema.Literals(["timed", "always", "off"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("timed")),
+  ),
+  whichKeyHintTimeoutMs: Schema.Finite.check(Schema.isInt())
+    .check(Schema.isGreaterThanOrEqualTo(0))
+    .check(Schema.isLessThanOrEqualTo(10000))
+    .pipe(Schema.withDecodingDefault(Effect.succeed(900))),
+  keymapOverrides: keymap,
+  commandKeymaps: keymap,
+  ignoredKeys: stringList,
+  externalApplicationSchemes: stringList,
+  vaultTextSearchBackend: Schema.Literals(["auto", "builtin", "ripgrep"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("auto")),
+  ),
+  ripgrepBinaryPath: fontName,
+  fzfBinaryPath: fontName,
+  searchTaggedBlocks: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  livePreview: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  showHeadingLevelLabels: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  listIndentGuides: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  linkPopoverOnHover: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  renderTablesInLivePreview: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  detectCodeLanguages: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  completedTaskStyle: Schema.Literals([
+    "none",
+    "strikethrough",
+    "gray",
+    "gray-strikethrough",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("none"))),
+  mathRenderer: Schema.Literals(["katex", "typst"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("katex")),
+  ),
+  typstTagPreambles: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  harperEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  harperDialect: Schema.Literals([
+    "american",
+    "british",
+    "canadian",
+    "australian",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("american"))),
+  looseMathDelimiters: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  keepViewModeAcrossNotes: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  keepPanelsAcrossNotes: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  persistUndoHistory: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  defaultPaneMode: Schema.Literals(["edit", "split", "preview"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("edit")),
+  ),
+  syncTitleHeadingOnRename: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  reviewAgentEdits: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  usageCount: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  markdownSnippets: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  textReplacementsEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  textReplacements: Schema.Record(Schema.String, Schema.String)
+    .pipe(Schema.withDecodingDefault(Effect.succeed({ "->": "→" })))
+    .pipe(frozen),
+  autoPairs: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  autoPairQuotesInProse: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  hideBuiltinTemplates: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  tabsEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  wrapTabs: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  editorFontSize: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(10))
+    .check(Schema.isLessThanOrEqualTo(40))
+    .pipe(Schema.withDecodingDefault(Effect.succeed(16))),
+  mathFontScale: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(50))
+    .check(Schema.isLessThanOrEqualTo(300))
+    .pipe(Schema.withDecodingDefault(Effect.succeed(100))),
+  editorLineHeight: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(1))
+    .check(Schema.isLessThanOrEqualTo(3))
+    .pipe(Schema.withDecodingDefault(Effect.succeed(1.7))),
+  editorTabSize: Schema.Finite.check(Schema.isInt())
+    .check(Schema.isGreaterThanOrEqualTo(1))
+    .check(Schema.isLessThanOrEqualTo(16))
+    .pipe(Schema.withDecodingDefault(Effect.succeed(4))),
+  editorScrollOff: Schema.Finite.check(Schema.isInt())
+    .check(Schema.isGreaterThanOrEqualTo(0))
+    .check(Schema.isLessThanOrEqualTo(100))
+    .pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  timeFormat: Schema.Literals(["12h", "24h"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("24h")),
+  ),
+  previewMaxWidth: width.pipe(Schema.withDecodingDefault(Effect.succeed(920))),
+  editorMaxWidth: width.pipe(Schema.withDecodingDefault(Effect.succeed(920))),
+  lineNumberMode: Schema.Literals(["off", "absolute", "relative"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("off")),
+  ),
+  lineNumberPosition: Schema.Literals(["text", "edge"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("text")),
+  ),
+  viewSettingsScope: Schema.Literals(["global", "vault"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("global")),
+  ),
+  wordWrap: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  previewSmoothScroll: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  pdfEmbedInEditMode: Schema.Literals(["compact", "full", "hidden"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("compact")),
+  ),
+  pdfExportUseTheme: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  themeId: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("yopem-light")),
+  ),
+  themeFamily: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("yopem")),
+  ),
+  themeMode: Schema.Literals(["light", "dark", "system"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("system")),
+  ),
+  enabledOverrides: Schema.Record(Schema.String, Schema.Boolean)
+    .pipe(Schema.withDecodingDefault(Effect.succeed({})))
+    .pipe(frozen),
+  themeTweaks: jsonMap,
+  darkSidebar: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  showWindowTitleBar: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  showStatusBar: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  showSidebarChevrons: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  contentAlign: Schema.Literals(["left", "center"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("center")),
+  ),
+  noteCoverPlacement: Schema.Literals(["scroll", "fixed"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("scroll")),
+  ),
+  unifiedSidebar: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  interfaceFont: fontName,
+  textFont: fontName,
+  monoFont: fontName,
+  workflowsEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  workflowEventTriggers: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  hiddenWorkflowPresets: stringList,
+  atlasEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  systemFolderLabels: stringMap,
+  noteSortOrder: Schema.Literals([
+    "none",
+    "updated-desc",
+    "updated-asc",
+    "created-desc",
+    "created-asc",
+    "name-asc",
+    "name-desc",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("none"))),
+  assetSortOrder: Schema.Literals([
+    "name-asc",
+    "name-desc",
+    "updated-desc",
+    "updated-asc",
+    "size-asc",
+    "size-desc",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("name-asc"))),
+  groupByKind: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  nestedTags: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  autoReveal: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  quickNoteDateTitle: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  quickNoteTitlePrefix: Schema.String.check(Schema.isMaxLength(200)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("Quick Note")),
+  ),
+  autoCalendarPanel: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  calendarWeekStart: Schema.Literals(["monday", "sunday", "saturday"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("monday")),
+  ),
+  calendarShowWeekNumbers: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  tasksViewMode: Schema.Literals([
+    "list",
+    "kanban",
+    "calendar",
+    "timeline",
+    "gallery",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("list"))),
+  showArchivedTasks: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  kanbanGroupBy: Schema.Literals([
+    "status",
+    "folder",
+    "tag",
+    "priority",
+    "due",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("status"))),
+  kanbanCardSort: Schema.Literals([
+    "manual",
+    "updated",
+    "created",
+    "title",
+    "due",
+    "priority",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("manual"))),
+  hideEmptyTasks: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  taskReminders: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  taskReminderTime: Schema.String.check(
+    Schema.isPattern(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed("09:00"))),
+  kanbanWipLimits: Schema.Record(
+    Schema.String,
+    Schema.Finite.check(Schema.isInt())
+      .check(Schema.isGreaterThanOrEqualTo(0))
+      .check(Schema.isLessThanOrEqualTo(10000)),
+  )
+    .pipe(Schema.withDecodingDefault(Effect.succeed({})))
+    .pipe(frozen),
+  kanbanColumnColors: stringMap,
+  kanbanLanes: Schema.Literals(["none", "folder", "tag", "priority"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("none")),
+  ),
+  tasksListOrder: Schema.Literals(["note", "due", "priority", "created"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("note")),
+  ),
+  timelineRange: Schema.Literals([
+    "week",
+    "two-weeks",
+    "month",
+    "quarter",
+    "year",
+  ]).pipe(Schema.withDecodingDefault(Effect.succeed("two-weeks"))),
+  gallerySort: Schema.Literals(["updated", "created", "title"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("updated")),
+  ),
+  galleryIncludeSubfolders: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  kanbanFolderRoot: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  kanbanColumnTitles: stringMap,
+  kanbanStatuses: stringList,
+  savedTaskFilters: jsonMap,
+  recentVaults: stringList,
+  activeVault: Schema.String.pipe(Schema.NullOr).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+}
+
+const preferencesSchema = Schema.Struct(preferenceFields).pipe(frozen)
+
+export const settingsFileSchema = Schema.Struct({
+  version: Schema.Literal(1),
   preferences: preferencesSchema,
 })
 
-const fileErrorSchema = z.object({ code: z.string() })
+const fileErrorSchema = Schema.Struct({ code: Schema.String })
 
-export type Preferences = z.infer<typeof preferencesSchema>
+export type Preferences = typeof preferencesSchema.Type
 
-export const preferenceInputSchema = z.json()
+export const preferenceInputSchema = Schema.Json
 
-export type PreferenceInput = z.infer<typeof preferenceInputSchema>
+export type PreferenceInput = typeof preferenceInputSchema.Type
 
-export const preferenceNames = preferencesSchema.unwrap().keyof().options
+export const preferenceNames = Struct.keys(preferenceFields)
 
 function readSettings(path: string) {
   let fd: number
@@ -212,7 +411,11 @@ function readSettings(path: string) {
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     )
   } catch (cause) {
-    if (fileErrorSchema.safeParse(cause).data?.code === "ENOENT") return null
+    if (
+      Option.getOrUndefined(Schema.decodeUnknownOption(fileErrorSchema)(cause))
+        ?.code === "ENOENT"
+    )
+      return null
     throw cause
   }
 
@@ -248,8 +451,14 @@ export class SettingsStore {
     try {
       this.snapshot =
         existing === null
-          ? preferencesSchema.parse({})
-          : settingsFileSchema.parse(JSON.parse(existing)).preferences
+          ? Schema.decodeUnknownSync(preferencesSchema, {
+              onExcessProperty: "error",
+              errors: "all",
+            })({})
+          : Schema.decodeUnknownSync(settingsFileSchema, {
+              onExcessProperty: "error",
+              errors: "all",
+            })(JSON.parse(existing)).preferences
     } catch (cause) {
       throw new Error(
         `Cannot load settings: ${this.path}. Preserve this file before recovery.`,
@@ -275,11 +484,19 @@ export class SettingsStore {
   }
 
   setField(name: keyof Preferences, input: PreferenceInput) {
-    this.update(preferencesSchema.parse({ ...this.snapshot, [name]: input }))
+    this.update(
+      Schema.decodeUnknownSync(preferencesSchema, {
+        onExcessProperty: "error",
+        errors: "all",
+      })({ ...this.snapshot, [name]: input }),
+    )
   }
 
   update(patch: Partial<Preferences>) {
-    const next = preferencesSchema.parse({ ...this.snapshot, ...patch })
+    const next = Schema.decodeUnknownSync(preferencesSchema, {
+      onExcessProperty: "error",
+      errors: "all",
+    })({ ...this.snapshot, ...patch })
 
     const bytes =
       JSON.stringify({ version: 1, preferences: next }, null, 2) + "\n"

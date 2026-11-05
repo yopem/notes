@@ -1,8 +1,8 @@
 import type { InputProps } from "@gpuix/react"
 
 import * as Dialog from "@gpuix/react/dialog"
+import { Result, Schema } from "effect"
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
-import { z } from "zod"
 
 import type { Palette } from "@/components/ui/theme"
 
@@ -19,11 +19,11 @@ import {
   type SettingsStore,
 } from "@/features/settings/store"
 
-const booleanPreferenceSchema = z.boolean()
+const booleanPreferenceSchema = Schema.Boolean
 
-const numberPreferenceSchema = z.number()
+const numberPreferenceSchema = Schema.Finite
 
-const textPreferenceSchema = z.string()
+const textPreferenceSchema = Schema.String
 
 const sections = [
   "editor",
@@ -186,9 +186,9 @@ const choices: Partial<Record<keyof Preferences, readonly string[]>> = {
 }
 
 function initialPreferenceInput(value: Preferences[keyof Preferences]) {
-  const text = textPreferenceSchema.safeParse(value)
+  const text = Schema.decodeUnknownResult(textPreferenceSchema)(value)
 
-  if (text.success) return text.data
+  if (Result.isSuccess(text)) return text.success
 
   if (value === null) return ""
 
@@ -199,22 +199,22 @@ function parsePreferenceInput(
   value: Preferences[keyof Preferences],
   input: string,
 ) {
-  if (numberPreferenceSchema.safeParse(value).success) return Number(input)
+  if (Schema.is(numberPreferenceSchema)(value)) return Number(input)
 
-  if (textPreferenceSchema.safeParse(value).success) return input
+  if (Schema.is(textPreferenceSchema)(value)) return input
 
   if (value === null) return input.trim() || null
 
-  return preferenceInputSchema.parse(JSON.parse(input))
+  return Schema.decodeUnknownSync(preferenceInputSchema)(JSON.parse(input))
 }
 
 function currentPreferenceValue(value: Preferences[keyof Preferences]) {
-  const text = textPreferenceSchema.safeParse(value)
+  const text = Schema.decodeUnknownResult(textPreferenceSchema)(value)
 
-  if (text.success) return text.data
-  const numeric = numberPreferenceSchema.safeParse(value)
+  if (Result.isSuccess(text)) return text.success
+  const numeric = Schema.decodeUnknownResult(numberPreferenceSchema)(value)
 
-  if (numeric.success) return String(numeric.data)
+  if (Result.isSuccess(numeric)) return String(numeric.success)
 
   if (value === null) return "System default"
 
@@ -276,7 +276,7 @@ export function PreferenceControl({
   onError: (message: string) => void
 }) {
   const [input, setInput] = useState(() => initialPreferenceInput(value))
-  const boolean = booleanPreferenceSchema.safeParse(value)
+  const boolean = Schema.decodeUnknownResult(booleanPreferenceSchema)(value)
   const options = choices[name]
   const styles = getSettingsStyles(color)
   const latest = useRef({ name, value, store, onError, input })
@@ -312,9 +312,11 @@ export function PreferenceControl({
     }
 
     function toggle() {
-      const current = booleanPreferenceSchema.safeParse(latest.current.value)
+      const current = Schema.decodeUnknownResult(booleanPreferenceSchema)(
+        latest.current.value,
+      )
 
-      if (current.success) commit(!current.data)
+      if (Result.isSuccess(current)) commit(!current.success)
     }
 
     function changeInput(
@@ -332,15 +334,15 @@ export function PreferenceControl({
         <Label color={color} size={13} weight={500}>
           {name.replace(/([a-z])([A-Z])/g, "$1 $2")}
         </Label>
-        {boolean.success ? (
+        {Result.isSuccess(boolean) ? (
           <Button
             color={color}
             testId={`setting-${name}`}
-            label={`${name}: ${boolean.data ? "On" : "Off"}`}
-            variant={boolean.data ? "primary" : "outline"}
+            label={`${name}: ${boolean.success ? "On" : "Off"}`}
+            variant={boolean.success ? "primary" : "outline"}
             onClick={actions.toggle}
           >
-            {boolean.data ? "On" : "Off"}
+            {boolean.success ? "On" : "Off"}
           </Button>
         ) : (
           <text testId={`setting-current-${name}`} style={styles.currentValue}>
@@ -348,7 +350,7 @@ export function PreferenceControl({
           </text>
         )}
       </div>
-      {!boolean.success &&
+      {!Result.isSuccess(boolean) &&
         (options ? (
           <div style={settingsStyles.options}>
             {options.map((option) => (
