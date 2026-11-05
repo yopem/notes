@@ -17,6 +17,7 @@ import {
   getSettingsStyles,
   settingsStyles,
 } from "@/features/settings/components/settings-styles"
+import { SettingsWriteRecovery } from "@/features/settings/components/settings-write-recovery"
 import {
   type PreferenceInput,
   preferenceInputSchema,
@@ -511,6 +512,11 @@ export function SettingsPanel({
                 {error}
               </text>
             )}
+            <SettingsWriteRecovery
+              store={store}
+              color={color}
+              onError={setError}
+            />
             <div style={settingsStyles.list}>
               {names.map((name) => (
                 <PreferenceControl
