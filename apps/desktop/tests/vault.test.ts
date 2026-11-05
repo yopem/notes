@@ -744,6 +744,140 @@ describe("native Markdown vault", () => {
     ).toThrow(/metadata|external/i)
     expect(readFileSync(join(vault.root, note.path), "utf8")).toBe("old")
   })
+  test("preview refuses pending and malformed journals without recovery or a retained lock", () => {
+    const directory = root()
+    open(directory).close()
+    const notePath = join(directory, "inbox/A.md")
+    const journalPath = join(directory, ".still-notes/transaction.json")
+    const lockPath = join(directory, ".still-notes/vault.lock")
+    const journal = JSON.stringify({
+      version: 1,
+      files: [{ path: "inbox/A.md", before: "b2xk", after: "bmV3" }],
+      directories: [],
+    })
+    writeFileSync(notePath, "new")
+
+    for (const contents of [journal, "{malformed journal\n"]) {
+      writeFileSync(journalPath, contents)
+      const failure = Effect.runSync(
+        Effect.provide(
+          VaultResource,
+          VaultResource.layer(directory, { preview: true }),
+        ).pipe(
+          Effect.match({
+            onFailure: (error) => error,
+            onSuccess: () => undefined,
+          }),
+        ),
+      )
+      expect(failure).toBeInstanceOf(VaultOpenError)
+      expect(failure?.message).toMatch(/journal|recovery/i)
+      expect(readFileSync(notePath, "utf8")).toBe("new")
+      expect(readFileSync(journalPath, "utf8")).toBe(contents)
+      expect(existsSync(lockPath)).toBe(false)
+    }
+
+    writeFileSync(journalPath, journal)
+    const recovered = open(directory)
+    expect(Effect.runSync(recovered.readNote("inbox/A.md")).body).toBe("old")
+    expect(existsSync(journalPath)).toBe(false)
+  })
+  test("preview permits reads but denies every mutation and retains later journals", () => {
+    const directory = root()
+    const writable = open(directory)
+    const note = Effect.runSync(writable.createNote("inbox", "Café", "", "new"))
+    Effect.runSync(writable.createFolder("inbox", "Folder"))
+    const asset = Effect.runSync(writable.createAsset("asset.txt", Buffer.from("asset")))
+    const deleted = Effect.runSync(
+      writable.deleteAsset(
+        Effect.runSync(writable.createAsset("deleted.txt", Buffer.from("deleted"))).path,
+      ),
+    )
+    writable.close()
+    const metadataPath = join(directory, ".still-notes/state.json")
+    const metadata = readFileSync(metadataPath)
+    const preview = new Vault(directory, { preview: true })
+    vaults.push(preview)
+    expect(Effect.runSync(preview.listNotes()).map((item) => item.path)).toContain(note.path)
+    expect(Effect.runSync(preview.readNote(note.path)).body).toBe("new")
+    expect(Effect.runSync(preview.listFolders()).map((item) => item.path)).toContain("inbox/Folder")
+    expect(Effect.runSync(preview.listAssets()).map((item) => item.path)).toContain(asset.path)
+    expect(Effect.runSync(preview.readAssetText(asset.path))).toBe("asset")
+    expect(Effect.runSync(preview.readAsset(asset.path))).toEqual(Buffer.from("asset"))
+    expect(Effect.runSync(preview.listDeletedAssets()).map((item) => item.undoToken)).toContain(deleted.undoToken)
+    const guard = { expectedHash: note.hash }
+    const assetGuard = { expectedHash: hash("asset") }
+    const noteMutations: readonly Effect.Effect<unknown, VaultNoteError>[] = [
+      preview.createNote("inbox", "Added"),
+      preview.importNote(join(directory, note.path)),
+      preview.writeNote(note.path, "changed", guard),
+      preview.appendToNote(note.path, "", "end", guard),
+      preview.setPinned(note.path, true),
+      preview.renameNote(note.path, "Renamed"),
+      preview.moveNote(note.path, "quick"),
+      preview.duplicateNote(note.path),
+      preview.archiveNote(note.path),
+      preview.unarchiveNote(note.path),
+      preview.moveToTrash(note.path),
+      preview.restoreFromTrash(note.path),
+      preview.deleteNote(note.path, { confirm: true }),
+      preview.emptyTrash({ confirm: true }),
+    ]
+    const folderMutations: readonly Effect.Effect<unknown, VaultFolderError>[] = [
+      preview.createFolder("inbox", "Added"),
+      preview.renameFolder("inbox", "Folder", "Folder"),
+      preview.duplicateFolder("inbox", "Folder"),
+      preview.deleteFolder("inbox", "Folder", { confirm: true }),
+    ]
+    const assetMutations: readonly Effect.Effect<unknown, VaultAssetError>[] = [
+      preview.createAsset("added.txt", Buffer.from("added")),
+      preview.importAsset(join(directory, asset.path)),
+      preview.writeAsset(asset.path, Buffer.from("changed"), assetGuard),
+      preview.renameAsset(asset.path, "asset.txt"),
+      preview.moveAsset(asset.path, "assets"),
+      preview.duplicateAsset(asset.path),
+      preview.deleteAsset(asset.path),
+      preview.restoreDeletedAsset(deleted.undoToken),
+      preview.purgeDeletedAsset(deleted.undoToken, { confirm: true }),
+      preview.emptyDeletedAssets({ confirm: true }),
+    ]
+    for (const mutation of noteMutations) {
+      const failure = Effect.runSync(Effect.flip(mutation))
+      expect(failure).toBeInstanceOf(VaultNoteError)
+      expect(failure.message).toMatch(/preview|read.only/i)
+    }
+    for (const mutation of folderMutations) {
+      const failure = Effect.runSync(Effect.flip(mutation))
+      expect(failure).toBeInstanceOf(VaultFolderError)
+      expect(failure.message).toMatch(/preview|read.only/i)
+    }
+    for (const mutation of assetMutations) {
+      const failure = Effect.runSync(Effect.flip(mutation))
+      expect(failure).toBeInstanceOf(VaultAssetError)
+      expect(failure.message).toMatch(/preview|read.only/i)
+    }
+    expect(readFileSync(join(directory, note.path), "utf8")).toBe("new")
+    expect(readFileSync(join(directory, asset.path), "utf8")).toBe("asset")
+    expect(readFileSync(metadataPath)).toEqual(metadata)
+    expect(existsSync(join(directory, "inbox/Added.md"))).toBe(false)
+    expect(existsSync(join(directory, "inbox/Folder"))).toBe(true)
+    expect(existsSync(join(directory, "assets/added.txt"))).toBe(false)
+    const journalPath = join(directory, ".still-notes/transaction.json")
+    const journal = JSON.stringify({
+      version: 1,
+      files: [{ path: note.path, before: "b2xk", after: "bmV3" }],
+      directories: [],
+    })
+    writeFileSync(journalPath, journal)
+    const failure = Effect.runSync(Effect.flip(preview.writeNote(note.path, "changed", guard)))
+    expect(failure).toBeInstanceOf(VaultNoteError)
+    expect(failure.message).toMatch(/preview|read.only/i)
+    expect(readFileSync(join(directory, note.path), "utf8")).toBe("new")
+    expect(readFileSync(journalPath, "utf8")).toBe(journal)
+    preview.close()
+    expect(existsSync(join(directory, ".still-notes/vault.lock"))).toBe(false)
+    expect(readFileSync(journalPath, "utf8")).toBe(journal)
+  })
   test("interrupted journal rolls back on restart, leaving unrelated temporary files untouched", () => {
     const directory = root()
     const vault = open(directory)
