@@ -10,6 +10,7 @@ const bridgeSchema = Schema.Struct({
   editorCommand: Schema.declare(Predicate.isFunction),
   armCloseGuard: Schema.declare(Predicate.isFunction),
   closeWindow: Schema.declare(Predicate.isFunction),
+  registerFontsAsyncV1: Schema.declare(Predicate.isFunction),
 })
 
 const loadNative = createRequire(import.meta.url)

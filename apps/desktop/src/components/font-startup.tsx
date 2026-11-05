@@ -32,12 +32,20 @@ export function FontStartup({ children }: { children: ReactNode }) {
     function initialize(instance: PublicInstance | null) {
       if (!instance) return
 
-      try {
-        registerFonts(renderer)
-        setState("ready")
-      } catch (cause) {
-        console.error("Still Notes font setup failed.", cause)
-        setState("failed")
+      let mounted = true
+      void registerFonts(renderer).then(
+        function ready() {
+          if (mounted) setState("ready")
+        },
+        function failed(cause: unknown) {
+          if (!mounted) return
+          console.error("Still Notes font setup failed.", cause)
+          setState("failed")
+        },
+      )
+
+      return function detach() {
+        mounted = false
       }
     }
 
