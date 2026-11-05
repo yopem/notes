@@ -164,9 +164,19 @@ export function TaskView({
               Some notes could not be read
             </Label>
             {errors.map((error) => (
-              <Label key={error.noteId} color={color} size={12}>
-                {`${error.noteTitle || "Untitled"}: Could not read tasks. Open the note and check its Markdown and frontmatter.`}
-              </Label>
+              <div
+                key={error.noteId}
+                role="region"
+                aria-label={`${error.noteTitle || "Untitled"}: Could not read tasks. Check the note's Markdown and frontmatter.`}
+              >
+                <Label color={color} weight={600}>
+                  {error.noteTitle || "Untitled"}
+                </Label>
+                <Label color={color} size={12}>
+                  Could not read tasks. Open the note and check its Markdown and
+                  frontmatter.
+                </Label>
+              </div>
             ))}
           </div>
         )}
