@@ -2,7 +2,7 @@ import type { App } from "@gpuix/react/automation"
 
 import { Schema } from "effect"
 import assert from "node:assert/strict"
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -108,6 +108,18 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await createNote(app, dataDirectory, "Task trash", "- [ ] Trashed task")
   await app.getByTestId("trash-note").click()
   await createNote(app, dataDirectory, "Task malformed", "---\nx: [broken\n---")
+  const beforeFolder = readFileSync(workspacePath, "utf8")
+  await app.getByTestId("open-folder").click()
+  await textIs(
+    app,
+    "folder-warning",
+    "Note contents are read-only, but opening is not filesystem-read-only. It can create .still-notes/state.json, inbox (for the inbox layout), quick, archive, trash and assets directories. Each open, read and refresh creates .still-notes/vault.lock and a temporary lock file, then releases the lock. Metadata and directories remain. Pending recovery journals are refused, not repaired. No notes are imported or migrated. Links are shown as text and do not open.",
+  )
+  await app.getByTestId("folder-cancel").press("enter")
+  await absent(app, "folder-warning")
+  await textIs(app, "note-title", "Task malformed")
+  assert.equal(readFileSync(workspacePath, "utf8"), beforeFolder)
+  steps.push("Folder disclosure and cancellation preserve the JSON workspace")
   const taskBytes = readFileSync(workspacePath, "utf8")
   await app.getByTestId("nav-tasks").click()
   await app.getByText("Read-only task discovery").waitFor()
@@ -308,6 +320,17 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     await app.getByTestId("note-body").fill(draftBody)
     await app.getByTestId("pending-drafts").waitFor()
     const draftWarning = await app.getByTestId("pending-drafts").textContent()
+    await app.getByTestId("open-folder").click()
+    await absent(app, "folder-warning")
+    await absent(app, "folder-preview")
+    await app.getByText(
+      "Folder preview is blocked. Save or export all JSON drafts and finish workspace and settings write recovery first. Your drafts and recovery controls remain here.",
+    ).waitFor()
+    await textIs(app, "note-title", draftTitle)
+    await textIs(app, "note-body", draftBody)
+    assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    steps.push("Folder entry refuses unsaved JSON drafts without hiding recovery")
+
     await app.getByTestId("nav-tasks").click()
     await app.getByTestId("task-search").fill("Draft task 🌿")
     await app.getByTestId("task-search-submit").click()
@@ -647,4 +670,73 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
   saveReport("native-regressions-compact.json", dataDirectory, steps)
 
   return steps
+}
+
+export async function verifyFolderPreview(
+  app: App,
+  dataDirectory: string,
+  chooseFolder: (path: string) => Promise<void>,
+) {
+  assert(
+    resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
+    "Folder checks require disposable native E2E data.",
+  )
+  const folder = join(dataDirectory, "folder-preview-regression")
+  const book = join(folder, "Books", "A.md")
+  const asset = join(folder, "assets", "sample.txt")
+  mkdirSync(join(folder, "Books"), { recursive: true })
+  mkdirSync(join(folder, "assets"), { recursive: true })
+  const body = "Preview Ω\n[jump](javascript:alert(1))\n[[Other]]"
+  writeFileSync(book, body)
+  writeFileSync(asset, "asset")
+  const workspacePath = join(dataDirectory, "workspace.json")
+  const before = readFileSync(workspacePath)
+  const title = await app.getByTestId("note-title").textContent()
+  const source = await app.getByTestId("note-body").textContent()
+  const lock = join(folder, ".still-notes", "vault.lock")
+  async function open() {
+    await app.getByTestId("open-folder").click()
+    await app.getByTestId("folder-warning").waitFor()
+    await app.getByTestId("folder-choose").click()
+    await chooseFolder(folder)
+  }
+  await open()
+  await app.getByTestId("folder-preview").waitFor()
+  assert.equal(existsSync(lock), false)
+  await app.getByTestId("folder-note-Books/A.md").press("enter")
+  await textIs(app, "folder-note-content", body)
+  await absent(app, "note-body")
+  await absent(app, "export")
+  assert.equal(existsSync(lock), false)
+  writeFileSync(book, "Refreshed Ω")
+  await app.getByTestId("folder-refresh").press("enter")
+  await textIs(app, "folder-note-content", "Refreshed Ω")
+  assert.equal(existsSync(lock), false)
+  unlinkSync(book)
+  await app.getByTestId("folder-refresh").click()
+  await textIs(app, "folder-empty", "No Markdown notes found.")
+  await absent(app, "folder-note-content")
+  const journal = join(folder, ".still-notes", "transaction.json")
+  writeFileSync(journal, "{pending recovery}")
+  await app.getByTestId("folder-refresh").click()
+  assert.match(await app.getByTestId("folder-error").textContent(), /Pending recovery journal/)
+  await absent(app, "folder-note-content")
+  assert.equal(existsSync(lock), false)
+  await app.getByTestId("folder-back").click()
+  await textIs(app, "note-title", title)
+  await textIs(app, "note-body", source)
+  await open()
+  await absent(app, "folder-preview")
+  assert.match(await app.getByTestId("folder-open-error").textContent(), /Pending recovery journal/)
+  assert.equal(readFileSync(journal, "utf8"), "{pending recovery}")
+  assert.equal(existsSync(lock), false)
+  await app.getByTestId("folder-cancel").click()
+  assert.deepEqual(readFileSync(workspacePath), before)
+  assert.equal(readFileSync(asset, "utf8"), "asset")
+  saveReport("native-folder-preview-regression.json", dataDirectory, [
+    "Explicit native picker after disclosure; list and keyboard read of exact inert source",
+    "Refresh replaces stale contents and clears deleted selection; empty state has no editor",
+    "Recovery journal refuses refresh and reopen, preserves bytes, and leaves no lock",
+    "Back preserves exact JSON editor values and workspace bytes",
+  ])
 }
