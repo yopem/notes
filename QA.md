@@ -1493,6 +1493,42 @@ seat and kiosk shell. No personal data may be mounted.
 - **Cleanup:** Gracefully stop the owned app, verify its store lock is gone,
   stop only owned compositor/trace processes, and remove the private runtime.
   Retain sanitized synthetic data and reports for review.
-- **Status:** Pending. The official private demo and screenshot passed; GPUix
-  application compatibility has not yet been tested in that namespace. OS
+- **Status:** Failed acceptance. The source app initialized, connected only to
+  the private socket, passed exact native title/body readback and
+  delete/type/undo checks, and released its lock on clean exit. The inspected
+  image unexpectedly shows folder disclosure and the workspace still has one
+  note. Input injection can change fields behind that modal; it does not prove
+  the New note action worked. Preserve this evidence in
+  `docs/artifacts/native-isolation/app-run-20261105T121030Z-1181431/`. QA-057
+  now requires action-target verification before workflow acceptance. OS
   composition, screen-reader and normal user-font QA remain separate.
+
+- [ ] **QA-057 — P0 — Preserve native action targets and modal boundaries**
+  - **Purpose:** Detect wrong callback targets or stale bounds in the custom
+    host. A field update must not hide an unrelated modal or replace proof of
+    the requested user action.
+  - **Prerequisites:** QA-056 private compositor, disposable default workspace,
+    immutable source/addon snapshot and native tree/capture tools. No user data.
+  - **Inputs:** Default one-note workspace and the `new-note`, `open-folder`,
+    `folder-cancel`, `settings-open` and task navigation controls.
+  - **Steps:**
+    1. Save the initial tree and assert that folder disclosure is absent.
+    2. Activate `new-note`. Save its bounds, tree and callback evidence. Require
+       two notes and no unrelated modal before changing any input.
+    3. Repeat through keyboard activation. Open and cancel folder disclosure
+       intentionally, and open/close settings. Require only each requested view
+       transition and compare stored note counts and original contents.
+    4. Run the affected existing native regressions only after target routing is
+       correct. Inspect captures and cleanup evidence.
+  - **Expected results:** Pointer and keyboard actions reach the named control.
+    New note creates one new record and leaves the original unchanged. No
+    unexpected folder, settings, delete or import action occurs. Native input
+    readback alone cannot pass a workflow when a blocking modal is present.
+  - **Evidence:** Preserve before/after trees, coordinates, source and host
+    hashes, synthetic workspace bytes and private screenshots under
+    `docs/artifacts/native-isolation/app-run-*/`.
+  - **Cleanup:** Follow QA-056. Remove only owned synthetic data and processes.
+  - **Status:** Pending reproduction with stronger action assertions. The first
+    private screenshot and one-note disk result establish unexpected disclosure,
+    but do not yet establish event IDs, coordinate routing or application
+    callback wiring as its cause.
