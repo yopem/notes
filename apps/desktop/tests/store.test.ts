@@ -18,6 +18,7 @@ import { join, resolve } from "node:path"
 
 import { NotesError } from "@/features/notes/errors"
 import { Notes, NotesStore } from "@/features/notes/store"
+import { AtomicWriteError, atomicWrite } from "@/platform/files"
 
 import { readDataDirectory, writeDataDirectory } from "./env"
 
@@ -51,6 +52,31 @@ const stores: NotesStore[] = []
 const bodyLimit = 2 * 1024 * 1024
 
 const fileLimit = 32 * 1024 * 1024
+
+test("atomic replacement errors preserve the destination and report the write stage", () => {
+  const root = directory()
+  const destination = join(root, "existing")
+  mkdirSync(destination)
+  writeFileSync(join(destination, "keep.md"), "Keep Ω")
+  let failure: unknown
+
+  try {
+    atomicWrite(destination, "New content", root)
+  } catch (error) {
+    failure = error
+  }
+
+  expect(failure).toBeInstanceOf(AtomicWriteError)
+
+  if (!(failure instanceof AtomicWriteError))
+    throw new Error("Expected an atomic write error")
+
+  expect(failure.path).toBe(destination)
+  expect(failure.replacementCompleted).toBe(false)
+  expect(failure.cause).toBeInstanceOf(Error)
+  expect(readFileSync(join(destination, "keep.md"), "utf8")).toBe("Keep Ω")
+  expect(readdirSync(root)).toEqual(["existing"])
+})
 
 function directory() {
   const root = mkdtempSync(join(tmpdir(), "still-notes-store-"))
