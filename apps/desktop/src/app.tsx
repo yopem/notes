@@ -6,6 +6,7 @@ import type { NotesError } from "@/features/notes/errors"
 import type { SettingsError } from "@/features/settings/store"
 
 import { EffectBoundary } from "@/components/effect-boundary"
+import { FontStartup } from "@/components/font-startup"
 import { RecoveryScreen } from "@/components/recovery-screen"
 import { Notes } from "@/features/notes/store"
 import { Settings } from "@/features/settings/store"
@@ -80,16 +81,23 @@ try {
 
   render(
     <EffectBoundary run={runDesktopEffect}>
-      <App
-        store={startup.value.store}
-        dataDirectory={directory}
-        settings={startup.value.settings}
-      />
+      <FontStartup>
+        <App
+          store={startup.value.store}
+          dataDirectory={directory}
+          settings={startup.value.settings}
+        />
+      </FontStartup>
     </EffectBoundary>,
     options,
   )
 } catch (cause) {
   const error = cause instanceof Error ? cause.message : String(cause)
   console.error(error)
-  render(<RecoveryScreen error={error} directory={directory} />, options)
+  render(
+    <FontStartup>
+      <RecoveryScreen error={error} directory={directory} />
+    </FontStartup>,
+    options,
+  )
 }
