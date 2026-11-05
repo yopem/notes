@@ -38,6 +38,49 @@ function createEditorChromeStyles(color: Palette) {
       alignItems: "center",
       gap: 4,
     },
+    footer: {
+      display: "flex",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderTopWidth: 1,
+      borderColor: color.border,
+      paddingLeft: 16,
+      paddingRight: 12,
+      minHeight: 54,
+      gap: 8,
+    },
+    saveState: {
+      display: "flex",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    savedStatus: {
+      color: color.mutedForeground,
+      fontFamily: "Inter",
+      fontSize: 11,
+    },
+    unsavedStatus: {
+      color: color.destructive,
+      fontFamily: "Inter",
+      fontSize: 11,
+    },
+    noteActions: {
+      display: "flex",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 2,
+    },
+    trashBanner: {
+      display: "flex",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: color.muted,
+      padding: 12,
+      gap: 8,
+    },
   } satisfies Record<string, StyleDesc>
 }
 

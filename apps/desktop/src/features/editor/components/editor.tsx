@@ -2,10 +2,11 @@ import type { Palette } from "@/components/ui/theme"
 import type { Note } from "@/features/notes/store"
 import type { Preferences } from "@/features/settings/store"
 
-import { Button, Label } from "@/components/ui/controls"
-import { Icon } from "@/components/ui/icons"
+import { Label } from "@/components/ui/controls"
 import { nativeTheme } from "@/components/ui/theme"
+import { EditorFooter } from "@/features/editor/components/editor-footer"
 import { EditorToolbar } from "@/features/editor/components/editor-toolbar"
+import { EditorTrashBanner } from "@/features/editor/components/editor-trash-banner"
 
 export type EditorMode = "edit" | "preview" | "split"
 
@@ -78,32 +79,11 @@ export function Editor({
         onBack={onBack}
       />
       {note.trashedAt && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            backgroundColor: color.muted,
-            padding: 12,
-            gap: 8,
-          }}
-        >
-          <Label color={color} size={12}>
-            This note is in Trash.
-          </Label>
-          <Button
-            color={color}
-            icon="restore"
-            testId="restore-note"
-            onClick={onRestore}
-          >
-            Restore
-          </Button>
-          <Button color={color} variant="danger" onClick={onDelete}>
-            Delete forever
-          </Button>
-        </div>
+        <EditorTrashBanner
+          color={color}
+          onRestore={onRestore}
+          onDelete={onDelete}
+        />
       )}
       <div
         style={{
@@ -237,88 +217,16 @@ export function Editor({
           </div>
         )}
       </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderTopWidth: 1,
-          borderColor: color.border,
-          paddingLeft: 16,
-          paddingRight: 12,
-          minHeight: 54,
-          gap: 8,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <Icon
-            name={dirty ? "edit" : "check"}
-            color={dirty ? color.destructive : color.mutedForeground}
-            size={13}
-          />
-          <text
-            testId="save-status"
-            style={{
-              color: dirty ? color.destructive : color.mutedForeground,
-              fontFamily: "Inter",
-              fontSize: 11,
-            }}
-          >
-            {dirty ? "Not saved · Retry before closing" : "Saved locally"}
-          </text>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 2,
-          }}
-        >
-          {!note.trashedAt && (
-            <Button
-              color={color}
-              icon="pin"
-              testId="pin-note"
-              label={note.pinned ? "Unpin note" : "Pin note"}
-              onClick={onPin}
-            />
-          )}
-          {!note.trashedAt && !narrow && (
-            <Button
-              color={color}
-              icon="book"
-              label="Move note to notebook"
-              testId="move-note"
-              onClick={onMove}
-            />
-          )}
-          <Button
-            color={color}
-            icon="download"
-            testId="export"
-            label="Export Markdown"
-            onClick={onExport}
-          />
-          {!note.trashedAt && (
-            <Button
-              color={color}
-              icon="trash"
-              testId="trash-note"
-              label="Move note to Trash"
-              onClick={onTrash}
-            />
-          )}
-        </div>
-      </div>
+      <EditorFooter
+        color={color}
+        note={note}
+        dirty={dirty}
+        narrow={narrow}
+        onPin={onPin}
+        onMove={onMove}
+        onExport={onExport}
+        onTrash={onTrash}
+      />
     </div>
   )
 }
