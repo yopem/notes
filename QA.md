@@ -1278,13 +1278,13 @@ mark those cases passed until capture works and the evidence is inspected.
     revision under `docs/artifacts/vault/QA-049/`.
   - **Cleanup:** Close test-owned vaults and remove only the isolated trees
     after evidence review.
-  - **Status:** Pending. At `371c499`, focused Linux checks passed 59 vault
-    tests and 978 assertions, native zero-warning lint, formatting and desktop
-    typecheck. Evidence: `docs/artifacts/vault/QA-049/checks.txt`. New
-    conflicting paths now produce explicit listing errors instead of hidden
-    notes, and a distinct renamed user folder is readable. Pre-existing
-    conflicts fail closed on open. Case-insensitive platform validation remains
-    unrun.
+  - **Status:** Pending. At `d32ffce`, the recovery milestone passed 216 focused
+    tests and 2019 assertions across seven files, with three
+    platform/layout-specific skips. Evidence:
+    `docs/artifacts/recovery-milestone/`. Distinct legacy folder names, metadata
+    origins and user-folder lifecycle now have focused Linux coverage. Native
+    zero-warning lint, formatting and workspace typechecks passed. Actual
+    case-insensitive filesystem validation remains unrun.
 
 - [ ] **QA-050 — P0 — Recover pending settings without repeating a save**
   - **Purpose:** Keep old preferences active until an uncertain replacement is
@@ -1309,8 +1309,12 @@ mark those cases passed until capture works and the evidence is inspected.
     trees under `docs/artifacts/storage/QA-040/settings-recovery/`.
   - **Cleanup:** Reap only test-owned processes and remove their temporary data
     after evidence review. Restore no user settings.
-  - **Status:** Pending implementation and native validation. The real fault
-    mechanism is verified; screenshots remain blocked by QA-015.
+  - **Status:** Pending. Settings now retain uncertain preferences and expose
+    explicit recovery in the dialog and workspace. At `97efda6`, eight settings
+    tests and 32 assertions passed. The later shared recovery UI passed
+    zero-warning lint, formatting and typechecks at `d32ffce`. Evidence:
+    `docs/artifacts/storage/QA-040/` and `docs/artifacts/recovery-milestone/`.
+    Real fault-recovery acceptance and native control validation remain unrun.
 
 - [ ] **QA-051 — P1 — Read actual native input values in automation**
   - **Purpose:** Verify editor selection, task-source navigation and retained
