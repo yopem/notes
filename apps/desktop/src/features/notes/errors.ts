@@ -6,6 +6,7 @@ const operationSchema = Schema.Literals([
   "createNotebook",
   "renameNotebook",
   "createNote",
+  "duplicateNote",
   "updateNote",
   "togglePin",
   "trashNote",

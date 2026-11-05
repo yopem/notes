@@ -573,6 +573,61 @@ export class NotesStore {
     )
   }
 
+  duplicateNote(
+    id: string,
+    draft: Pick<NotePatch, "title" | "body"> = {},
+  ): Effect.Effect<Note, NotesError> {
+    return Effect.flatMap(DateTime.now, (now) =>
+      Effect.try({
+        try: () => {
+          this.ensureOpen()
+          const source = this.note(nonempty(id, "Note ID"))
+
+          if (source.trashedAt !== null)
+            throw new Error("Cannot duplicate a trashed note")
+
+          const parsed = Schema.decodeUnknownSync(exportDraftSchema, {
+            onExcessProperty: "error",
+            errors: "all",
+          })(draft)
+
+          const title = parsed.title ?? source.title
+          const base = `${title.trim() === "" ? "Untitled note" : title} copy`
+
+          const titles = new Set(
+            this.snapshot.notes
+              .filter((note) => note.notebookId === source.notebookId)
+              .map((note) => note.title),
+          )
+
+          let copyTitle = base
+
+          for (let suffix = 2; titles.has(copyTitle); suffix += 1) {
+            if (suffix > titles.size + 1)
+              throw new Error("Cannot find an available duplicate title")
+            copyTitle = `${base} ${suffix}`
+          }
+
+          const copy = makeNote(
+            source.notebookId,
+            DateTime.formatIso(now),
+            copyTitle,
+            parsed.body ?? source.body,
+          )
+
+          this.commit({
+            ...this.snapshot,
+            notes: [...this.snapshot.notes, copy],
+            selectedNoteId: copy.id,
+          })
+
+          return Object.freeze(copy)
+        },
+        catch: (cause) => NotesError.fromCause("duplicateNote", cause),
+      }),
+    )
+  }
+
   updateNote(id: string, patch: NotePatch): Effect.Effect<void, NotesError> {
     return Effect.flatMap(DateTime.now, (now) =>
       Effect.try({
