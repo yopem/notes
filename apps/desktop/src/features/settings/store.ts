@@ -580,6 +580,7 @@ export class SettingsStore {
             throw new Error(
               "Settings changed outside this instance. Reopen before saving.",
             )
+
           try {
             atomicWrite(this.path, bytes, this.directory)
           } catch (cause) {
@@ -617,7 +618,7 @@ export class SettingsStore {
   private notifySubscribers() {
     let failures = 0
 
-    for (const listener of [...this.listeners]) {
+    for (const listener of this.listeners) {
       try {
         listener()
       } catch {
