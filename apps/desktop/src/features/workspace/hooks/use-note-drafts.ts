@@ -1,33 +1,14 @@
-import { useLayoutEffect, useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 
 import type { Note, NotesStore } from "@/features/notes/store"
 
 import { useDesktopEffect } from "@/components/effect-boundary"
+import { getDraftNote, getDraftState } from "@/features/notes/draft-state"
 import { attempt } from "@/features/workspace/attempt"
 
 interface Draft {
   title?: string
   body?: string
-}
-
-const draftNotes = new WeakMap<Draft, WeakMap<Note, Note>>()
-
-function getDraftNote(note: Note | undefined, draft: Draft | undefined) {
-  if (!note || !draft) return note
-  let notes = draftNotes.get(draft)
-
-  if (!notes) {
-    notes = new WeakMap<Note, Note>()
-    draftNotes.set(draft, notes)
-  }
-
-  const cached = notes.get(note)
-
-  if (cached) return cached
-  const edited = { ...note, ...draft }
-  notes.set(note, edited)
-
-  return edited
 }
 
 export function useNoteDrafts({
@@ -42,8 +23,8 @@ export function useNoteDrafts({
   onError: (message: string) => void
 }) {
   const run = useDesktopEffect()
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
-  const pending = useRef(drafts)
+  const state = getDraftState(store)
+  const drafts = useSyncExternalStore(state.subscribe, state.getSnapshot)
   const current = useRef({ store, note, onActiveNote, onError, run })
 
   useLayoutEffect(
@@ -54,51 +35,47 @@ export function useNoteDrafts({
   )
 
   const [handlers] = useState(function createDraftHandlers() {
-    function discardDraft(id: string) {
-      const next = { ...pending.current }
-      delete next[id]
-      pending.current = next
-      setDrafts(next)
-    }
-
     function changeNote(patch: Draft) {
       const { store, note, onActiveNote, onError, run } = current.current
-
-      if (!note || note.trashedAt) return
-      const id = note.id
-      const draft = { ...pending.current[id], ...patch }
-      onActiveNote(id)
-      pending.current = { ...pending.current, [id]: draft }
-      setDrafts(pending.current)
+      if (!note) return
+      const state = getDraftState(store)
+      const live = state.getCurrentNote(note.id)
+      if (!live || live.trashedAt) return
+      const draft = { ...state.getSnapshot()[note.id], ...patch }
+      onActiveNote(note.id)
+      state.setDraft(note.id, draft)
       onError(
         attempt(() => {
-          run(store.updateNote(id, draft))
-          discardDraft(id)
+          run(store.updateNote(note.id, draft))
+          state.discardDraft(note.id)
         }),
       )
     }
 
     function retry() {
       const { store, onError, run } = current.current
+      const state = getDraftState(store)
       onError(
         attempt(() => {
-          for (const [id, draft] of Object.entries(pending.current))
+          for (const [id, draft] of Object.entries(state.getSnapshot())) {
             run(store.updateNote(id, draft))
-          pending.current = {}
-          setDrafts(pending.current)
+            state.discardDraft(id)
+          }
         }),
       )
     }
 
-    return { changeNote, retry, discardDraft }
+    return { changeNote, retry }
   })
 
   return {
-    drafts,
     note: getDraftNote(note, note ? drafts[note.id] : undefined),
     hasDrafts: Object.keys(drafts).length > 0,
+    getCurrentNote: state.getCurrentNote,
+    hasPendingDrafts: state.hasPendingDrafts,
+    discardDraft: state.discardDraft,
+    reconcile: state.reconcile,
     changeNote: handlers.changeNote,
     retry: handlers.retry,
-    discardDraft: handlers.discardDraft,
   }
 }

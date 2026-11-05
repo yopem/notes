@@ -24,12 +24,12 @@ interface FolderSnapshot {
 }
 
 export function useFolderPreview({
-  hasDrafts,
+  hasPendingDrafts,
   store,
   settings,
   onError,
 }: {
-  hasDrafts: boolean
+  hasPendingDrafts: () => boolean
   store: NotesStore
   settings: SettingsStore
   onError: (message: string) => void
@@ -43,7 +43,7 @@ export function useFolderPreview({
   const picking = useRef(false)
 
   const current = useRef({
-    hasDrafts,
+    hasPendingDrafts,
     store,
     settings,
     onError,
@@ -55,7 +55,7 @@ export function useFolderPreview({
   useLayoutEffect(
     function updatePreviewTarget() {
       current.current = {
-        hasDrafts,
+        hasPendingDrafts,
         store,
         settings,
         onError,
@@ -64,15 +64,15 @@ export function useFolderPreview({
         snapshot,
       }
     },
-    [hasDrafts, store, settings, onError, renderer, run, snapshot],
+    [hasPendingDrafts, store, settings, onError, renderer, run, snapshot],
   )
 
   const [handlers] = useState(function createPreviewHandlers() {
     function canEnter() {
-      const { hasDrafts, store, settings, onError } = current.current
+      const { hasPendingDrafts, store, settings, onError } = current.current
 
       if (
-        !hasDrafts &&
+        !hasPendingDrafts() &&
         store.getWriteRecoveryState() === "ready" &&
         settings.getWriteRecoveryState() === "ready"
       )

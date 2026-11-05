@@ -12,23 +12,41 @@ export function useWorkspaceEditorActions({
   store,
   note,
   navigation,
+  getCurrentNote,
   onDialog,
   onError,
 }: {
   store: NotesStore
   note: Note | undefined
   navigation: ReturnType<typeof useWorkspaceNavigation>
+  getCurrentNote: (id: string) => Note | undefined
   onDialog: (dialog: DialogState) => void
   onError: (message: string) => void
 }) {
   const run = useDesktopEffect()
-  const current = useRef({ store, note, navigation, onDialog, onError, run })
+  const current = useRef({
+    store,
+    note,
+    navigation,
+    getCurrentNote,
+    onDialog,
+    onError,
+    run,
+  })
 
   useLayoutEffect(
     function updateEditorTarget() {
-      current.current = { store, note, navigation, onDialog, onError, run }
+      current.current = {
+        store,
+        note,
+        navigation,
+        getCurrentNote,
+        onDialog,
+        onError,
+        run,
+      }
     },
-    [store, note, navigation, onDialog, onError, run],
+    [store, note, navigation, getCurrentNote, onDialog, onError, run],
   )
 
   const [handlers] = useState(function createEditorHandlers() {
@@ -40,8 +58,16 @@ export function useWorkspaceEditorActions({
     }
 
     function duplicateNote() {
-      const { store, note, navigation, onError, run } = current.current
-
+      const {
+        store,
+        note: selected,
+        navigation,
+        getCurrentNote,
+        onError,
+        run,
+      } = current.current
+      if (!selected) return
+      const note = getCurrentNote(selected.id)
       if (!note || note.trashedAt) return
 
       try {

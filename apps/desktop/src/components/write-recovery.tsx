@@ -27,11 +27,13 @@ export function WriteRecovery<Failure>({
   color,
   kind,
   onError,
+  onRecovered,
 }: {
   store: RecoverableWrite<Failure>
   color: Palette
   kind: "workspace" | "settings"
   onError: (message: string) => void
+  onRecovered?: () => void
 }) {
   const state = useSyncExternalStore(
     (listener) => store.subscribe(listener),
@@ -39,21 +41,22 @@ export function WriteRecovery<Failure>({
   )
 
   const run = useDesktopEffect()
-  const current = useRef({ store, run, onError, kind })
+  const current = useRef({ store, run, onError, kind, onRecovered })
 
   useLayoutEffect(
     function updateRecoveryTarget() {
-      current.current = { store, run, onError, kind }
+      current.current = { store, run, onError, kind, onRecovered }
     },
-    [store, run, onError, kind],
+    [store, run, onError, kind, onRecovered],
   )
 
   const [recover] = useState(function createRecoveryAction() {
     return function recoverPendingWrite() {
-      const { store, run, onError, kind } = current.current
+      const { store, run, onError, kind, onRecovered } = current.current
 
       try {
         run(store.recoverWrite())
+        onRecovered?.()
         onError("")
       } catch (cause) {
         onError(

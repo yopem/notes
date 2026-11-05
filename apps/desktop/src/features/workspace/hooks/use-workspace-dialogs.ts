@@ -11,14 +11,14 @@ import { useDesktopEffect } from "@/components/effect-boundary"
 export function useWorkspaceDialogs({
   store,
   navigation,
-  drafts,
+  getCurrentNote,
   discardDraft,
   importPath,
   onNotice,
 }: {
   store: NotesStore
   navigation: ReturnType<typeof useWorkspaceNavigation>
-  drafts: ReturnType<typeof useNoteDrafts>["drafts"]
+  getCurrentNote: ReturnType<typeof useNoteDrafts>["getCurrentNote"]
   discardDraft: (id: string) => void
   importPath: (path: string) => void
   onNotice: (message: string) => void
@@ -29,7 +29,7 @@ export function useWorkspaceDialogs({
   const current = useRef({
     store,
     navigation,
-    drafts,
+    getCurrentNote,
     discardDraft,
     importPath,
     onNotice,
@@ -42,7 +42,7 @@ export function useWorkspaceDialogs({
       current.current = {
         store,
         navigation,
-        drafts,
+        getCurrentNote,
         discardDraft,
         importPath,
         onNotice,
@@ -53,7 +53,7 @@ export function useWorkspaceDialogs({
     [
       store,
       navigation,
-      drafts,
+      getCurrentNote,
       discardDraft,
       importPath,
       onNotice,
@@ -88,7 +88,7 @@ export function useWorkspaceDialogs({
         dialog,
         store,
         navigation,
-        drafts,
+        getCurrentNote,
         discardDraft,
         importPath,
         onNotice,
@@ -115,11 +115,12 @@ export function useWorkspaceDialogs({
           navigation.selectNextNote(dialog.id, navigation.notes)
       } else if (dialog.kind === "import") importPath(value)
       else if (dialog.kind === "export") {
+        const note = getCurrentNote(dialog.id)
         const destination = run(
           store.exportMarkdown(
             dialog.id,
             value || homedir(),
-            drafts[dialog.id],
+            note ? { title: note.title, body: note.body } : undefined,
           ),
         )
 

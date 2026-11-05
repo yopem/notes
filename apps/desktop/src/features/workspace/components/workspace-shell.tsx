@@ -94,13 +94,21 @@ export function App({
     onNotice: setNotice,
   })
 
-  const { drafts, note, hasDrafts, changeNote, retry, discardDraft } =
-    useNoteDrafts({
-      store,
-      note: navigation.selected,
-      onActiveNote: navigation.setActiveNoteId,
-      onError: setError,
-    })
+  const {
+    note,
+    hasDrafts,
+    getCurrentNote,
+    hasPendingDrafts,
+    changeNote,
+    retry,
+    discardDraft,
+    reconcile,
+  } = useNoteDrafts({
+    store,
+    note: navigation.selected,
+    onActiveNote: navigation.setActiveNoteId,
+    onError: setError,
+  })
 
   let saveState: EditorSaveState = "saved"
 
@@ -111,7 +119,7 @@ export function App({
   const dialogs = useWorkspaceDialogs({
     store,
     navigation,
-    drafts,
+    getCurrentNote,
     discardDraft,
     importPath: intake.importPath,
     onNotice: setNotice,
@@ -121,12 +129,13 @@ export function App({
     store,
     note,
     navigation,
+    getCurrentNote,
     onDialog: dialogs.setDialog,
     onError: setError,
   })
 
   const preview = useFolderPreview({
-    hasDrafts,
+    hasPendingDrafts,
     store,
     settings,
     onError: setError,
@@ -219,6 +228,7 @@ export function App({
               color={color}
               kind="workspace"
               onError={setError}
+              onRecovered={reconcile}
             />
             {!settingsOpen && (
               <WriteRecovery
