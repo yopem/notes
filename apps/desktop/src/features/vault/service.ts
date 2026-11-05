@@ -1131,7 +1131,9 @@ export class Vault {
         this.reservedRoot(entry.name) &&
         entry.name !== asciiLowercase(entry.name)
       )
-        continue
+        throw new Error(
+          `Root path ${entry.name} uses a reserved system name with different case. Preserve its contents and choose a different user-folder name before continuing.`,
+        )
       const child = id ? `${id}/${entry.name}` : entry.name
 
       if (entry.isSymbolicLink()) {
