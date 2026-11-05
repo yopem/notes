@@ -1080,14 +1080,27 @@ export class Vault {
     return { files, directories }
   }
 
+  private noteIO<A>(operation: () => A) {
+    return Effect.try({
+      try: operation,
+      catch: (cause) =>
+        new VaultNoteError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    })
+  }
   listNotes() {
+    return this.noteIO(() => this.listNotesSync())
+  }
+  private listNotesSync() {
     this.assertOpen()
 
     return this.walk()
       .files.filter(function markdown(path) {
         return /\.md$/i.test(path) && !path.startsWith("assets/")
       })
-      .map((id) => this.readNote(id))
+      .map((id) => this.readNoteSync(id))
   }
   listFolders(): FolderRecord[] {
     this.assertOpen()
@@ -1111,7 +1124,10 @@ export class Vault {
         }
       })
   }
-  readNote(id: string): NoteRecord {
+  readNote(id: string) {
+    return this.noteIO(() => this.readNoteSync(id))
+  }
+  private readNoteSync(id: string): NoteRecord {
     this.assertOpen()
     const path = this.safe(this.notePath(id), true)
     const bytes = readBytes(path, noteLimit)
@@ -1140,6 +1156,14 @@ export class Vault {
     subpath = "",
     body?: string,
   ) {
+    return this.noteIO(() => this.createNoteSync(folder, title, subpath, body))
+  }
+  private createNoteSync(
+    folder: NoteFolder,
+    title: string,
+    subpath: string,
+    body?: string,
+  ) {
     this.assertWritable()
     decodeName(title)
     const parent = this.folderPath(folder, subpath)
@@ -1155,22 +1179,27 @@ export class Vault {
       },
     ])
 
-    return this.readNote(id)
+    return this.readNoteSync(id)
   }
   importNote(source: string, folder: NoteFolder = "inbox", subpath = "") {
-    this.assertOpen()
-    decodeNonEmptyString(source)
-    this.assertAbsoluteParents(resolve(source))
+    return this.noteIO(() => {
+      this.assertOpen()
+      decodeNonEmptyString(source)
+      this.assertAbsoluteParents(resolve(source))
 
-    return this.createNote(
-      folder,
-      basename(source, extname(source)),
-      subpath,
-      text(readBytes(resolve(source), noteLimit)),
-    )
+      return this.createNoteSync(
+        folder,
+        basename(source, extname(source)),
+        subpath,
+        text(readBytes(resolve(source), noteLimit)),
+      )
+    })
   }
   writeNote(id: string, body: string, expected: ExpectedContent) {
-    const previous = this.readNote(id)
+    return this.noteIO(() => this.writeNoteSync(id, body, expected))
+  }
+  private writeNoteSync(id: string, body: string, expected: ExpectedContent) {
+    const previous = this.readNoteSync(id)
     this.guard(Buffer.from(previous.body), expected)
     const next = this.nextState()
     next.notes[id] ??= { createdAt: previous.createdAt, pinned: false }
@@ -1178,7 +1207,7 @@ export class Vault {
       { path: id, bytes: noteText(body), expectedHash: previous.hash },
     ])
 
-    return this.readNote(id)
+    return this.readNoteSync(id)
   }
   appendToNote(
     id: string,
@@ -1186,23 +1215,25 @@ export class Vault {
     position: "start" | "end",
     expected: ExpectedContent,
   ) {
-    const previous = this.readNote(id)
-    this.guard(Buffer.from(previous.body), expected)
-    decodePosition(position)
-    const content = noteText(addition).trimEnd()
+    return this.noteIO(() => {
+      const previous = this.readNoteSync(id)
+      this.guard(Buffer.from(previous.body), expected)
+      decodePosition(position)
+      const content = noteText(addition).trimEnd()
 
-    if (!content) return previous
+      if (!content) return previous
 
-    return this.writeNote(
-      id,
-      position === "start"
-        ? `${content}\n\n${previous.body}`
-        : `${previous.body}${previous.body.endsWith("\n") ? "" : "\n"}\n${content}\n`,
-      expected,
-    )
+      return this.writeNoteSync(
+        id,
+        position === "start"
+          ? `${content}\n\n${previous.body}`
+          : `${previous.body}${previous.body.endsWith("\n") ? "" : "\n"}\n${content}\n`,
+        expected,
+      )
+    })
   }
   setPinned(id: string, pinned: boolean) {
-    const note = this.readNote(id)
+    const note = this.readNoteSync(id)
     const next = this.nextState()
     next.notes[id] = {
       ...next.notes[id],
@@ -1211,7 +1242,7 @@ export class Vault {
     }
     this.transaction(next, [])
 
-    return this.readNote(id)
+    return this.readNoteSync(id)
   }
   checkExternalChange(
     id: string,
@@ -1223,7 +1254,7 @@ export class Vault {
     let disk: NoteRecord | null = null
 
     try {
-      disk = this.readNote(id)
+      disk = this.readNoteSync(id)
     } catch (error) {
       if (!missing(Option.getOrUndefined(decodeError(error)))) throw error
     }
@@ -1248,7 +1279,7 @@ export class Vault {
     target: string,
     mode: "move" | "archive" | "unarchive" | "trash" | "restore" = "move",
   ) {
-    const note = this.readNote(id)
+    const note = this.readNoteSync(id)
     this.notePath(target)
 
     if (id === target) return note
@@ -1277,7 +1308,7 @@ export class Vault {
       { path: id, bytes: null, expectedHash: note.hash },
     ])
 
-    return this.readNote(target)
+    return this.readNoteSync(target)
   }
   renameNote(id: string, title: string) {
     decodeName(title)
@@ -1285,13 +1316,13 @@ export class Vault {
     return this.relocateNote(id, posix.join(posix.dirname(id), `${title}.md`))
   }
   moveNote(id: string, folder: NoteFolder, subpath = "") {
-    this.readNote(id)
+    this.readNoteSync(id)
     const target = posix.join(this.folderPath(folder, subpath), basename(id))
 
     return this.relocateNote(id, target === id ? id : this.unique(target))
   }
   duplicateNote(id: string) {
-    const note = this.readNote(id)
+    const note = this.readNoteSync(id)
 
     const target = this.unique(
       posix.join(posix.dirname(id), `${note.title} copy.md`),
@@ -1303,7 +1334,7 @@ export class Vault {
       { path: target, bytes: note.body, expectedHash: null },
     ])
 
-    return this.readNote(target)
+    return this.readNoteSync(target)
   }
   private mirror(id: string, folder: NoteFolder) {
     const current = this.folderOf(id)
@@ -1315,13 +1346,13 @@ export class Vault {
     return this.unique(posix.join(this.areaRoot(folder), relative))
   }
   archiveNote(id: string) {
-    if (["archive", "trash"].includes(this.readNote(id).folder))
+    if (["archive", "trash"].includes(this.readNoteSync(id).folder))
       throw new Error("Only active notes can be archived")
 
     return this.relocateNote(id, this.mirror(id, "archive"), "archive")
   }
   unarchiveNote(id: string) {
-    if (this.readNote(id).folder !== "archive")
+    if (this.readNoteSync(id).folder !== "archive")
       throw new Error("Note is not archived")
 
     return this.relocateNote(
@@ -1334,13 +1365,13 @@ export class Vault {
     )
   }
   moveToTrash(id: string) {
-    if (this.readNote(id).folder === "trash")
+    if (this.readNoteSync(id).folder === "trash")
       throw new Error("Note is already in trash")
 
     return this.relocateNote(id, this.mirror(id, "trash"), "trash")
   }
   restoreFromTrash(id: string) {
-    if (this.readNote(id).folder !== "trash")
+    if (this.readNoteSync(id).folder !== "trash")
       throw new Error("Note is not in trash")
 
     return this.relocateNote(
@@ -1355,7 +1386,7 @@ export class Vault {
   deleteNote(id: string, confirmation: DeleteConfirmation) {
     decodeConfirmation(confirmation)
 
-    if (this.readNote(id).folder !== "trash")
+    if (this.readNoteSync(id).folder !== "trash")
       throw new Error("Permanent deletion requires a note in trash")
     const next = this.nextState()
     delete next.notes[id]
@@ -1364,7 +1395,7 @@ export class Vault {
   emptyTrash(confirmation: DeleteConfirmation) {
     decodeConfirmation(confirmation)
 
-    const deleted = this.listNotes()
+    const deleted = this.listNotesSync()
       .filter(function inTrash(note) {
         return note.folder === "trash"
       })
@@ -1462,7 +1493,7 @@ export class Vault {
           return part.startsWith(".")
         })
       ) {
-        const note = this.readNote(id)
+        const note = this.readNoteSync(id)
         next.notes[rewrite(id)] = copy
           ? { createdAt: Date.now(), pinned: false }
           : {
@@ -1851,6 +1882,14 @@ export class Vault {
     this.closed = true
   }
 }
+
+export class VaultNoteError extends Schema.TaggedError<VaultNoteError>()(
+  "VaultNoteError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
 
 export class VaultOpenError extends Schema.TaggedError<VaultOpenError>()(
   "VaultOpenError",

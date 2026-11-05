@@ -18,7 +18,12 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { Vault, VaultOpenError, VaultResource } from "@/features/vault/service"
+import {
+  Vault,
+  VaultNoteError,
+  VaultOpenError,
+  VaultResource,
+} from "@/features/vault/service"
 
 /*
  * Contract defined before implementation. Reference evidence:
@@ -89,20 +94,36 @@ describe("native Markdown vault", () => {
         current.subscribe((event) => {
           events.push(event.kind)
         })
-        current.createNote("inbox", "Scoped", "", "preserved")
+        const create = current.createNote("inbox", "Scoped", "", "preserved")
+        expect(existsSync(join(directory, "inbox", "Scoped.md"))).toBe(false)
+        yield* create
 
         return current
       }).pipe(Effect.provide(layer)),
     )
 
-    expect(() => vault.listNotes()).toThrow("closed")
+    const failure = Effect.runSync(
+      vault.listNotes().pipe(
+        Effect.match({
+          onFailure: (error) => error,
+          onSuccess: () => undefined,
+        }),
+      ),
+    )
+
+    expect(failure).toBeInstanceOf(VaultNoteError)
+    expect(failure?._tag).toBe("VaultNoteError")
+    expect(failure?.message).toContain("closed")
+    expect(() => Effect.runSync(vault.listNotes())).toThrow("closed")
     expect(existsSync(join(directory, ".still-notes", "vault.lock"))).toBe(
       false,
     )
 
     const reopened = open(directory)
 
-    expect(reopened.readNote("inbox/Scoped.md").body).toBe("preserved")
+    expect(Effect.runSync(reopened.readNote("inbox/Scoped.md")).body).toBe(
+      "preserved",
+    )
   })
   test("releases the lock when the scoped workflow fails", () => {
     const directory = root()
@@ -123,7 +144,7 @@ describe("native Markdown vault", () => {
       false,
     )
 
-    expect(open(directory).listNotes()).toEqual([])
+    expect(Effect.runSync(open(directory).listNotes())).toEqual([])
   })
   test("reports acquisition failures as typed errors without releasing another vault's lock", () => {
     const directory = root()
@@ -142,7 +163,7 @@ describe("native Markdown vault", () => {
     expect(failure?._tag).toBe("VaultOpenError")
     expect(failure?.message).toContain("lock")
     expect(() => new Vault(directory)).toThrow("lock")
-    expect(original.listNotes()).toEqual([])
+    expect(Effect.runSync(original.listNotes())).toEqual([])
   })
   test("creates layout without seeding or moving unknown existing files", () => {
     const directory = root()
@@ -150,7 +171,7 @@ describe("native Markdown vault", () => {
     mkdirSync(join(directory, ".private"))
     writeFileSync(join(directory, ".private", "hidden.md"), "secret")
     const vault = open(directory)
-    expect(vault.listNotes()).toEqual([])
+    expect(Effect.runSync(vault.listNotes())).toEqual([])
     expect(readFileSync(join(directory, "loose.bin"), "utf8")).toBe("keep")
     expect(existsSync(join(directory, ".private", "hidden.md"))).toBe(true)
 
@@ -167,15 +188,21 @@ describe("native Markdown vault", () => {
   test("root primary and nested folder IDs remain vault-relative POSIX", () => {
     const vault = open(root(), "root")
     expect(vault.createFolder("inbox", "Work/研究").path).toBe("Work/研究")
-    const note = vault.createNote("inbox", "Café 😀", "Work/研究")
+
+    const note = Effect.runSync(
+      vault.createNote("inbox", "Café 😀", "Work/研究"),
+    )
+
     expect(note.path).toBe("Work/研究/Café 😀.md")
     expect(note.id).toBe(note.path)
     expect(note.body).toBe("# Café 😀\n\n")
-    expect(vault.createNote("quick", "Quick").path).toBe("quick/Quick.md")
+    expect(Effect.runSync(vault.createNote("quick", "Quick")).path).toBe(
+      "quick/Quick.md",
+    )
     expect(
       vault.listFolders().some((folder) => folder.path === "Work/研究"),
     ).toBe(true)
-    expect(vault.listNotes()).toHaveLength(2)
+    expect(Effect.runSync(vault.listNotes())).toHaveLength(2)
   })
   test("metadata uses filename, raw frontmatter, tags excluding code, stable creation and persisted pins", () => {
     const directory = root()
@@ -184,31 +211,37 @@ describe("native Markdown vault", () => {
     const body =
       "---\ntitle: Not filename\ntags:\n  - Alpha\n  - '#beta'\npinned: true\n---\n# Heading\n#日本語 #Alpha\n`#skip`\n  ```md\n#hidden\n  ```\n"
 
-    const note = vault.createNote("inbox", "Filename", "", body)
+    const note = Effect.runSync(vault.createNote("inbox", "Filename", "", body))
     expect(note.title).toBe("Filename")
     expect(note.frontmatter.title).toBe("Not filename")
     expect(note.tags).toEqual(["Alpha", "beta", "日本語"])
     expect(note.pinned).toBe(false)
     vault.setPinned(note.path, true)
 
-    const written = vault.writeNote(note.path, body + "tail", {
-      expectedHash: note.hash,
-    })
+    const written = Effect.runSync(
+      vault.writeNote(note.path, body + "tail", {
+        expectedHash: note.hash,
+      }),
+    )
 
     expect(written.createdAt).toBe(note.createdAt)
     expect(written.updatedAt).toBeGreaterThanOrEqual(note.updatedAt)
     vault.close()
     vault = open(directory)
-    expect(vault.readNote(note.path).pinned).toBe(true)
-    expect(vault.readNote(note.path).createdAt).toBe(note.createdAt)
+    expect(Effect.runSync(vault.readNote(note.path)).pinned).toBe(true)
+    expect(Effect.runSync(vault.readNote(note.path)).createdAt).toBe(
+      note.createdAt,
+    )
   })
   test("write conflicts retain caller draft and disk bytes; explicit checks detect deletion", () => {
     const vault = open()
-    const note = vault.createNote("inbox", "Conflict")
+    const note = Effect.runSync(vault.createNote("inbox", "Conflict"))
     writeFileSync(join(vault.root, note.path), "external")
     const draft = "pending draft"
     expect(() =>
-      vault.writeNote(note.path, draft, { expectedContent: note.body }),
+      Effect.runSync(
+        vault.writeNote(note.path, draft, { expectedContent: note.body }),
+      ),
     ).toThrow(/conflict/i)
 
     const change = vault.checkExternalChange(
@@ -225,29 +258,40 @@ describe("native Markdown vault", () => {
       vault.checkExternalChange(note.path, { expectedHash: note.hash }).deleted,
     ).toBe(true)
     expect(() =>
-      vault.writeNote(note.path, draft, { expectedHash: note.hash }),
+      Effect.runSync(
+        vault.writeNote(note.path, draft, { expectedHash: note.hash }),
+      ),
     ).toThrow()
   })
   test("append start/end respects separators and empty additions", () => {
     const vault = open()
-    let note = vault.createNote("inbox", "Append", "", "body")
-    note = vault.appendToNote(note.path, " end  ", "end", {
-      expectedHash: note.hash,
-    })
+    let note = Effect.runSync(vault.createNote("inbox", "Append", "", "body"))
+    note = Effect.runSync(
+      vault.appendToNote(note.path, " end  ", "end", {
+        expectedHash: note.hash,
+      }),
+    )
     expect(note.body).toBe("body\n\n end\n")
-    note = vault.appendToNote(note.path, "start", "start", {
-      expectedHash: note.hash,
-    })
+    note = Effect.runSync(
+      vault.appendToNote(note.path, "start", "start", {
+        expectedHash: note.hash,
+      }),
+    )
     expect(note.body).toBe("start\n\nbody\n\n end\n")
     expect(
-      vault.appendToNote(note.path, "  ", "end", { expectedHash: note.hash })
-        .body,
+      Effect.runSync(
+        vault.appendToNote(note.path, "  ", "end", { expectedHash: note.hash }),
+      ).body,
     ).toBe(note.body)
   })
   test("note lifecycle preserves exact origin through archive, trash, restart and collision", () => {
     const directory = root()
     let vault = open(directory)
-    let note = vault.createNote("quick", "Life", "nested", "payload")
+
+    let note = Effect.runSync(
+      vault.createNote("quick", "Life", "nested", "payload"),
+    )
+
     const created = note.createdAt
     note = vault.renameNote(note.path, "Renamed")
     note = vault.archiveNote(note.path)
@@ -265,7 +309,7 @@ describe("native Markdown vault", () => {
     const copy = vault.duplicateNote(note.path)
     expect(copy.path).toBe("quick/nested/Renamed copy.md")
     expect(copy.pinned).toBe(false)
-    vault.createNote("inbox", "Renamed", "target")
+    Effect.runSync(vault.createNote("inbox", "Renamed", "target"))
     note = vault.moveNote(note.path, "inbox", "target")
     expect(note.path).toBe("inbox/target/Renamed 2.md")
     expect(() => vault.deleteNote(note.path, { confirm: true })).toThrow(
@@ -278,11 +322,13 @@ describe("native Markdown vault", () => {
   })
   test("folder rename and duplicate preserve nested Markdown and hidden data; delete refuses unknown data", () => {
     const vault = open()
-    vault.createNote("inbox", "Nested", "A/B", "exact")
+    Effect.runSync(vault.createNote("inbox", "Nested", "A/B", "exact"))
     mkdirSync(join(vault.root, "inbox/A/.hidden"))
     writeFileSync(join(vault.root, "inbox/A/.hidden/keep"), "private")
     expect(vault.renameFolder("inbox", "A", "Moved").path).toBe("inbox/Moved")
-    expect(vault.readNote("inbox/Moved/B/Nested.md").body).toBe("exact")
+    expect(Effect.runSync(vault.readNote("inbox/Moved/B/Nested.md")).body).toBe(
+      "exact",
+    )
     expect(vault.duplicateFolder("inbox", "Moved").path).toBe(
       "inbox/Moved copy",
     )
@@ -294,14 +340,16 @@ describe("native Markdown vault", () => {
     ).toThrow(/unknown|hidden/i)
     expect(() => vault.renameFolder("inbox", "Moved", "Moved/inside")).toThrow()
     expect(() => vault.renameFolder("inbox", "Moved", "Moved copy")).toThrow()
-    vault.createNote("inbox", "Delete", "Clean/Sub")
+    Effect.runSync(vault.createNote("inbox", "Delete", "Clean/Sub"))
     vault.deleteFolder("inbox", "Clean", { confirm: true })
     expect(existsSync(join(vault.root, "inbox/Clean"))).toBe(false)
     expect(() => vault.deleteFolder("inbox", "", { confirm: true })).toThrow()
   })
   test("empty trash deletes Markdown only, preserves unknown files and hidden folders", () => {
     const vault = open()
-    vault.moveToTrash(vault.createNote("inbox", "Gone", "sub").path)
+    vault.moveToTrash(
+      Effect.runSync(vault.createNote("inbox", "Gone", "sub")).path,
+    )
     writeFileSync(join(vault.root, "trash/unknown.bin"), "keep")
     mkdirSync(join(vault.root, "trash/.ignored"))
     writeFileSync(join(vault.root, "trash/.ignored/private.md"), "keep")
@@ -350,15 +398,15 @@ describe("native Markdown vault", () => {
   })
   test("collisions never overwrite or follow dangling links", () => {
     const vault = open()
-    const a = vault.createNote("inbox", "Same", "", "one")
-    const b = vault.createNote("inbox", "Same", "", "two")
+    const a = Effect.runSync(vault.createNote("inbox", "Same", "", "one"))
+    const b = Effect.runSync(vault.createNote("inbox", "Same", "", "two"))
     expect(b.path).toBe("inbox/Same 2.md")
     expect(() => vault.renameNote(b.path, "Same")).toThrow(/exist|collision/i)
     symlinkSync(join(root(), "missing"), join(vault.root, "inbox/Dangling.md"))
-    expect(vault.createNote("inbox", "Dangling").path).toBe(
+    expect(Effect.runSync(vault.createNote("inbox", "Dangling")).path).toBe(
       "inbox/Dangling 2.md",
     )
-    expect(vault.readNote(a.path).body).toBe("one")
+    expect(Effect.runSync(vault.readNote(a.path)).body).toBe("one")
     expect(vault.createAsset("data.bin", Uint8Array.of(1)).path).toBe(
       "assets/data.bin",
     )
@@ -384,7 +432,7 @@ describe("native Markdown vault", () => {
     test(`rejects unsafe path ${JSON.stringify(value)}`, () => {
       const vault = open()
       expect(() => vault.createFolder("inbox", value)).toThrow()
-      expect(() => vault.readNote(value)).toThrow()
+      expect(() => Effect.runSync(vault.readNote(value))).toThrow()
       expect(() => vault.createAsset(value, Uint8Array.of(1))).toThrow()
     })
   }
@@ -396,11 +444,13 @@ describe("native Markdown vault", () => {
     const vault = open(directory)
     symlinkSync(outside, join(directory, "inbox/link"))
     symlinkSync(join(outside, "outside.md"), join(directory, "inbox/link.md"))
-    expect(() => vault.readNote("inbox/link.md")).toThrow(/symlink/i)
-    expect(() => vault.createNote("inbox", "outside", "link")).toThrow(
+    expect(() => Effect.runSync(vault.readNote("inbox/link.md"))).toThrow(
       /symlink/i,
     )
-    expect(vault.listNotes()).toEqual([])
+    expect(() =>
+      Effect.runSync(vault.createNote("inbox", "outside", "link")),
+    ).toThrow(/symlink/i)
+    expect(Effect.runSync(vault.listNotes())).toEqual([])
     expect(() => vault.duplicateFolder("inbox", "link")).toThrow()
     vault.close()
     rmSync(join(directory, ".still-notes"), { recursive: true })
@@ -411,20 +461,24 @@ describe("native Markdown vault", () => {
   test("bounded reads reject malformed UTF8 and binary text without changing files", () => {
     const vault = open()
     writeFileSync(join(vault.root, "inbox/bad.md"), Uint8Array.of(255))
-    expect(() => vault.readNote("inbox/bad.md")).toThrow(/UTF-8/i)
+    expect(() => Effect.runSync(vault.readNote("inbox/bad.md"))).toThrow(
+      /UTF-8/i,
+    )
     writeFileSync(
       join(vault.root, "inbox/large.md"),
       "x".repeat(2 * 1024 * 1024 + 1),
     )
-    expect(() => vault.readNote("inbox/large.md")).toThrow(/limit/i)
-    expect(() => vault.createNote("inbox", "Bad", "", "\u0000")).toThrow(
-      /text/i,
+    expect(() => Effect.runSync(vault.readNote("inbox/large.md"))).toThrow(
+      /limit/i,
     )
+    expect(() =>
+      Effect.runSync(vault.createNote("inbox", "Bad", "", "\u0000")),
+    ).toThrow(/text/i)
   })
   test("malformed metadata fails closed, remains untouched, and releases failed-open lock", () => {
     const directory = root()
     const vault = open(directory)
-    vault.createNote("inbox", "Keep", "", "payload")
+    Effect.runSync(vault.createNote("inbox", "Keep", "", "payload"))
     vault.close()
     writeFileSync(join(directory, ".still-notes/state.json"), "broken")
     expect(() => open(directory)).toThrow(/metadata/i)
@@ -439,7 +493,7 @@ describe("native Markdown vault", () => {
   test("schema-invalid metadata and attachment restore paths never authorize filesystem access", () => {
     const directory = root()
     const vault = open(directory)
-    const note = vault.createNote("inbox", "Keep", "", "saved")
+    const note = Effect.runSync(vault.createNote("inbox", "Keep", "", "saved"))
     const asset = vault.createAsset("keep.bin", Uint8Array.of(1, 2))
     vault.close()
 
@@ -493,20 +547,26 @@ describe("native Markdown vault", () => {
   })
   test("metadata failures before writes preserve original and pending content", () => {
     const vault = open()
-    const note = vault.createNote("inbox", "Keep", "", "old")
+    const note = Effect.runSync(vault.createNote("inbox", "Keep", "", "old"))
     writeFileSync(
       join(vault.root, ".still-notes/state.json"),
       "external corruption",
     )
     expect(() =>
-      vault.writeNote(note.path, "draft", { expectedHash: note.hash }),
+      Effect.runSync(
+        vault.writeNote(note.path, "draft", { expectedHash: note.hash }),
+      ),
     ).toThrow(/metadata|external/i)
     expect(readFileSync(join(vault.root, note.path), "utf8")).toBe("old")
   })
   test("interrupted journal rolls back on restart, leaving unrelated temporary files untouched", () => {
     const directory = root()
     const vault = open(directory)
-    const note = vault.createNote("inbox", "Interrupted", "", "before")
+
+    const note = Effect.runSync(
+      vault.createNote("inbox", "Interrupted", "", "before"),
+    )
+
     vault.close()
 
     const entry = {
@@ -522,7 +582,7 @@ describe("native Markdown vault", () => {
     writeFileSync(join(directory, note.path), "after")
     writeFileSync(join(directory, "inbox/.unknown.tmp"), "leave")
     const reopened = open(directory)
-    expect(reopened.readNote(note.path).body).toBe("before")
+    expect(Effect.runSync(reopened.readNote(note.path)).body).toBe("before")
     expect(readFileSync(join(directory, "inbox/.unknown.tmp"), "utf8")).toBe(
       "leave",
     )
@@ -606,14 +666,20 @@ describe("native Markdown vault", () => {
     expect(child.status).not.toBe(0)
     expect(child.stderr.toString()).toMatch(/lock/i)
     vault.close()
-    expect(() => vault.createNote("inbox", "Closed")).toThrow(/closed/i)
-    expect(open(directory).createNote("inbox", "Open").hash).toBe(
-      hash("# Open\n\n"),
+    expect(() => Effect.runSync(vault.createNote("inbox", "Closed"))).toThrow(
+      /closed/i,
     )
+    expect(
+      Effect.runSync(open(directory).createNote("inbox", "Open")).hash,
+    ).toBe(hash("# Open\n\n"))
   })
   test("failed move rolls back published target without touching unchanged read-only source", () => {
     const vault = open()
-    const note = vault.createNote("inbox", "Protected", "locked", "original")
+
+    const note = Effect.runSync(
+      vault.createNote("inbox", "Protected", "locked", "original"),
+    )
+
     const directory = join(vault.root, "inbox/locked")
     chmodSync(directory, 0o500)
 
@@ -637,7 +703,7 @@ describe("native Markdown vault", () => {
       process.execPath,
       [
         "-e",
-        `import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); vault.createNote("quick", "Crash", "", "committed"); process.kill(process.pid, "SIGKILL");`,
+        `import { Effect } from "effect"; import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); Effect.runSync(vault.createNote("quick", "Crash", "", "committed")); process.kill(process.pid, "SIGKILL");`,
       ],
       { cwd: resolve(".") },
     )
@@ -645,8 +711,10 @@ describe("native Markdown vault", () => {
     expect(child.signal).toBe("SIGKILL")
     expect(existsSync(join(directory, ".still-notes/vault.lock"))).toBe(true)
     const vault = open(directory)
-    expect(vault.readNote("quick/Crash.md").body).toBe("committed")
-    expect(vault.createNote("inbox", "After crash").path).toBe(
+    expect(Effect.runSync(vault.readNote("quick/Crash.md")).body).toBe(
+      "committed",
+    )
+    expect(Effect.runSync(vault.createNote("inbox", "After crash")).path).toBe(
       "inbox/After crash.md",
     )
   })
@@ -657,7 +725,7 @@ describe("native Markdown vault", () => {
       process.execPath,
       [
         "-e",
-        `import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); let note = vault.createNote("inbox", "Interrupted", "", "stable"); process.stdout.write("ready"); for (let revision = 0; revision < 200; revision++) note = vault.writeNote(note.path, "revision:" + revision + "\\n" + "x".repeat(1024 * 1024), { expectedHash: note.hash }); vault.close();`,
+        `import { Effect } from "effect"; import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); let note = Effect.runSync(vault.createNote("inbox", "Interrupted", "", "stable")); process.stdout.write("ready"); for (let revision = 0; revision < 200; revision++) note = Effect.runSync(vault.writeNote(note.path, "revision:" + revision + "\\n" + "x".repeat(1024 * 1024), { expectedHash: note.hash })); vault.close();`,
       ],
       { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] },
     )
@@ -680,7 +748,7 @@ describe("native Markdown vault", () => {
       child.kill("SIGKILL")
       await exited
       const vault = open(directory)
-      const note = vault.readNote("inbox/Interrupted.md")
+      const note = Effect.runSync(vault.readNote("inbox/Interrupted.md"))
       expect(
         note.body === "stable" || /^revision:\d+\nx+$/.test(note.body),
       ).toBe(true)
@@ -694,8 +762,9 @@ describe("native Markdown vault", () => {
         false,
       )
       expect(
-        vault.writeNote(note.path, "recovered", { expectedHash: note.hash })
-          .body,
+        Effect.runSync(
+          vault.writeNote(note.path, "recovered", { expectedHash: note.hash }),
+        ).body,
       ).toBe("recovered")
     } finally {
       child.kill("SIGKILL")
@@ -708,7 +777,9 @@ describe("native Markdown vault", () => {
     const held = join(root(), "held")
     renameSync(directory, held)
     symlinkSync(root(), directory)
-    expect(() => vault.createNote("inbox", "Escape")).toThrow(/symlink|root/i)
+    expect(() => Effect.runSync(vault.createNote("inbox", "Escape"))).toThrow(
+      /symlink|root/i,
+    )
     rmSync(directory)
     renameSync(held, directory)
     vault.close()
@@ -723,18 +794,21 @@ describe("native Markdown vault", () => {
     const body = "\ufeff# Import\r\n\r\n日本語\r\n"
     writeFileSync(source, body)
     const vault = open()
-    const note = vault.importNote(source)
+    const note = Effect.runSync(vault.importNote(source))
     expect(note.body).toBe(body)
     expect(readFileSync(source, "utf8")).toBe(body)
     expect(
-      vault.writeNote(note.path, body + "tail", { expectedHash: note.hash })
-        .body,
+      Effect.runSync(
+        vault.writeNote(note.path, body + "tail", { expectedHash: note.hash }),
+      ).body,
     ).toBe(body + "tail")
-    expect(vault.importNote(source).path).toBe("inbox/Imported 2.md")
+    expect(Effect.runSync(vault.importNote(source)).path).toBe(
+      "inbox/Imported 2.md",
+    )
   })
   test("real watcher receives external writes, nested creates, and unsubscribe stops events", async () => {
     const vault = open()
-    const note = vault.createNote("inbox", "Watch")
+    const note = Effect.runSync(vault.createNote("inbox", "Watch"))
     const events: string[] = []
 
     const unsubscribe = vault.subscribe((event) =>
