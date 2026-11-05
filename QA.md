@@ -1311,3 +1311,31 @@ mark those cases passed until capture works and the evidence is inspected.
     after evidence review. Restore no user settings.
   - **Status:** Pending implementation and native validation. The real fault
     mechanism is verified; screenshots remain blocked by QA-015.
+
+- [ ] **QA-051 — P1 — Read actual native input values in automation**
+  - **Purpose:** Verify editor selection, task-source navigation and retained
+    drafts without replacing value assertions with weaker existence checks.
+  - **Prerequisites:** A reproducible patched GPUix addon, a test-owned native
+    app using that addon, and isolated data. Do not expose user text or inspect
+    any other process. The automation protocol must retain compatibility.
+  - **Inputs:** A title `Task plans Ω`, body `- [ ] Call 🌿`, then native edits
+    to `Task plans Ω copy` and `- [x] Call 🌿`.
+  - **Steps:**
+    1. Build the pinned addon with its existing build script in an isolated
+       checkout. Configure only the test child to load it.
+    2. Fill and edit the title and body using the native automation client.
+    3. Read the native tree and compare input and textarea text with the exact
+       current values. Exercise selection, composition-safe edits and undo.
+    4. Run the existing task and draft regressions with their value assertions
+       unchanged, and inspect their artifacts.
+  - **Expected results:** Input readback reflects native editor state rather
+    than an obsolete React value. Unicode stays intact, readback has no editing
+    side effects, and existing protocol clients still decode the tree. Value
+    assertions verify actual content; no assertion is removed to force a pass.
+  - **Evidence:** Save protocol fixtures, focused test output and sanitized app
+    trees under `docs/artifacts/native-editor/QA-051/`.
+  - **Cleanup:** Reap only test-owned processes and remove their isolated data
+    after evidence review. Do not replace another app's addon or font settings.
+  - **Status:** Pending implementation. The stock native tree omits input
+    values; QA-043 stopped on this assertion, not an established source-note
+    navigation defect. Visual and screen-reader QA remain separate.
