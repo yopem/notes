@@ -1,3 +1,12 @@
+import {
+  Option,
+  Predicate,
+  Result,
+  Schema,
+  SchemaRepresentation,
+  SchemaTransformation,
+  Struct,
+} from "effect"
 import { createHash } from "node:crypto"
 import {
   closeSync,
@@ -8,52 +17,108 @@ import {
   rmSync,
 } from "node:fs"
 import { dirname, isAbsolute, join, parse, resolve } from "node:path"
-import { z } from "zod"
 
 import { atomicWrite } from "@/platform/files"
 
 // Source: apps/desktop/src/main/mcp-integrations.ts and src/mcp/server.ts.
-const clientSchema = z.enum([
+
+const clientSchema = Schema.Literals([
   "claude-code",
   "claude-desktop",
   "codex",
   "opencode",
 ])
 
-export type McpClientId = z.infer<typeof clientSchema>
+export type McpClientId = typeof clientSchema.Type
 
-const rootsSchema = z.strictObject({
-  home: z.string().min(1),
-  config: z.string().min(1),
-  platform: z.enum(["linux", "darwin", "win32"]),
-  appData: z.string().min(1).optional(),
+const rootsSchema = Schema.Struct({
+  home: Schema.NonEmptyString,
+  config: Schema.NonEmptyString,
+  platform: Schema.Literals(["linux", "darwin", "win32"]),
+  appData: Schema.optional(Schema.NonEmptyString),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const runtimeSchema = Schema.Struct({
+  command: Schema.NonEmptyString.check(
+    Schema.makeFilter(isAbsolute, {
+      message: "Use an absolute executable path",
+    }),
+  ),
+  args: Schema.mutable(Schema.Array(Schema.String)).check(
+    Schema.isMaxLength(100),
+  ),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const jsonValueSchema = Schema.MutableJson
+
+// Check the input before record decoding can discard native TOML date fields.
+const plainRecordSchema = Schema.declare(Predicate.isObject).check(
+  Schema.makeFilter(
+    (value) => {
+      const constructor = value.constructor
+
+      if (!Predicate.isFunction(constructor)) return true
+      const prototype: unknown = constructor.prototype
+
+      return (
+        Predicate.isObject(prototype) &&
+        Object.hasOwn(prototype, "isPrototypeOf")
+      )
+    },
+    { message: "Expected a plain record" },
+  ),
+)
+
+const objectSchema = plainRecordSchema.pipe(
+  Schema.decodeTo(
+    Schema.Record(Schema.String, Schema.mutableKey(jsonValueSchema)),
+  ),
+)
+
+const tomlDocumentSchema = Schema.StructWithRest(
+  Schema.Struct({
+    mcp_servers: Schema.optional(
+      plainRecordSchema.pipe(
+        Schema.decodeTo(Schema.Record(Schema.String, Schema.Unknown)),
+      ),
+    ),
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)],
+)
+
+const receiptSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  entry: Schema.String,
+  separator: Schema.String,
+  createdContainer: Schema.Boolean,
+  block: Schema.NullOr(Schema.String),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const errorSchema = Schema.Struct({ code: Schema.String })
+
+const decodeError = Schema.decodeUnknownOption(errorSchema)
+
+const decodeClient = Schema.decodeUnknownSync(clientSchema)
+
+const decodeRoots = Schema.decodeUnknownSync(rootsSchema, {
+  onExcessProperty: "error",
 })
 
-const runtimeSchema = z.strictObject({
-  command: z
-    .string()
-    .min(1)
-    .refine(isAbsolute, "Use an absolute executable path"),
-  args: z.array(z.string()).max(100),
+const decodeRuntime = Schema.decodeUnknownSync(runtimeSchema, {
+  onExcessProperty: "error",
 })
 
-const jsonValueSchema = z.json()
-
-const objectSchema = z.record(z.string(), jsonValueSchema)
-
-const tomlDocumentSchema = z.looseObject({
-  mcp_servers: z.record(z.string(), z.unknown()).optional(),
+const decodeReceipt = Schema.decodeUnknownSync(receiptSchema, {
+  onExcessProperty: "error",
 })
 
-const receiptSchema = z.strictObject({
-  version: z.literal(1),
-  entry: z.string(),
-  separator: z.string(),
-  createdContainer: z.boolean(),
-  block: z.string().nullable(),
-})
+const decodeJson = Schema.decodeUnknownSync(jsonValueSchema)
 
-const errorSchema = z.object({ code: z.string() })
+const decodeObject = Schema.decodeUnknownSync(objectSchema)
+
+const decodeToml = Schema.decodeUnknownSync(tomlDocumentSchema)
+
+const decodeString = Schema.decodeUnknownSync(Schema.String)
 
 const serverKey = "still-notes"
 
@@ -71,7 +136,8 @@ function safeFile(path: string) {
       if (lstatSync(current).isSymbolicLink())
         throw new Error("Refusing symbolic link")
     } catch (error) {
-      if (errorSchema.safeParse(error).data?.code !== "ENOENT") throw error
+      if (Option.getOrUndefined(decodeError(error))?.code !== "ENOENT")
+        throw error
     }
   }
 }
@@ -87,7 +153,8 @@ function readOptional(path: string) {
 
     return readFileSync(path, "utf8")
   } catch (error) {
-    if (errorSchema.safeParse(error).data?.code === "ENOENT") return null
+    if (Option.getOrUndefined(decodeError(error))?.code === "ENOENT")
+      return null
     throw error
   }
 }
@@ -98,7 +165,7 @@ function save(path: string, bytes: string) {
   atomicWrite(path, bytes, dirname(path))
 }
 
-function fingerprint(value: z.infer<typeof jsonValueSchema> | undefined) {
+function fingerprint(value: typeof jsonValueSchema.Type | undefined) {
   return createHash("sha256")
     .update(JSON.stringify(value) ?? "undefined")
     .digest("hex")
@@ -134,7 +201,7 @@ function members(raw: string, start: number) {
   while (raw[index] !== "}" && index < raw.length) {
     const keyStart = index
     stringEnd()
-    const key = z.string().parse(JSON.parse(raw.slice(keyStart, index)))
+    const key = decodeString(JSON.parse(raw.slice(keyStart, index)))
     whitespace()
     index += 1
     whitespace()
@@ -191,7 +258,7 @@ function insertMember(
   raw: string,
   objectStart: number,
   key: string,
-  value: z.infer<typeof jsonValueSchema>,
+  value: typeof jsonValueSchema.Type,
 ) {
   return (
     raw.slice(0, objectStart + 1) +
@@ -201,7 +268,7 @@ function insertMember(
 }
 
 function jsonConfig(raw: string, container: string) {
-  const object = objectSchema.parse(JSON.parse(raw))
+  const object = decodeObject(JSON.parse(raw))
   // Duplicate member names are ambiguous. Do not edit such a document.
   const top = members(raw, raw.indexOf("{"))
 
@@ -210,7 +277,7 @@ function jsonConfig(raw: string, container: string) {
   const field = top.find((item) => item.key === container)
 
   const servers =
-    object[container] === undefined ? {} : objectSchema.parse(object[container])
+    object[container] === undefined ? {} : decodeObject(object[container])
 
   if (field) {
     const fields = members(raw, field.valueStart)
@@ -223,12 +290,12 @@ function jsonConfig(raw: string, container: string) {
 }
 
 function tomlConfig(raw: string) {
-  const object = tomlDocumentSchema.parse(Bun.TOML.parse(raw))
+  const object = decodeToml(Bun.TOML.parse(raw))
   const configured = object.mcp_servers ?? {}
   const entry = configured[serverKey]
 
   const servers = {
-    [serverKey]: entry === undefined ? undefined : jsonValueSchema.parse(entry),
+    [serverKey]: entry === undefined ? undefined : decodeJson(entry),
   }
 
   const serverCount = Object.keys(configured).length
@@ -262,20 +329,20 @@ export interface McpClientStatus {
 }
 
 export class McpClients {
-  private readonly roots: z.infer<typeof rootsSchema>
-  private readonly runtime: z.infer<typeof runtimeSchema>
+  private readonly roots: typeof rootsSchema.Type
+  private readonly runtime: typeof runtimeSchema.Type
   constructor(
-    roots: z.input<typeof rootsSchema>,
-    runtime: z.input<typeof runtimeSchema>,
+    roots: typeof rootsSchema.Encoded,
+    runtime: typeof runtimeSchema.Encoded,
   ) {
-    this.roots = rootsSchema.parse(roots)
-    this.runtime = runtimeSchema.parse(runtime)
+    this.roots = decodeRoots(roots)
+    this.runtime = decodeRuntime(runtime)
 
     if (!isAbsolute(this.roots.home) || !isAbsolute(this.roots.config))
       throw new Error("Use absolute config roots")
   }
   private path(id: McpClientId) {
-    clientSchema.parse(id)
+    decodeClient(id)
     const { home, config, platform, appData } = this.roots
 
     if (id === "claude-code") return join(home, ".claude.json")
@@ -292,7 +359,7 @@ export class McpClients {
 
     return join(base, "Claude", "claude_desktop_config.json")
   }
-  private entry(id: McpClientId): z.infer<typeof jsonValueSchema> {
+  private entry(id: McpClientId): typeof jsonValueSchema.Type {
     return id === "opencode"
       ? {
           type: "local",
@@ -319,8 +386,7 @@ export class McpClients {
       const owned =
         receipt === null
           ? false
-          : receiptSchema.parse(JSON.parse(receipt)).entry ===
-            fingerprint(entry)
+          : decodeReceipt(JSON.parse(receipt)).entry === fingerprint(entry)
 
       return {
         id,
@@ -344,7 +410,7 @@ export class McpClients {
     }
   }
   statuses() {
-    return clientSchema.options.map((id) => this.status(id))
+    return clientSchema.literals.map((id) => this.status(id))
   }
   install(id: McpClientId) {
     return this.change(id, true)
@@ -366,7 +432,7 @@ export class McpClients {
       const receiptRaw = readOptional(receiptPath)
 
       const receipt =
-        receiptRaw === null ? null : receiptSchema.parse(JSON.parse(receiptRaw))
+        receiptRaw === null ? null : decodeReceipt(JSON.parse(receiptRaw))
 
       const container = id === "opencode" ? "mcp" : "mcpServers"
       const raw = original ?? (id === "codex" ? "" : "{}")
@@ -497,10 +563,11 @@ Use task ids from list_tasks. Use comment threads for discussion; edit bodies on
 Prefer reversible trash. Ask for explicit confirmation before permanent deletion.
 `
 
-const instructionSchema = z
-  .string()
-  .max(256 * 1024)
-  .nullable()
+const instructionSchema = Schema.NullOr(
+  Schema.String.check(Schema.isMaxLength(256 * 1024)),
+)
+
+const decodeInstruction = Schema.decodeUnknownSync(instructionSchema)
 
 export class McpInstructions {
   readonly path: string
@@ -509,7 +576,7 @@ export class McpInstructions {
   }
   read() {
     const raw = readOptional(this.path)
-    instructionSchema.parse(raw)
+    decodeInstruction(raw)
     const custom = raw?.trim() ? raw : null
 
     return {
@@ -519,7 +586,7 @@ export class McpInstructions {
     }
   }
   write(value: string | null) {
-    const next = instructionSchema.parse(value)
+    const next = decodeInstruction(value)
     save(
       this.path,
       next?.trim() ? (next.endsWith("\n") ? next : `${next}\n`) : "",
@@ -529,13 +596,14 @@ export class McpInstructions {
   }
 }
 
-const textSchema = z.string().trim().min(1).max(2048)
+const textSchema = Schema.String.pipe(
+  Schema.decodeTo(Schema.String, SchemaTransformation.trim()),
+).check(Schema.isMinLength(1), Schema.isMaxLength(2048))
 
-export const mcpPathSchema = z
-  .string()
-  .min(1)
-  .max(2048)
-  .refine(
+export const mcpPathSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(2048),
+  Schema.makeFilter(
     (value) =>
       !isAbsolute(value) &&
       !/[\\:\p{Cc}]/u.test(value) &&
@@ -548,145 +616,186 @@ export const mcpPathSchema = z
             part !== ".." &&
             !part.startsWith("."),
         ),
-    "Unsafe vault-relative POSIX path",
-  )
+    { message: "Unsafe vault-relative POSIX path" },
+  ),
+)
 
-const folderSchema = z.enum(["inbox", "quick", "archive", "trash"])
+const folderSchema = Schema.Literals(["inbox", "quick", "archive", "trash"])
 
-const liveFolderSchema = z.enum(["inbox", "quick", "archive"])
+const liveFolderSchema = Schema.Literals(["inbox", "quick", "archive"])
 
-const bodySchema = z.string().max(2 * 1024 * 1024)
+const bodySchema = Schema.String.check(Schema.isMaxLength(2 * 1024 * 1024))
 
-const limitSchema = z.number().int().positive().max(10000).optional()
+const limitSchema = Schema.optional(
+  Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(10000)),
+)
 
-const pathArgs = z.strictObject({ path: mcpPathSchema })
+const pathArgs = Schema.Struct({ path: mcpPathSchema }).mapFields(
+  Struct.map(Schema.mutableKey),
+)
 
-const queryArgs = z.strictObject({ query: textSchema, limit: limitSchema })
+const queryArgs = Schema.Struct({
+  query: textSchema,
+  limit: limitSchema,
+}).mapFields(Struct.map(Schema.mutableKey))
 
 const commentId = textSchema
 
-const taskIdSchema = z.string().refine((value) => {
-  const split = value.lastIndexOf("#")
+const taskIdSchema = Schema.String.check(
+  Schema.makeFilter(
+    (value) => {
+      const split = value.lastIndexOf("#")
 
-  return (
-    split > 0 &&
-    mcpPathSchema.safeParse(value.slice(0, split)).success &&
-    /^\d+$/.test(value.slice(split + 1))
-  )
-}, "Invalid task id")
+      return (
+        split > 0 &&
+        Schema.is(mcpPathSchema)(value.slice(0, split)) &&
+        /^\d+$/.test(value.slice(split + 1))
+      )
+    },
+    { message: "Invalid task id" },
+  ),
+)
+
+const dateSchema = Schema.String.check(
+  Schema.isPattern(
+    /^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|02-(?:0[1-9]|1\d|2[0-8])))$/,
+    { expected: "an ISO calendar date" },
+  ),
+)
 
 // Exact tool names and argument names from apps/desktop/src/mcp/server.ts.
 export const MCP_TOOL_SCHEMAS = {
-  vault_info: z.strictObject({}),
-  list_notes: z
-    .strictObject({
-      folder: folderSchema.optional(),
-      subpath: mcpPathSchema.optional(),
-      tag: textSchema.optional(),
-      wikilinkTo: textSchema.optional(),
-      updatedSinceMs: z.number().finite().nonnegative().optional(),
-      limit: limitSchema,
-    })
-    .refine(
-      (value) => !value.subpath || value.folder !== undefined,
-      "subpath requires folder",
+  vault_info: Schema.Record(Schema.String, Schema.Never),
+  list_notes: Schema.Struct({
+    folder: Schema.optional(folderSchema),
+    subpath: Schema.optional(mcpPathSchema),
+    tag: Schema.optional(textSchema),
+    wikilinkTo: Schema.optional(textSchema),
+    updatedSinceMs: Schema.optional(
+      Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
     ),
-  list_folders: z.strictObject({}),
-  list_assets: z.strictObject({}),
+    limit: limitSchema,
+  })
+    .mapFields(Struct.map(Schema.mutableKey))
+    .check(
+      Schema.makeFilter(
+        (value) => !value.subpath || value.folder !== undefined,
+        { message: "subpath requires folder" },
+      ),
+    ),
+  list_folders: Schema.Record(Schema.String, Schema.Never),
+  list_assets: Schema.Record(Schema.String, Schema.Never),
   read_note: pathArgs,
-  write_note: z.strictObject({ path: mcpPathSchema, body: bodySchema }),
-  create_note: z.strictObject({
-    folder: liveFolderSchema.optional(),
-    title: textSchema.optional(),
-    subpath: mcpPathSchema.optional(),
-    body: bodySchema.optional(),
-  }),
-  rename_note: z.strictObject({ path: mcpPathSchema, newTitle: textSchema }),
-  move_note: z.strictObject({
+  write_note: Schema.Struct({
+    path: mcpPathSchema,
+    body: bodySchema,
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  create_note: Schema.Struct({
+    folder: Schema.optional(liveFolderSchema),
+    title: Schema.optional(textSchema),
+    subpath: Schema.optional(mcpPathSchema),
+    body: Schema.optional(bodySchema),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  rename_note: Schema.Struct({
+    path: mcpPathSchema,
+    newTitle: textSchema,
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  move_note: Schema.Struct({
     path: mcpPathSchema,
     targetFolder: folderSchema,
-    targetSubpath: mcpPathSchema.optional(),
-  }),
+    targetSubpath: Schema.optional(mcpPathSchema),
+  }).mapFields(Struct.map(Schema.mutableKey)),
   duplicate_note: pathArgs,
   move_to_trash: pathArgs,
   restore_from_trash: pathArgs,
-  empty_trash: z.strictObject({ confirm: z.literal(true) }),
-  delete_note: z.strictObject({
+  empty_trash: Schema.Struct({ confirm: Schema.Literal(true) }).mapFields(
+    Struct.map(Schema.mutableKey),
+  ),
+  delete_note: Schema.Struct({
     path: mcpPathSchema,
-    confirm: z.literal(true),
-  }),
+    confirm: Schema.Literal(true),
+  }).mapFields(Struct.map(Schema.mutableKey)),
   archive_note: pathArgs,
   unarchive_note: pathArgs,
-  create_folder: z.strictObject({
+  create_folder: Schema.Struct({
     folder: liveFolderSchema,
     subpath: mcpPathSchema,
-  }),
-  rename_folder: z.strictObject({
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  rename_folder: Schema.Struct({
     folder: liveFolderSchema,
     oldSubpath: mcpPathSchema,
     newSubpath: mcpPathSchema,
-  }),
-  delete_folder: z.strictObject({
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  delete_folder: Schema.Struct({
     folder: liveFolderSchema,
     subpath: mcpPathSchema,
-    confirm: z.literal(true),
-  }),
+    confirm: Schema.Literal(true),
+  }).mapFields(Struct.map(Schema.mutableKey)),
   search_text: queryArgs,
   search_by_title: queryArgs,
-  search_by_tag: z.strictObject({ tag: textSchema, limit: limitSchema }),
-  list_tags: z.strictObject({}),
+  search_by_tag: Schema.Struct({
+    tag: textSchema,
+    limit: limitSchema,
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  list_tags: Schema.Record(Schema.String, Schema.Never),
   backlinks: pathArgs,
-  list_tasks: z.strictObject({
-    status: z.enum(["open", "done", "waiting", "all"]).optional(),
-    priority: z.enum(["high", "med", "low"]).optional(),
-    dueBefore: z.iso.date().optional(),
-    dueAfter: z.iso.date().optional(),
-    tag: textSchema.optional(),
-    folder: liveFolderSchema.optional(),
-    tags: z.array(textSchema).max(100).optional(),
-    includeExcluded: z.boolean().optional(),
-  }),
-  toggle_task: z.strictObject({ id: taskIdSchema }),
-  append_to_note: z.strictObject({
+  list_tasks: Schema.Struct({
+    status: Schema.optional(
+      Schema.Literals(["open", "done", "waiting", "all"]),
+    ),
+    priority: Schema.optional(Schema.Literals(["high", "med", "low"])),
+    dueBefore: Schema.optional(dateSchema),
+    dueAfter: Schema.optional(dateSchema),
+    tag: Schema.optional(textSchema),
+    folder: Schema.optional(liveFolderSchema),
+    tags: Schema.optional(
+      Schema.mutable(Schema.Array(textSchema)).check(Schema.isMaxLength(100)),
+    ),
+    includeExcluded: Schema.optional(Schema.Boolean),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  toggle_task: Schema.Struct({ id: taskIdSchema }).mapFields(
+    Struct.map(Schema.mutableKey),
+  ),
+  append_to_note: Schema.Struct({
     path: mcpPathSchema,
-    text: bodySchema.min(1),
-  }),
-  prepend_to_note: z.strictObject({
+    text: bodySchema.check(Schema.isMinLength(1)),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  prepend_to_note: Schema.Struct({
     path: mcpPathSchema,
-    text: bodySchema.min(1),
-  }),
-  insert_at_line: z.strictObject({
+    text: bodySchema.check(Schema.isMinLength(1)),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  insert_at_line: Schema.Struct({
     path: mcpPathSchema,
-    lineNumber: z.number().int().nonnegative(),
-    text: bodySchema.min(1),
-  }),
-  replace_in_note: z.strictObject({
+    lineNumber: Schema.Natural,
+    text: bodySchema.check(Schema.isMinLength(1)),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  replace_in_note: Schema.Struct({
     path: mcpPathSchema,
-    find: bodySchema.min(1),
+    find: bodySchema.check(Schema.isMinLength(1)),
     replace: bodySchema,
-    occurrence: z.enum(["first", "all"]).optional(),
-  }),
-  list_comments: z.strictObject({
+    occurrence: Schema.optional(Schema.Literals(["first", "all"])),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  list_comments: Schema.Struct({
     path: mcpPathSchema,
-    include_resolved: z.boolean().optional(),
-  }),
-  add_comment: z.strictObject({
+    include_resolved: Schema.optional(Schema.Boolean),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  add_comment: Schema.Struct({
     path: mcpPathSchema,
-    body: bodySchema.min(1),
-    anchor_text: bodySchema.optional(),
-    author: textSchema.optional(),
-  }),
-  reply_to_comment: z.strictObject({
-    path: mcpPathSchema,
-    id: commentId,
-    body: bodySchema.min(1),
-    author: textSchema.optional(),
-  }),
-  resolve_comment: z.strictObject({
+    body: bodySchema.check(Schema.isMinLength(1)),
+    anchor_text: Schema.optional(bodySchema),
+    author: Schema.optional(textSchema),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  reply_to_comment: Schema.Struct({
     path: mcpPathSchema,
     id: commentId,
-    resolved: z.boolean().optional(),
-  }),
+    body: bodySchema.check(Schema.isMinLength(1)),
+    author: Schema.optional(textSchema),
+  }).mapFields(Struct.map(Schema.mutableKey)),
+  resolve_comment: Schema.Struct({
+    path: mcpPathSchema,
+    id: commentId,
+    resolved: Schema.optional(Schema.Boolean),
+  }).mapFields(Struct.map(Schema.mutableKey)),
 }
 
 export type McpToolName = keyof typeof MCP_TOOL_SCHEMAS
@@ -758,7 +867,7 @@ const toolDescriptions: Record<McpToolName, string> = {
 export type McpToolCall = {
   [K in McpToolName]: {
     name: K
-    arguments: z.infer<(typeof MCP_TOOL_SCHEMAS)[K]>
+    arguments: (typeof MCP_TOOL_SCHEMAS)[K]["Type"]
   }
 }[McpToolName]
 
@@ -772,9 +881,9 @@ export interface McpVaultAdapter {
   /** Enforce symlink containment, atomic saves, and vault identity in the adapter. */
   execute<K extends McpToolName>(
     name: K,
-    args: z.infer<(typeof MCP_TOOL_SCHEMAS)[K]>,
+    args: (typeof MCP_TOOL_SCHEMAS)[K]["Type"],
     context: McpToolContext,
-  ): Promise<z.infer<typeof jsonValueSchema>>
+  ): Promise<typeof jsonValueSchema.Type>
 }
 
 const readTools = new Set<McpToolName>([
@@ -798,7 +907,7 @@ const commentTools = new Set<McpToolName>([
   "resolve_comment",
 ])
 
-const toolNameSchema = z.enum([
+const toolNameSchema = Schema.Literals([
   "vault_info",
   "list_notes",
   "list_folders",
@@ -835,31 +944,65 @@ const toolNameSchema = z.enum([
   "resolve_comment",
 ])
 
-const rpcIdSchema = z.union([z.string().max(256), z.number().int()])
+const rpcIdSchema = Schema.Union([
+  Schema.String.check(Schema.isMaxLength(256)),
+  Schema.Int,
+])
 
-const requestSchema = z.strictObject({
-  jsonrpc: z.literal("2.0"),
-  id: rpcIdSchema.optional(),
-  method: z.string().min(1),
-  params: z.unknown().optional(),
+const requestSchema = Schema.Struct({
+  jsonrpc: Schema.Literal("2.0"),
+  id: Schema.optional(rpcIdSchema),
+  method: Schema.NonEmptyString,
+  params: Schema.optional(Schema.Unknown),
 })
 
-const initializeSchema = z.object({
-  protocolVersion: z.string(),
+const initializeSchema = Schema.Struct({
+  protocolVersion: Schema.String,
   capabilities: objectSchema,
-  clientInfo: z.object({ name: textSchema, version: textSchema }),
+  clientInfo: Schema.Struct({ name: textSchema, version: textSchema }),
 })
 
-const callSchema = z.strictObject({
-  name: z.string(),
-  arguments: objectSchema.optional(),
-  _meta: objectSchema.optional(),
+const callSchema = Schema.Struct({
+  name: Schema.String,
+  arguments: Schema.optional(objectSchema),
+  _meta: Schema.optional(objectSchema),
 })
 
-const cancelSchema = z.object({
+const cancelSchema = Schema.Struct({
   requestId: rpcIdSchema,
-  reason: z.string().optional(),
+  reason: Schema.optional(Schema.String),
 })
+
+const decodeRequest = Schema.decodeUnknownResult(requestSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeInitialize = Schema.decodeUnknownResult(initializeSchema)
+
+const decodeCall = Schema.decodeUnknownResult(callSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeCancel = Schema.decodeUnknownResult(cancelSchema)
+
+const decodeToolName = Schema.decodeUnknownSync(toolNameSchema)
+
+const decodeEmptyParams = Schema.decodeUnknownResult(
+  Schema.Record(Schema.String, Schema.Never),
+  { onExcessProperty: "error" },
+)
+
+function toolInputSchema(name: McpToolName) {
+  // Use the type AST to keep optional JSON fields absent, not nullable.
+  const document = SchemaRepresentation.toJsonSchemaDocument(
+    SchemaRepresentation.toRepresentation(
+      Schema.toType(MCP_TOOL_SCHEMAS[name]).ast,
+    ),
+    { onExcessProperty: "error" },
+  )
+
+  return { ...document.schema, $defs: document.definitions }
+}
 
 const supportedProtocols = [
   "2025-11-25",
@@ -897,9 +1040,9 @@ async function* inputChunks(input: McpStdioOptions["input"]) {
 export async function runMcpStdio(options: McpStdioOptions) {
   const access = options.access ?? "write"
 
-  const supported = new Set(options.supportedTools ?? toolNameSchema.options)
+  const supported = new Set(options.supportedTools ?? toolNameSchema.literals)
 
-  const offered = toolNameSchema.options.filter(
+  const offered = toolNameSchema.literals.filter(
     (name) =>
       supported.has(name) &&
       (access === "write" ||
@@ -937,24 +1080,25 @@ export async function runMcpStdio(options: McpStdioOptions) {
       return
     }
 
-    const parsed = requestSchema.safeParse(raw)
+    const parsed = decodeRequest(raw)
 
-    if (!parsed.success) {
+    if (Result.isFailure(parsed)) {
       await rpcError(null, -32600, "Invalid request")
 
       return
     }
 
-    const request = parsed.data
+    const request = parsed.success
     const { id, method, params } = request
 
     if (id === undefined) {
       if (method === "notifications/initialized" && initialized) ready = true
 
       if (method === "notifications/cancelled") {
-        const cancelled = cancelSchema.safeParse(params)
+        const cancelled = decodeCancel(params)
 
-        if (cancelled.success) pending.get(cancelled.data.requestId)?.abort()
+        if (Result.isSuccess(cancelled))
+          pending.get(cancelled.success.requestId)?.abort()
       }
 
       return
@@ -967,24 +1111,24 @@ export async function runMcpStdio(options: McpStdioOptions) {
     }
 
     if (method === "initialize") {
-      const init = initializeSchema.safeParse(params)
+      const init = decodeInitialize(params)
 
-      if (initialized || !init.success) {
+      if (initialized || Result.isFailure(init)) {
         await rpcError(id, -32602, "Invalid initialization")
 
         return
       }
 
       initialized = true
-      clientName = init.data.clientInfo.name
+      clientName = init.success.clientInfo.name
       await send({
         jsonrpc: "2.0",
         id,
         result: {
           protocolVersion: supportedProtocols.includes(
-            init.data.protocolVersion,
+            init.success.protocolVersion,
           )
-            ? init.data.protocolVersion
+            ? init.success.protocolVersion
             : supportedProtocols[0],
           capabilities: { tools: {} },
           serverInfo: { name: "still-notes", version: "0.1.0" },
@@ -1008,10 +1152,7 @@ export async function runMcpStdio(options: McpStdioOptions) {
     }
 
     if (method === "tools/list") {
-      if (
-        params !== undefined &&
-        !z.strictObject({}).safeParse(params).success
-      ) {
+      if (params !== undefined && Result.isFailure(decodeEmptyParams(params))) {
         await rpcError(id, -32602, "Invalid params")
 
         return
@@ -1024,7 +1165,7 @@ export async function runMcpStdio(options: McpStdioOptions) {
           tools: offered.map((name) => ({
             name,
             description: toolDescriptions[name],
-            inputSchema: z.toJSONSchema(MCP_TOOL_SCHEMAS[name]),
+            inputSchema: toolInputSchema(name),
             annotations: {
               readOnlyHint: readTools.has(name),
               destructiveHint: !readTools.has(name) && !commentTools.has(name),
@@ -1042,9 +1183,9 @@ export async function runMcpStdio(options: McpStdioOptions) {
       return
     }
 
-    const call = callSchema.safeParse(params)
+    const call = decodeCall(params)
 
-    if (!call.success) {
+    if (Result.isFailure(call)) {
       await rpcError(id, -32602, "Invalid tool call params")
 
       return
@@ -1054,16 +1195,20 @@ export async function runMcpStdio(options: McpStdioOptions) {
     pending.set(id, controller)
 
     try {
-      const name = toolNameSchema.parse(call.data.name)
+      const name = decodeToolName(call.success.name)
 
       if (!offered.includes(name))
         throw new Error("Unknown or unavailable tool")
-      const args = MCP_TOOL_SCHEMAS[name].parse(call.data.arguments ?? {})
+
+      const args = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
+        onExcessProperty: "error",
+      })(call.success.arguments ?? {})
+
       // Yield once so a cancellation already in the same input frame can stop writes.
       await Promise.resolve()
       controller.signal.throwIfAborted()
 
-      const result = jsonValueSchema.parse(
+      const result = decodeJson(
         await options.adapter.execute(name, args, {
           signal: controller.signal,
           clientName,
@@ -1079,9 +1224,9 @@ export async function runMcpStdio(options: McpStdioOptions) {
           content: [
             {
               type: "text",
-              text:
-                z.string().safeParse(result).data ??
-                JSON.stringify(result ?? null),
+              text: Schema.is(Schema.String)(result)
+                ? result
+                : JSON.stringify(result ?? null),
             },
           ],
           isError: false,

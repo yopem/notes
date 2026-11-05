@@ -1,3 +1,4 @@
+import { Option, Schema, Struct } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import {
   closeSync,
@@ -10,7 +11,6 @@ import {
   writeFileSync,
 } from "node:fs"
 import { dirname, join, parse, resolve } from "node:path"
-import { z } from "zod"
 
 import {
   MCP_TOOL_SCHEMAS,
@@ -21,49 +21,86 @@ import { atomicWrite } from "@/platform/files"
 
 // Source: apps/desktop/src/mcp/agent-edit-recorder.ts, main/agent-edit-files.ts,
 // packages/app-core/src/components/AgentEditReview.tsx and shared agent-edits.
-const bodySchema = z.string().max(2 * 1024 * 1024)
 
-const evidenceSchema = z.strictObject({
-  source: z.string().trim().min(1).max(256),
+const bodySchema = Schema.String.check(Schema.isMaxLength(2 * 1024 * 1024))
+
+const evidenceSchema = Schema.Struct({
+  source: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   sourcefile: mcpPathSchema,
-  tool: z.string().trim().min(1).max(128),
-})
+  tool: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+}).mapFields(Struct.map(Schema.mutableKey))
 
-const versionSchema = z.strictObject({
-  id: z.uuid(),
+// Keep the stored contract's lowercase-only max UUID.
+const uuidSchema = Schema.String.check(
+  Schema.isPattern(
+    /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/,
+    { expected: "a UUID" },
+  ),
+)
+
+const versionSchema = Schema.Struct({
+  id: uuidSchema,
   body: bodySchema,
-  at: z.number().int().nonnegative(),
-})
+  at: Schema.Natural,
+}).mapFields(Struct.map(Schema.mutableKey))
 
-const choiceSchema = z.enum(["accept", "reject"])
+const choiceSchema = Schema.Literals(["accept", "reject"])
 
-const transactionSchema = z.strictObject({
+const transactionSchema = Schema.Struct({
   before: bodySchema,
   after: bodySchema,
-})
+}).mapFields(Struct.map(Schema.mutableKey))
 
-const recordSchema = z.strictObject({
-  version: z.literal(1),
+const recordSchema = Schema.Struct({
+  version: Schema.Literal(1),
   path: mcpPathSchema,
   baseline: bodySchema,
   proposed: bodySchema,
   expected: bodySchema,
-  revision: z.uuid(),
-  source: z.string().min(1),
+  revision: uuidSchema,
+  source: Schema.NonEmptyString,
   sourcefile: mcpPathSchema,
-  tool: z.string().min(1),
-  at: z.number().int().nonnegative(),
-  decisions: z.record(z.string(), choiceSchema),
-  versions: z.array(versionSchema),
-  capturing: z.boolean(),
-  transaction: transactionSchema.nullable(),
+  tool: Schema.NonEmptyString,
+  at: Schema.Natural,
+  decisions: Schema.Record(Schema.String, Schema.mutableKey(choiceSchema)),
+  versions: Schema.mutable(Schema.Array(versionSchema)),
+  capturing: Schema.Boolean,
+  transaction: Schema.NullOr(transactionSchema),
+}).mapFields(Struct.map(Schema.mutableKey))
+
+const lockSchema = Schema.Struct({
+  pid: Schema.Int.check(Schema.isGreaterThan(0)),
 })
 
-const lockSchema = z.strictObject({ pid: z.number().int().positive() })
+const errorSchema = Schema.Struct({ code: Schema.String })
 
-const errorSchema = z.object({ code: z.string() })
+const decodeBody = Schema.decodeUnknownSync(bodySchema)
 
-type ReviewRecord = z.infer<typeof recordSchema>
+const decodeEvidence = Schema.decodeUnknownSync(evidenceSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeRecord = Schema.decodeUnknownSync(recordSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeLock = Schema.decodeUnknownSync(lockSchema, {
+  onExcessProperty: "error",
+})
+
+const decodeError = Schema.decodeUnknownOption(errorSchema)
+
+const decodePath = Schema.decodeUnknownSync(mcpPathSchema)
+
+const decodeUuid = Schema.decodeUnknownSync(uuidSchema)
+
+const decodeChoice = Schema.decodeUnknownSync(choiceSchema)
+
+const decodeNotePath = Schema.decodeUnknownSync(
+  Schema.Struct({ path: mcpPathSchema }),
+)
+
+type ReviewRecord = typeof recordSchema.Type
 
 export interface AssistantHunk {
   id: string
@@ -215,17 +252,18 @@ export class AssistantReview {
         if (lstatSync(current).isSymbolicLink())
           throw new Error("Refusing symbolic link in review path")
       } catch (error) {
-        if (errorSchema.safeParse(error).data?.code !== "ENOENT") throw error
+        if (Option.getOrUndefined(decodeError(error))?.code !== "ENOENT")
+          throw error
       }
     }
 
     return path
   }
   private notePath(path: string) {
-    return this.safe(join(this.root, mcpPathSchema.parse(path)))
+    return this.safe(join(this.root, decodePath(path)))
   }
   private recordPath(path: string) {
-    mcpPathSchema.parse(path)
+    decodePath(path)
 
     return this.safe(join(this.directory, `${hash(path)}.json`))
   }
@@ -236,10 +274,10 @@ export class AssistantReview {
     if (!stat.isFile() || stat.size > 2 * 1024 * 1024)
       throw new Error("Invalid or oversized review note")
 
-    return bodySchema.parse(readFileSync(file, "utf8"))
+    return decodeBody(readFileSync(file, "utf8"))
   }
   private save(record: ReviewRecord) {
-    recordSchema.parse(record)
+    decodeRecord(record)
     const path = this.recordPath(record.path)
     this.safe(this.directory)
     mkdirSync(this.directory, { recursive: true, mode: 0o700 })
@@ -262,11 +300,12 @@ export class AssistantReview {
         throw new Error("Invalid or oversized review record")
       raw = readFileSync(file, "utf8")
     } catch (error) {
-      if (errorSchema.safeParse(error).data?.code === "ENOENT") return null
+      if (Option.getOrUndefined(decodeError(error))?.code === "ENOENT")
+        return null
       throw error
     }
 
-    const record = recordSchema.parse(JSON.parse(raw))
+    const record = decodeRecord(JSON.parse(raw))
 
     if (record.path !== path) throw new Error("Review path mismatch")
 
@@ -308,17 +347,19 @@ export class AssistantReview {
     const lock = this.safe(join(this.directory, `${hash(path)}.lock`))
 
     try {
-      const stored = lockSchema.parse(JSON.parse(readFileSync(lock, "utf8")))
+      const stored = decodeLock(JSON.parse(readFileSync(lock, "utf8")))
 
       try {
         process.kill(stored.pid, 0)
         throw new Error("Review operation already active")
       } catch (error) {
-        if (errorSchema.safeParse(error).data?.code !== "ESRCH") throw error
+        if (Option.getOrUndefined(decodeError(error))?.code !== "ESRCH")
+          throw error
         rmSync(lock)
       }
     } catch (error) {
-      if (errorSchema.safeParse(error).data?.code !== "ENOENT") throw error
+      if (Option.getOrUndefined(decodeError(error))?.code !== "ENOENT")
+        throw error
     }
 
     const fd = openSync(lock, "wx", 0o600)
@@ -381,7 +422,8 @@ export class AssistantReview {
     try {
       files = readdirSync(this.directory)
     } catch (error) {
-      if (errorSchema.safeParse(error).data?.code === "ENOENT") return []
+      if (Option.getOrUndefined(decodeError(error))?.code === "ENOENT")
+        return []
       throw error
     }
 
@@ -394,7 +436,7 @@ export class AssistantReview {
 
       if (!stat.isFile() || stat.size > 64 * 1024 * 1024)
         throw new Error("Invalid or oversized review record")
-      const record = recordSchema.parse(JSON.parse(readFileSync(path, "utf8")))
+      const record = decodeRecord(JSON.parse(readFileSync(path, "utf8")))
 
       if (`${hash(record.path)}.json` !== file)
         throw new Error("Review filename mismatch")
@@ -407,14 +449,19 @@ export class AssistantReview {
   }
   async recordTool<K extends McpToolName, T>(
     name: K,
-    args: z.infer<(typeof MCP_TOOL_SCHEMAS)[K]>,
+    args: (typeof MCP_TOOL_SCHEMAS)[K]["Type"],
     source: string,
     mutate: () => T | Promise<T>,
   ) {
-    const validated = MCP_TOOL_SCHEMAS[name].parse(args)
+    const validated = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
+      onExcessProperty: "error",
+    })(args)
 
     if (name === "toggle_task") {
-      const id = MCP_TOOL_SCHEMAS.toggle_task.parse(validated).id
+      const id = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS.toggle_task, {
+        onExcessProperty: "error",
+      })(validated).id
+
       const path = id.slice(0, id.lastIndexOf("#"))
 
       return await this.record(
@@ -433,7 +480,7 @@ export class AssistantReview {
         "replace_in_note",
       ].includes(name)
     ) {
-      const path = z.object({ path: mcpPathSchema }).parse(validated).path
+      const path = decodeNotePath(validated).path
 
       return await this.record(
         path,
@@ -447,10 +494,10 @@ export class AssistantReview {
 
   async record<T>(
     path: string,
-    evidence: z.input<typeof evidenceSchema>,
+    evidence: typeof evidenceSchema.Encoded,
     mutate: () => T | Promise<T>,
   ) {
-    const validated = evidenceSchema.parse(evidence)
+    const validated = decodeEvidence(evidence)
     const release = this.lock(path)
 
     try {
@@ -507,8 +554,8 @@ export class AssistantReview {
     choice: "accept" | "reject",
     revision: string,
   ) {
-    choiceSchema.parse(choice)
-    z.uuid().parse(revision)
+    decodeChoice(choice)
+    decodeUuid(revision)
     const release = this.lock(path)
 
     try {
@@ -544,8 +591,8 @@ export class AssistantReview {
     }
   }
   rollback(path: string, versionId: string, revision: string) {
-    z.uuid().parse(versionId)
-    z.uuid().parse(revision)
+    decodeUuid(versionId)
+    decodeUuid(revision)
     const release = this.lock(path)
 
     try {
