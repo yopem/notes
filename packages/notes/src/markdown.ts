@@ -55,6 +55,7 @@ export interface MarkdownDocument {
 }
 
 const maxPreviewBytes = 2 * 1024 * 1024
+
 const utf8 = new TextEncoder()
 
 const previewTextSchema = z
@@ -125,6 +126,7 @@ function frontmatter(tree: Root) {
       cause: document.errors[0],
     })
   const raw: unknown = document.toJS({ maxAliasCount: 100 })
+
   const metadataText = previewTextSchema.safeParse(
     JSON.stringify(raw === null ? {} : raw),
   )
