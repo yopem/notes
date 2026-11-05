@@ -16,8 +16,21 @@ const addon = Schema.decodeUnknownSync(
 const renderer: unknown = Reflect.construct(addon.GpuixRenderer, [])
 
 const bridge = Schema.decodeUnknownSync(
-  Schema.Struct({ editorCommand: Schema.instanceOf(Function) }),
+  Schema.Struct({
+    editorCommand: Schema.instanceOf(Function),
+    armCloseGuard: Schema.instanceOf(Function),
+    closeWindow: Schema.instanceOf(Function),
+  }),
 )(renderer)
+
+test("built addon refuses to arm or close before initialization", function uninitializedClose() {
+  expect(function arm() {
+    bridge.armCloseGuard.call(renderer, 1)
+  }).toThrow("not initialized")
+  expect(function close() {
+    bridge.closeWindow.call(renderer)
+  }).toThrow("not initialized")
+})
 
 // Do not call init. These checks must not create a window.
 test("built addon rejects invalid host IDs before UI dispatch", function invalidId() {

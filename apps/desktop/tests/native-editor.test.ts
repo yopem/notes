@@ -2,6 +2,7 @@ import { createRendererState } from "@gpuix/native/host"
 import { describe, expect, test } from "bun:test"
 
 import {
+  createNativeCloseGuard,
   createNativeEditor,
   type NativeEditorState,
   readNativeEditorEvent,
@@ -168,6 +169,116 @@ test("distinguishes routed normal keys from native insert keys", function routed
       7,
     ),
   ).toEqual({ key: "i", revision: 2, mode: "normal" })
+})
+
+test("routes close requests until an explicit close", function closeRequests() {
+  const calls: unknown[] = []
+  const native = {
+    applyBatch() {
+      return []
+    },
+    armCloseGuard(id: number) {
+      expect(this).toBe(native)
+      calls.push(["arm", id])
+    },
+    closeWindow() {
+      expect(this).toBe(native)
+      calls.push(["close"])
+    },
+  }
+  const dispatcher = createRendererState(native)
+  const binding = dispatcher.attach()
+  let requests = 0
+  const guard = createNativeCloseGuard({ native }, function requestClose() {
+    requests += 1
+  })
+
+  expect(calls).toEqual([["arm", binding.windowKeyEventId]])
+  expect(
+    dispatcher.dispatch({
+      elementId: binding.windowKeyEventId + 1,
+      eventType: "windowCloseRequested",
+    }),
+  ).toBe(false)
+  expect(
+    dispatcher.dispatch({
+      elementId: binding.windowKeyEventId,
+      eventType: "windowCloseRequested",
+    }),
+  ).toBe(true)
+  expect(requests).toBe(1)
+  expect(calls).toEqual([["arm", binding.windowKeyEventId]])
+  guard.close()
+  expect(calls).toEqual([["arm", binding.windowKeyEventId], ["close"]])
+  binding.detach()
+})
+
+test("refuses to arm without a mounted root or a native bridge", function closePrerequisites() {
+  const native = {
+    applyBatch() {
+      return []
+    },
+    armCloseGuard() {},
+    closeWindow() {},
+  }
+  expect(function withoutRoot() {
+    createNativeCloseGuard(native, function requestClose() {})
+  }).toThrow()
+  const missing = {
+    applyBatch() {
+      return []
+    },
+  }
+  const binding = createRendererState(missing).attach()
+  expect(function withoutNative() {
+    createNativeCloseGuard(missing, function requestClose() {})
+  }).toThrow()
+  binding.detach()
+})
+
+test("removes the close handler when native arming fails", function failedCloseArm() {
+  const native = {
+    applyBatch() {
+      return []
+    },
+    armCloseGuard() {
+      throw new Error("not initialized")
+    },
+    closeWindow() {},
+  }
+  const dispatcher = createRendererState(native)
+  const binding = dispatcher.attach()
+  expect(function arm() {
+    createNativeCloseGuard(native, function requestClose() {})
+  }).toThrow("not initialized")
+  expect(
+    dispatcher.dispatch({
+      elementId: binding.windowKeyEventId,
+      eventType: "windowCloseRequested",
+    }),
+  ).toBe(false)
+  binding.detach()
+})
+
+test("refuses to replace an active close handler", function duplicateCloseGuard() {
+  let arms = 0
+  const native = {
+    applyBatch() {
+      return []
+    },
+    armCloseGuard() {
+      arms += 1
+    },
+    closeWindow() {},
+  }
+  const dispatcher = createRendererState(native)
+  const binding = dispatcher.attach()
+  createNativeCloseGuard(native, function firstRequest() {})
+  expect(function duplicate() {
+    createNativeCloseGuard(native, function secondRequest() {})
+  }).toThrow()
+  expect(arms).toBe(1)
+  binding.detach()
 })
 
 test("registers editor state events in the real GPUix host dispatcher", function subscription() {
