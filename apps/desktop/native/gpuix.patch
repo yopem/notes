@@ -12,7 +12,7 @@ index fac0b7513be093df518555c4e0dff25e1cb3ceb4..24c2c5251c16d3b7e89976f18a84ade8
 +  editorPath?: string
 +
  }
-
+ 
  export interface TextareaProps extends InputProps {
 diff --git a/packages/native/src/custom_elements/editor_protocol.rs b/packages/native/src/custom_elements/editor_protocol.rs
 new file mode 100644
@@ -232,13 +232,13 @@ index 0000000000000000000000000000000000000000..da6f81e119a7dd6106f36389d8cae3b8
 +    }
 +}
 diff --git a/packages/native/src/custom_elements/input.rs b/packages/native/src/custom_elements/input.rs
-index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa807fe7016 100644
+index 7be2d2501320f75b30ab3f697a16cdde19c64dca..c062df97f3716cec8b66734ecc2c2346d306ffd8 100644
 --- a/packages/native/src/custom_elements/input.rs
 +++ b/packages/native/src/custom_elements/input.rs
 @@ -23,6 +23,7 @@ use gpui::{
  use unicode_segmentation::UnicodeSegmentation;
  use web_time::Instant;
-
+ 
 +use super::editor_protocol::*;
  use super::{CustomElement, CustomElementFactory, CustomRenderContext};
  use crate::renderer::{emit_event_full, emit_key_event, EventCallback};
@@ -246,7 +246,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
 @@ -136,6 +137,35 @@ fn drag_scroll_delta(
      distance.signum() * (distance.abs() * 0.2).clamp(1.0, line_height)
  }
-
+ 
 +fn underline_marked_runs(runs: Vec<TextRun>, marked: &Range<usize>) -> Vec<TextRun> {
 +    let mut result = Vec::new();
 +    let mut at = 0;
@@ -293,7 +293,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
 +        .map(|context| KeyBinding::new("ctrl-c", gpui::NoAction, Some(context))),
      );
  }
-
+ 
 @@ -321,10 +355,14 @@ struct TextEditorElement {
      value: String,
      placeholder: String,
@@ -308,7 +308,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
 +    path: Option<String>,
      state: Option<Entity<TextEditorState>>,
  }
-
+ 
 @@ -335,13 +373,39 @@ impl TextEditorElement {
              value: String::new(),
              placeholder: String::new(),
@@ -347,7 +347,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
 +        self.last_prop_value = Some(self.value.clone());
 +    }
  }
-
+ 
  impl CustomElement for TextEditorElement {
 @@ -371,6 +435,9 @@ impl CustomElement for TextEditorElement {
                  let min_rows = self.min_rows;
@@ -377,7 +377,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
                  })
              })
              .clone();
-
+ 
 -        let prop_changed = self.last_prop_value.as_ref() != Some(&self.value);
          state.update(cx, |state, cx| {
 +            if state.key_subscription.is_none() {
@@ -447,7 +447,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
 +            self.sync_state_props(state, cx);
          });
 -        self.last_prop_value = Some(self.value.clone());
-
+ 
          let element_id = gpui::SharedString::from(format!("__gpuix_editor_{}", ctx.id));
          let mut editor = div()
 @@ -529,6 +638,13 @@ impl CustomElement for TextEditorElement {
@@ -484,14 +484,14 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
              "maxRows",
              "theme",
 @@ -554,10 +675,25 @@ impl CustomElement for TextEditorElement {
-
+ 
      fn supported_events(&self) -> &'static [&'static str] {
          &[
 -            "change", "submit", "click", "keyDown", "keyUp", "focus", "blur", "fileDrop",
 +            "change", "submit", "click", "keyDown", "keyUp", "focus", "blur", "fileDrop", "editorState",
          ]
      }
-
+ 
 +    fn editor_command(
 +        &mut self,
 +        command: EditorCommand,
@@ -512,7 +512,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
      }
 @@ -637,12 +773,40 @@ fn edits_coalesce(
  }
-
+ 
  fn push_undo_snapshot(history: &mut VecDeque<EditSnapshot>, snapshot: EditSnapshot) {
 -    if history.len() == UNDO_LIMIT {
 -        history.pop_front();
@@ -531,7 +531,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
      }
      history.push_back(snapshot);
  }
-
+ 
 +#[derive(PartialEq)]
 +struct StateStamp {
 +    revision: u64,
@@ -569,7 +569,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
 +    key_subscription: Option<gpui::Subscription>,
 +    last_reported: Option<StateStamp>,
  }
-
+ 
  impl TextEditorState {
 +    fn public_snapshot(snapshot: &EditSnapshot) -> TextSnapshot {
 +        TextSnapshot {
@@ -818,7 +818,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
          self.selection_reversed = false;
 @@ -749,6 +1156,7 @@ impl TextEditorState {
      }
-
+ 
      fn emit_change(&mut self) {
 +        self.revision += 1;
          if self.emits_change {
@@ -826,7 +826,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
              while self.pending_values.len() > 32 {
 @@ -888,7 +1296,7 @@ impl TextEditorState {
      }
-
+ 
      fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -835,7 +835,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
          if self.selected_range.is_empty() {
 @@ -902,7 +1310,7 @@ impl TextEditorState {
      }
-
+ 
      fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -880,7 +880,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
          if self.selected_range.is_empty() {
 @@ -1097,7 +1505,7 @@ impl TextEditorState {
      }
-
+ 
      fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only || self.selected_range.is_empty() {
 +        if self.read_only || self.mode == EditorMode::ReadOnly || self.selected_range.is_empty() {
@@ -889,7 +889,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
          self.copy(&Copy, window, cx);
 @@ -1105,7 +1513,7 @@ impl TextEditorState {
      }
-
+ 
      fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -898,7 +898,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
          }
 @@ -1117,20 +1525,21 @@ impl TextEditorState {
      }
-
+ 
      fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -911,7 +911,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
              self.restore(previous, cx);
          }
      }
-
+ 
      fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -924,7 +924,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
              self.restore(next, cx);
 @@ -1138,7 +1547,7 @@ impl TextEditorState {
      }
-
+ 
      fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.multiline && !self.read_only {
 +        if self.multiline && !self.read_only && self.mode.accepts_text() {
@@ -1006,13 +1006,13 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
          let range = range_utf16
 @@ -1656,7 +2071,7 @@ impl EntityInputHandler for TextEditorState {
      }
-
+ 
      fn accepts_text_input(&self, _: &mut Window, _: &mut Context<Self>) -> bool {
 -        !self.read_only
 +        !self.read_only && self.mode.accepts_text()
      }
  }
-
+ 
 @@ -1726,7 +2141,13 @@ impl gpui::Render for TextEditorState {
              })
              .when(self.emits_key_up, move |editor| {
@@ -1036,10 +1036,181 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa8
          });
          let input = self.input.read(cx);
          let origin = point(
-@@ -1945,6 +2367,32 @@ impl gpui::IntoElement for EditorTextElement {
+@@ -1945,6 +2367,203 @@ impl gpui::IntoElement for EditorTextElement {
  mod tests {
      use super::*;
-
+ 
++    #[gpui::test]
++    fn automation_tree_reads_native_text_without_editing(cx: &mut gpui::TestAppContext) {
++        use crate::renderer::GpuixView;
++        use crate::retained_tree::RetainedTree;
++        use std::collections::HashMap;
++        use std::sync::{Arc, Mutex};
++
++        for multiline in [false, true] {
++            let kind = if multiline { "textarea" } else { "input" };
++            let original = if multiline {
++                "- [ ] Call 🌿\ne\u{301}"
++            } else {
++                "Task plans Ω"
++            };
++            let edited = if multiline {
++                "- [x] Call 🌿\ne\u{301}"
++            } else {
++                "Task plans Ω copy"
++            };
++            let mut tree = RetainedTree::new();
++            let batch = serde_json::json!([
++                ["createElement", 1, "div"],
++                ["setRoot", 1],
++                ["createElement", 2, kind],
++                ["appendChild", 1, 2],
++                ["setCustomProp", 2, "testId", "note-title"],
++                ["setCustomProp", 2, "value", original],
++                ["createElement", 3, "text"],
++                ["setText", 3, "Label Ω"],
++                ["appendChild", 1, 3],
++                ["createElement", 4, kind],
++                ["appendChild", 1, 4],
++                ["setCustomProp", 4, "value", "Not mounted"]
++            ]);
++            crate::renderer::apply_batch_to_tree(&mut tree, batch.to_string().as_bytes()).unwrap();
++            let tree = Arc::new(Mutex::new(tree));
++            let handle = cx.add_window(|_, _| {
++                GpuixView::new(
++                    tree.clone(),
++                    None,
++                    "Native editor test".into(),
++                    Default::default(),
++                )
++            });
++            cx.update_window(handle.into(), |root, window, cx| {
++                root.downcast::<GpuixView>()
++                    .unwrap()
++                    .update(cx, |view, cx| {
++                        let mut input = TextEditorElement::new(multiline);
++                        input.set_prop("value", serde_json::json!(original));
++                        input.set_prop("placeholder", serde_json::json!("Placeholder"));
++                        let events = Default::default();
++                        let props = HashMap::new();
++                        input.render(
++                            CustomRenderContext {
++                                id: 2,
++                                events: &events,
++                                event_callback: &None,
++                                focus_handle: None,
++                                keyboard_focus: None,
++                                style: None,
++                                children: Vec::new(),
++                                selection: Default::default(),
++                                selectable: true,
++                                selection_wash: gpui::rgba(0).into(),
++                                highlight_set: None,
++                                props: &props,
++                            },
++                            window,
++                            cx,
++                        );
++                        let state = input.state.clone().unwrap();
++                        view.custom_registry.instances.insert(
++                            2,
++                            super::super::CustomElementEntry {
++                                element_type: kind.into(),
++                                element: Box::new(input),
++                                applied_props: HashMap::new(),
++                            },
++                        );
++                        let read = |view: &GpuixView, cx: &App, expected: &str| {
++                            let before = state.read(cx).public_state();
++                            let history = |state: &TextEditorState| {
++                                [&state.undo_stack, &state.redo_stack].map(|stack| {
++                                    stack
++                                        .iter()
++                                        .map(|entry| {
++                                            (
++                                                entry.content.clone(),
++                                                entry.selected_range.clone(),
++                                                entry.selection_reversed,
++                                            )
++                                        })
++                                        .collect::<Vec<_>>()
++                                })
++                            };
++                            let before_history = history(state.read(cx));
++                            let pending = state.read(cx).pending_values.clone();
++                            let last_edit = state.read(cx).last_edit.map(|edit| (edit.edit, edit.when));
++                            let blink = state.read(cx).blink_anchor;
++                            let follow = state.read(cx).follow_cursor;
++                            for _ in 0..2 {
++                                let json = view.automation_tree(cx);
++                                assert_eq!(json["children"][0]["text"], expected);
++                                assert_eq!(json["children"][0]["type"], kind);
++                                assert_eq!(json["children"][0]["id"], 2);
++                                assert_eq!(json["children"][0]["testId"], "note-title");
++                                assert_eq!(json["children"][1]["text"], "Label Ω");
++                                assert!(json["children"][2].get("text").is_none());
++                                assert!(json.get("text").is_none());
++                            }
++                            assert_eq!(state.read(cx).public_state(), before);
++                            assert_eq!(history(state.read(cx)), before_history);
++                            assert_eq!(state.read(cx).pending_values, pending);
++                            assert_eq!(
++                                state.read(cx).last_edit.map(|edit| (edit.edit, edit.when)),
++                                last_edit
++                            );
++                            assert_eq!(state.read(cx).blink_anchor, blink);
++                            assert_eq!(state.read(cx).follow_cursor, follow);
++                        };
++                        read(view, cx, original);
++                        state.update(cx, |state, cx| {
++                            state.replace_text_in_range(
++                                Some(0..original.encode_utf16().count()),
++                                edited,
++                                window,
++                                cx,
++                            );
++                            state.selected_range = 0..4;
++                            state.selection_reversed = true;
++                        });
++                        read(view, cx, edited);
++                        state.update(cx, |state, cx| state.undo(&Undo, window, cx));
++                        read(view, cx, original);
++                        state.update(cx, |state, cx| state.redo(&Redo, window, cx));
++                        read(view, cx, edited);
++                        state.update(cx, |state, cx| {
++                            state.replace_and_mark_text_in_range(
++                                Some(0..edited.encode_utf16().count()),
++                                "中😀e\u{301}",
++                                Some(1..3),
++                                window,
++                                cx,
++                            );
++                        });
++                        read(view, cx, "中😀e\u{301}");
++                        assert!(state.read(cx).marked_range.is_some());
++                        state.update(cx, |state, cx| state.unmark_text(window, cx));
++                        read(view, cx, "中😀e\u{301}");
++                        state.update(cx, |state, cx| state.undo(&Undo, window, cx));
++                        read(view, cx, edited);
++                        state.update(cx, |state, cx| {
++                            state.replace_text_in_range(
++                                Some(0..edited.encode_utf16().count()),
++                                "",
++                                window,
++                                cx,
++                            );
++                        });
++                        read(view, cx, "");
++                        view.custom_registry.destroy(2);
++                        assert!(view.automation_tree(cx)["children"][0]
++                            .get("text")
++                            .is_none());
++                    });
++            })
++            .unwrap();
++        }
++    }
++
 +    #[test]
 +    fn routed_keys_have_distinct_dispatch_ids() {
 +        let first = crate::renderer::next_keystroke_id();
@@ -1084,7 +1255,7 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..4996ac76398257254fad2ca5681c7ccb
 @@ -227,6 +228,16 @@ pub trait CustomElement: 'static {
      /// Clean up resources (GPUI entities, subscriptions, etc.)
      fn destroy(&mut self);
-
+ 
 +    fn editor_command(
 +        &mut self,
 +        _command: editor_protocol::EditorCommand,
@@ -1101,7 +1272,7 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..4996ac76398257254fad2ca5681c7ccb
 @@ -387,6 +398,23 @@ impl CustomElementRegistry {
          entry.element.render(ctx, window, cx)
      }
-
+ 
 +    pub fn editor_command(
 +        &mut self,
 +        id: u64,
@@ -1201,7 +1372,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 @@ -977,6 +1005,85 @@ pub struct GpuixRenderer {
      ui_running: Arc<AtomicBool>,
  }
-
+ 
 +#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 +const WINDOW_CLOSE_STARTED: u64 = u64::MAX;
 +
@@ -1295,15 +1466,15 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
              initialized: Arc::new(Mutex::new(false)),
              selection: SharedSelection::default(),
 @@ -1245,6 +1354,7 @@ impl GpuixRenderer {
-
+ 
          let tree = self.tree.clone();
          let callback = self.event_callback_for_view();
 +        let close_guard = self.close_guard.clone();
-
+ 
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
 @@ -1274,7 +1384,8 @@ impl GpuixRenderer {
-
+ 
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
 -                |_window, cx| {
@@ -1333,7 +1504,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 @@ -1573,7 +1686,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
-
+ 
 -
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
@@ -1341,7 +1512,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 @@ -2132,6 +2244,88 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
-
+ 
 +    #[napi]
 +    pub fn arm_close_guard(&self, event_id: f64) -> Result<()> {
 +        let event_id = to_element_id(event_id)?;
@@ -1425,12 +1596,12 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 +    }
 +
      // ── Selection API ────────────────────────────────────────────────
-
+ 
      /// The current text selection joined in document order, or null.
 @@ -3820,8 +4014,12 @@ pub(crate) fn emit_key_event(
      });
  }
-
+ 
 -fn next_keystroke_id() {
 -    KEYSTROKE_ID.with(|id| id.set(id.get() + 1));
 +pub(crate) fn next_keystroke_id() -> f64 {
@@ -1440,7 +1611,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 +        next as f64
 +    })
  }
-
+ 
  fn window_key_events(
 @@ -3869,7 +4067,13 @@ fn window_key_events(
                      return;
@@ -1459,7 +1630,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
          },
 @@ -3957,6 +4161,25 @@ fn resolve_highlight(
  }
-
+ 
  impl GpuixView {
 +    fn editor_command(
 +        &mut self,
@@ -1495,7 +1666,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
 +            crate::custom_elements::img::render_image_from_encoded(bytes, cx.svg_renderer())?;
          self.set_live_image(id, image, window, cx)
      }
-
+ 
 @@ -4314,7 +4535,9 @@ impl GpuixView {
                  break None;
              };
@@ -1509,7 +1680,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9f
          };
 @@ -4764,7 +4987,12 @@ impl VirtualListEntry {
  }
-
+ 
  impl GpuixView {
 -    pub(crate) fn request_focus(&mut self, id: u64, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
 +    pub(crate) fn request_focus(

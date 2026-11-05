@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url"
 const require = createRequire(import.meta.url)
 
 const binding: unknown = require(
-  fileURLToPath(new URL("../native/gpuix-native.node", import.meta.url)),
+  Bun.env.STILL_NOTES_NATIVE_TEST_ADDON ??
+    fileURLToPath(new URL("../native/gpuix-native.node", import.meta.url)),
 )
 
 const addon = Schema.decodeUnknownSync(
@@ -17,11 +18,18 @@ const renderer: unknown = Reflect.construct(addon.GpuixRenderer, [])
 
 const bridge = Schema.decodeUnknownSync(
   Schema.Struct({
+    getAutomationTree: Schema.instanceOf(Function),
     editorCommand: Schema.instanceOf(Function),
     armCloseGuard: Schema.instanceOf(Function),
     closeWindow: Schema.instanceOf(Function),
   }),
 )(renderer)
+
+test("built addon refuses tree readback before initialization", function uninitializedTree() {
+  expect(function read() {
+    bridge.getAutomationTree.call(renderer)
+  }).toThrow("not initialized")
+})
 
 test("built addon refuses to arm or close before initialization", function uninitializedClose() {
   expect(function arm() {

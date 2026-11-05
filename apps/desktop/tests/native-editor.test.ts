@@ -1,3 +1,4 @@
+import { methods, PROTOCOL_VERSION } from "@gpuix/native/automation"
 import { createRendererState } from "@gpuix/native/host"
 import { describe, expect, test } from "bun:test"
 
@@ -8,6 +9,26 @@ import {
   readNativeEditorEvent,
   readNativeEditorKeyEvent,
 } from "@/features/editor/native/editor"
+
+test("installed automation schema preserves exact optional editor text", function treeTextContract() {
+  expect(PROTOCOL_VERSION).toBe(1)
+  const tree = {
+    id: 1,
+    type: "div",
+    children: [
+      { id: 2, type: "input", testId: "note-title", text: "Task plans Ω copy" },
+      { id: 3, type: "textarea", text: "- [x] Call 🌿\né" },
+      { id: 4, type: "input", text: "" },
+      { id: 5, type: "input" },
+      { id: 6, type: "textarea", text: "中😀é" },
+    ],
+  }
+  expect(methods.getTree.result.parse({ tree })).toEqual({ tree })
+  expect(methods.getTree.result.parse({ tree: null })).toEqual({ tree: null })
+  expect(function invalidText() {
+    methods.getTree.result.parse({ tree: { id: 1, type: "input", text: 1 } })
+  }).toThrow()
+})
 
 const state = {
   text: "a😀é中",
