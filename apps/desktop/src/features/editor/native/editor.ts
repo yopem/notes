@@ -123,6 +123,11 @@ type EditorRenderer = NativeRenderer & {
   editorCommand?: (elementId: number, commandJson: string) => string
 }
 
+type CloseGuardRenderer = NativeRenderer & {
+  armCloseGuard?: (eventId: number) => void
+  closeWindow?: () => void
+}
+
 type NativeEditorCommand =
   | { type: "getState" | "getSnapshot" }
   | { type: "setMode"; mode: NativeEditorMode }
@@ -135,6 +140,49 @@ type NativeEditorCommand =
       revision: number
       snapshot: NativeEditorSnapshot
     }
+
+export function createNativeCloseGuard(
+  renderer: CloseGuardRenderer | { native: CloseGuardRenderer },
+  onRequest: () => void,
+) {
+  const native = "native" in renderer ? renderer.native : renderer
+  const arm = native.armCloseGuard
+  const close = native.closeWindow
+
+  if (!Predicate.isFunction(arm) || !Predicate.isFunction(close)) {
+    throw new Error("Custom GPUix addon with close guard is required")
+  }
+
+  const binding = createRendererState(native).current()
+
+  if (!binding) throw new Error("Mount the GPUix root before guarding close")
+  const handlers = binding.eventHandlers
+  const id = binding.windowKeyEventId
+  const eventType = "windowCloseRequested"
+
+  if (handlers.get(id)?.has(eventType)) {
+    throw new Error("Window already has a close guard")
+  }
+
+  function receive() {
+    onRequest()
+  }
+
+  registerEventHandler(handlers, id, eventType, receive)
+
+  try {
+    arm.call(native, id)
+  } catch (error) {
+    unregisterEventHandler(handlers, id, eventType)
+    throw error
+  }
+
+  return {
+    close() {
+      close.call(native)
+    },
+  }
+}
 
 /** Connect only after the native input has rendered. Stock GPUix has no editorCommand. */
 export function createNativeEditor(

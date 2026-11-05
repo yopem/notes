@@ -19,6 +19,8 @@ assert(
 
 const patch = resolve(root, "native/gpuix.patch")
 
+const backendPatch = resolve(root, "native/gpui-close.patch")
+
 function run(command: string[], cwd = source) {
   const result = Bun.spawnSync(command, {
     cwd,
@@ -69,11 +71,110 @@ assert.equal(
   "GPUI backend revision differs",
 )
 
+const backendFile = "crates/gpui/src/window.rs"
+
+const backendChanges = output([
+  "git",
+  "-C",
+  "zed",
+  "diff",
+  "--name-only",
+  "HEAD",
+])
+
+const backendHash = readFileSync(backendPatch, "utf8").match(
+  /^index [\da-f]{40}\.\.([\da-f]{40}) /m,
+)?.[1]
+
+assert(backendHash, "GPUI patch has no complete source hash")
+
+assert(
+  backendChanges === "" || backendChanges === backendFile,
+  "GPUI checkout contains unexpected source changes",
+)
+
+assert.equal(
+  output(["git", "-C", "zed", "ls-files", "--others", "--exclude-standard"]),
+  "",
+  "GPUI checkout contains untracked source files",
+)
+
+if (backendChanges === "") {
+  run(["git", "-C", "zed", "apply", "--check", backendPatch])
+  run(["git", "-C", "zed", "apply", backendPatch])
+}
+
+assert.equal(
+  output(["git", "-C", "zed", "diff", "--name-only", "HEAD"]),
+  backendFile,
+  "GPUI patch changes unexpected files",
+)
+
+assert.equal(
+  output(["git", "-C", "zed", "ls-files", "--others", "--exclude-standard"]),
+  "",
+  "GPUI patch adds unexpected files",
+)
+
+assert.equal(
+  output([
+    "git",
+    "-C",
+    "zed",
+    "hash-object",
+    "--no-filters",
+    "--",
+    backendFile,
+  ]),
+  backendHash,
+  "GPUI source differs from patch",
+)
+
 assert.equal(
   output(["git", "diff", "HEAD", "--", "packages/native/Cargo.lock"]),
   "",
   "Keep pinned Cargo.lock",
 )
+
+const sourcePaths = [
+  ".",
+  ":(exclude)zed",
+  ":(exclude)packages/native/index.js",
+  ":(exclude)packages/native/index.d.ts",
+]
+
+function sourceChanges() {
+  return output(["git", "diff", "--name-only", "HEAD", "--", ...sourcePaths])
+}
+
+function untrackedSources() {
+  return output([
+    "git",
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "--",
+    ...sourcePaths,
+  ])
+}
+
+const patchFiles = readFileSync(patch, "utf8")
+  .split(/^diff --git /m)
+  .slice(1)
+  .map(function readPatchFile(section) {
+    const header = section.match(
+      /^a\/(\S+) b\/\1\n(new file mode \d+\n)?index [\da-f]{40}\.\.([\da-f]{40})/,
+    )
+
+    assert(
+      header?.[1] && header[3],
+      "GPUix patch has an unsupported file header",
+    )
+
+    return { path: header[1], added: Boolean(header[2]), hash: header[3] }
+  })
+
+assert(patchFiles.length > 0, "GPUix patch is empty")
 
 const check = Bun.spawnSync(["git", "apply", "--check", patch], {
   cwd: source,
@@ -82,9 +183,43 @@ const check = Bun.spawnSync(["git", "apply", "--check", patch], {
 })
 
 if (check.exitCode === 0) {
+  assert.equal(sourceChanges(), "", "GPUix checkout contains source changes")
+  assert.equal(
+    untrackedSources(),
+    "",
+    "GPUix checkout contains untracked files",
+  )
   run(["git", "apply", patch])
 } else {
   run(["git", "apply", "--reverse", "--check", patch])
+}
+
+assert.equal(
+  sourceChanges(),
+  patchFiles
+    .filter((file) => !file.added)
+    .map((file) => file.path)
+    .sort()
+    .join("\n"),
+  "GPUix checkout has unexpected source changes",
+)
+
+assert.equal(
+  untrackedSources(),
+  patchFiles
+    .filter((file) => file.added)
+    .map((file) => file.path)
+    .sort()
+    .join("\n"),
+  "GPUix checkout has unexpected untracked files",
+)
+
+for (const file of patchFiles) {
+  assert.equal(
+    output(["git", "hash-object", "--no-filters", "--", file.path]),
+    file.hash,
+    `GPUix source differs from patch: ${file.path}`,
+  )
 }
 
 const native = resolve(source, "packages/native")
@@ -118,6 +253,12 @@ assert(
   "NAPI declarations lack editorCommand",
 )
 
+assert(
+  declarations.includes("armCloseGuard(eventId: number): void") &&
+    declarations.includes("closeWindow(): void"),
+  "NAPI declarations lack the close guard",
+)
+
 let target: string
 
 if (process.platform === "linux") target = `linux-${process.arch}-gnu`
@@ -138,7 +279,11 @@ const addon = Schema.decodeUnknownSync(
 const prototype: unknown = addon.GpuixRenderer.prototype
 
 Schema.decodeUnknownSync(
-  Schema.Struct({ editorCommand: Schema.declare(Predicate.isFunction) }),
+  Schema.Struct({
+    editorCommand: Schema.declare(Predicate.isFunction),
+    armCloseGuard: Schema.declare(Predicate.isFunction),
+    closeWindow: Schema.declare(Predicate.isFunction),
+  }),
 )(prototype)
 
 mkdirSync(resolve(root, "native"), { recursive: true })

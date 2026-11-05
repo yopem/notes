@@ -1,0 +1,84 @@
+diff --git a/crates/gpui/src/window.rs b/crates/gpui/src/window.rs
+index 076d3c828e4d631eb8a0636b42ae112c11f91c19..1ea400311cee73c00b158bc8249a3146acb8ebaa 100644
+--- a/crates/gpui/src/window.rs
++++ b/crates/gpui/src/window.rs
+@@ -6232,10 +6232,20 @@ impl Window {
+         &self,
+         cx: &App,
+         f: impl Fn(&mut Window, &mut App) -> bool + 'static,
++    ) {
++        self.on_window_should_close_or(cx, f, || true)
++    }
++
++    pub fn on_window_should_close_or(
++        &self,
++        cx: &App,
++        f: impl Fn(&mut Window, &mut App) -> bool + 'static,
++        fallback: impl Fn() -> bool + 'static,
+     ) {
+         let mut cx = self.to_async(cx);
+         self.platform_window.on_should_close(Box::new(move || {
+-            cx.update(|window, cx| f(window, cx)).unwrap_or(true)
++            cx.update(|window, cx| f(window, cx))
++                .unwrap_or_else(|_| fallback())
+         }))
+     }
+
+@@ -7229,6 +7239,57 @@ mod tests {
+         WindowOptions, canvas, div, point, px, size,
+     };
+
++    #[gpui::test]
++    fn test_close_fallback_is_scoped_and_tracks_guard(cx: &mut TestAppContext) {
++        cx.update(|cx| cx.set_quit_mode(crate::QuitMode::Explicit));
++        let guarded = Rc::new(Cell::new(false));
++        let calls = Rc::new(Cell::new(0));
++        let window = cx.add_window(|_, _| EmptyView);
++        cx.update_window(window.into(), |_, window, cx| {
++            let callback_guard = guarded.clone();
++            let callback_calls = calls.clone();
++            let fallback_guard = guarded.clone();
++            window.on_window_should_close_or(
++                cx,
++                move |_, _| {
++                    callback_calls.set(callback_calls.get() + 1);
++                    !callback_guard.get()
++                },
++                move || !fallback_guard.get(),
++            );
++        })
++        .unwrap();
++        let test_window = cx.test_window(window.into());
++        let mut close = test_window.0.lock().should_close_handler.take().unwrap();
++        assert!(close());
++        guarded.set(true);
++        assert!(!close());
++        assert_eq!(calls.get(), 2);
++        assert!(!cx.update(|_| close()));
++        guarded.set(false);
++        assert!(cx.update(|_| close()));
++        assert_eq!(calls.get(), 2);
++        guarded.set(true);
++        cx.update_window(window.into(), |_, window, _| window.remove_window())
++            .unwrap();
++        assert!(!close());
++        assert_eq!(calls.get(), 2);
++        guarded.set(false);
++        assert!(close());
++
++        let window = cx.add_window(|_, _| EmptyView);
++        cx.update_window(window.into(), |_, window, cx| {
++            window.on_window_should_close(cx, |_, _| false);
++        })
++        .unwrap();
++        let test_window = cx.test_window(window.into());
++        let mut close = test_window.0.lock().should_close_handler.take().unwrap();
++        assert!(!close());
++        cx.update_window(window.into(), |_, window, _| window.remove_window())
++            .unwrap();
++        assert!(close());
++    }
++
+     struct EmptyView;
+
+     impl Render for EmptyView {

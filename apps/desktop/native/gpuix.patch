@@ -1,5 +1,5 @@
 diff --git a/packages/native/js/host.ts b/packages/native/js/host.ts
-index fac0b75..24c2c52 100644
+index fac0b7513be093df518555c4e0dff25e1cb3ceb4..24c2c5251c16d3b7e89976f18a84ade817636e4c 100644
 --- a/packages/native/js/host.ts
 +++ b/packages/native/js/host.ts
 @@ -521,6 +521,11 @@ export interface InputProps extends HostProps {
@@ -14,8 +14,225 @@ index fac0b75..24c2c52 100644
  }
 
  export interface TextareaProps extends InputProps {
+diff --git a/packages/native/src/custom_elements/editor_protocol.rs b/packages/native/src/custom_elements/editor_protocol.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..da6f81e119a7dd6106f36389d8cae3b8ad890e3b
+--- /dev/null
++++ b/packages/native/src/custom_elements/editor_protocol.rs
+@@ -0,0 +1,211 @@
++use serde::{Deserialize, Serialize};
++use std::ops::Range;
++use unicode_segmentation::UnicodeSegmentation;
++
++pub const HISTORY_BYTES: usize = 8 * 1024 * 1024;
++
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub enum EditorMode {
++    #[default]
++    Insert,
++    Normal,
++    ReadOnly,
++}
++impl EditorMode {
++    pub fn accepts_text(self) -> bool {
++        self == Self::Insert
++    }
++    pub fn routes_keys(self) -> bool {
++        self == Self::Normal
++    }
++}
++
++#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub enum Direction {
++    Forward,
++    Backward,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct TextSnapshot {
++    pub text: String,
++    pub start: usize,
++    pub end: usize,
++    pub direction: Direction,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct EditorSnapshot {
++    pub version: u32,
++    pub current: TextSnapshot,
++    pub undo: Vec<TextSnapshot>,
++    pub redo: Vec<TextSnapshot>,
++    pub scroll_top: f32,
++    pub scroll_left: f32,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
++pub enum EditorCommand {
++    GetState,
++    GetSnapshot,
++    SetMode {
++        mode: EditorMode,
++    },
++    SetSelection {
++        revision: u64,
++        start: usize,
++        end: usize,
++        direction: Direction,
++    },
++    ReplaceRange {
++        revision: u64,
++        start: usize,
++        end: usize,
++        text: String,
++        selection: Option<TextSelection>,
++    },
++    Undo {
++        revision: u64,
++    },
++    Redo {
++        revision: u64,
++    },
++    SetViewport {
++        top: f32,
++        left: f32,
++    },
++    RestoreSnapshot {
++        revision: u64,
++        snapshot: EditorSnapshot,
++    },
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct TextSelection {
++    pub start: usize,
++    pub end: usize,
++    pub direction: Direction,
++}
++
++pub fn checked_offset(text: &str, offset: usize) -> Result<usize, String> {
++    let mut units = 0;
++    for (byte, ch) in text.char_indices() {
++        if units == offset {
++            return Ok(byte);
++        }
++        units += ch.len_utf16();
++        if units > offset {
++            return Err("UTF-16 offset splits a surrogate pair".into());
++        }
++    }
++    if units == offset {
++        Ok(text.len())
++    } else {
++        Err("UTF-16 offset exceeds text length".into())
++    }
++}
++
++pub fn checked_range(text: &str, start: usize, end: usize) -> Result<Range<usize>, String> {
++    if start > end {
++        return Err("Selection start exceeds end".into());
++    }
++    let start = checked_offset(text, start)?;
++    let end = checked_offset(text, end)?;
++    for offset in [start, end] {
++        if offset != text.len()
++            && !text
++                .grapheme_indices(true)
++                .any(|(index, _)| index == offset)
++        {
++            return Err("Range splits an extended grapheme cluster".into());
++        }
++    }
++    Ok(start..end)
++}
++
++pub fn next_grapheme_boundary(text: &str, byte: usize) -> usize {
++    text.grapheme_indices(true)
++        .map(|(index, _)| index)
++        .find(|index| *index >= byte)
++        .unwrap_or(text.len())
++}
++
++pub fn check_revision(actual: u64, expected: u64, composing: bool) -> Result<(), String> {
++    if actual != expected {
++        return Err("Stale editor revision".into());
++    }
++    if composing {
++        return Err("Editor owns an active IME composition".into());
++    }
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn utf16_rejects_surrogates_and_out_of_bounds() {
++        let text = "a😀e\u{301}中";
++        assert_eq!(checked_offset(text, 0), Ok(0));
++        assert_eq!(checked_offset(text, 1), Ok(1));
++        assert!(checked_offset(text, 2).is_err());
++        assert_eq!(checked_offset(text, 3), Ok(5));
++        assert!(checked_offset(text, 7).is_err());
++        assert_eq!(checked_offset(text, 6), Ok(text.len()));
++    }
++
++    #[test]
++    fn commands_keep_graphemes_whole() {
++        assert!(checked_range("e\u{301}😀", 0, 1).is_err());
++        assert_eq!(checked_range("e\u{301}😀", 0, 2), Ok(0..3));
++        assert!(checked_range("abc", 2, 1).is_err());
++    }
++
++    #[test]
++    fn caret_stays_after_a_joined_grapheme() {
++        assert_eq!(next_grapheme_boundary("e\u{301}", 1), 3);
++        assert_eq!(
++            next_grapheme_boundary("👩\u{200d}💻", "👩\u{200d}".len()),
++            "👩\u{200d}💻".len()
++        );
++        assert_eq!(next_grapheme_boundary("abc", 1), 1);
++        assert_eq!(next_grapheme_boundary("", 0), 0);
++    }
++
++    #[test]
++    fn command_wire_format_is_strict() {
++        assert!(
++            serde_json::from_str::<EditorCommand>(r#"{"type":"setMode","mode":"normal"}"#).is_ok()
++        );
++        assert!(
++            serde_json::from_str::<EditorCommand>(r#"{"type":"setMode","mode":"wrong"}"#).is_err()
++        );
++        assert!(serde_json::from_str::<EditorCommand>(
++            r#"{"type":"setSelection","revision":1,"start":-1,"end":0,"direction":"forward"}"#
++        )
++        .is_err());
++    }
++
++    #[test]
++    fn revision_and_composition_guards_precede_mutation() {
++        assert!(check_revision(4, 3, false).is_err());
++        assert!(check_revision(4, 4, true).is_err());
++        assert!(check_revision(4, 4, false).is_ok());
++    }
++
++    #[test]
++    fn modal_routing_preserves_insert_and_read_only() {
++        assert!(EditorMode::Insert.accepts_text());
++        assert!(!EditorMode::Normal.accepts_text());
++        assert!(!EditorMode::ReadOnly.accepts_text());
++        assert!(EditorMode::Normal.routes_keys());
++        assert!(!EditorMode::ReadOnly.routes_keys());
++    }
++}
 diff --git a/packages/native/src/custom_elements/input.rs b/packages/native/src/custom_elements/input.rs
-index 7be2d25..094b2c8 100644
+index 7be2d2501320f75b30ab3f697a16cdde19c64dca..094b2c835e31ed7aa2f37494b0315aa807fe7016 100644
 --- a/packages/native/src/custom_elements/input.rs
 +++ b/packages/native/src/custom_elements/input.rs
 @@ -23,6 +23,7 @@ use gpui::{
@@ -853,7 +1070,7 @@ index 7be2d25..094b2c8 100644
          let keystroke = gpui::Keystroke::parse(keystroke).unwrap();
          bindings.iter().any(|binding| {
 diff --git a/packages/native/src/custom_elements/mod.rs b/packages/native/src/custom_elements/mod.rs
-index 158269f..4996ac7 100644
+index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..4996ac76398257254fad2ca5681c7ccbeadda019 100644
 --- a/packages/native/src/custom_elements/mod.rs
 +++ b/packages/native/src/custom_elements/mod.rs
 @@ -16,6 +16,7 @@ use crate::renderer::EventCallback;
@@ -906,10 +1123,29 @@ index 158269f..4996ac7 100644
      pub fn set_live_image(
          &mut self,
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4..f562bda 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..480b2697f33cfde213f99eacc848fc9fda08c85c 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
-@@ -485,6 +485,11 @@ enum UiCommand {
+@@ -26,7 +26,9 @@ use std::cell::RefCell;
+ use std::collections::{HashMap, HashSet};
+ use std::rc::Rc;
+ #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+-use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::atomic::AtomicBool;
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++use std::sync::atomic::{AtomicU64, Ordering};
+ #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+ use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
+ use std::sync::{Arc, Mutex};
+@@ -437,6 +439,7 @@ enum UiCommand {
+     Invalidate,
+     ActivateWindow,
+     MinimizeWindow,
++    CloseWindow,
+     ZoomWindow,
+     ToggleFullscreen,
+     SetWindowTitle(String),
+@@ -485,6 +488,11 @@ enum UiCommand {
          bytes: Vec<u8>,
          response: SyncSender<std::result::Result<(), String>>,
      },
@@ -921,7 +1157,17 @@ index 8c104a4..f562bda 100644
      GetScrollOffset {
          id: u64,
          response: SyncSender<Option<[f64; 2]>>,
-@@ -683,6 +688,21 @@ async fn run_ui_commands(
+@@ -567,6 +575,9 @@ async fn run_ui_commands(
+             UiCommand::MinimizeWindow => {
+                 window.update(cx, |_view, window, _cx| window.minimize_window())
+             }
++            UiCommand::CloseWindow => {
++                window.update(cx, |_view, window, _cx| window.remove_window())
++            }
+             UiCommand::ZoomWindow => window.update(cx, |_view, window, _cx| window.zoom_window()),
+             UiCommand::ToggleFullscreen => {
+                 window.update(cx, |_view, window, _cx| window.toggle_fullscreen())
+@@ -683,6 +694,21 @@ async fn run_ui_commands(
                      response.send(view.register_font(bytes, window, cx)).ok();
                  })
              }
@@ -943,7 +1189,148 @@ index 8c104a4..f562bda 100644
              UiCommand::GetScrollOffset { id, response } => {
                  let offset = VIRTUAL_LIST_STATES
                      .with(|cell| {
-@@ -1573,7 +1593,6 @@ impl GpuixRenderer {
+@@ -962,6 +988,8 @@ pub fn is_terminal() -> bool {
+ #[napi]
+ pub struct GpuixRenderer {
+     event_callback: Mutex<Option<Arc<ThreadsafeFunction<EventPayload>>>>,
++    has_event_callback: bool,
++    close_guard: Arc<AtomicU64>,
+     tree: Arc<Mutex<RetainedTree>>,
+     initialized: Arc<Mutex<bool>>,
+     /// Shared with GpuixView so napi methods can read the live selection
+@@ -977,6 +1005,85 @@ pub struct GpuixRenderer {
+     ui_running: Arc<AtomicBool>,
+ }
+
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++const WINDOW_CLOSE_STARTED: u64 = u64::MAX;
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn close_guard_should_close(guard: &AtomicU64, callback: &Option<EventCallback>) -> bool {
++    let event_id = match guard.compare_exchange(
++        0,
++        WINDOW_CLOSE_STARTED,
++        Ordering::AcqRel,
++        Ordering::Acquire,
++    ) {
++        Ok(_) => return true,
++        Err(event_id) => event_id,
++    };
++    if event_id == WINDOW_CLOSE_STARTED {
++        return true;
++    }
++    emit_event_full(callback, event_id - 1, "windowCloseRequested", |_| {});
++    false
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn arm_close_guard_state(guard: &AtomicU64, event_id: u64) -> Result<()> {
++    match guard.compare_exchange(0, event_id + 1, Ordering::AcqRel, Ordering::Acquire) {
++        Ok(_) => Ok(()),
++        Err(WINDOW_CLOSE_STARTED) => Err(Error::from_reason("Window is closing")),
++        Err(_) => Err(Error::from_reason("Window already has a close guard")),
++    }
++}
++
++#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
++mod close_guard_tests {
++    use super::*;
++
++    #[test]
++    fn close_and_arm_have_one_winner() {
++        let guard = AtomicU64::new(0);
++        assert!(close_guard_should_close(&guard, &None));
++        assert!(arm_close_guard_state(&guard, 7).is_err());
++        assert!(close_guard_should_close(&guard, &None));
++
++        let guard = AtomicU64::new(0);
++        assert!(arm_close_guard_state(&guard, 7).is_ok());
++        assert!(!close_guard_should_close(&guard, &None));
++        assert!(arm_close_guard_state(&guard, 8).is_err());
++        assert!(!close_guard_should_close(&guard, &None));
++
++        for _ in 0..64 {
++            let guard = AtomicU64::new(0);
++            let barrier = std::sync::Barrier::new(2);
++            std::thread::scope(|scope| {
++                let close = scope.spawn(|| {
++                    barrier.wait();
++                    close_guard_should_close(&guard, &None)
++                });
++                barrier.wait();
++                let armed = arm_close_guard_state(&guard, 7).is_ok();
++                assert_ne!(armed, close.join().unwrap());
++            });
++        }
++    }
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn install_close_guard(
++    window: &gpui::Window,
++    cx: &gpui::App,
++    guard: Arc<AtomicU64>,
++    callback: Option<EventCallback>,
++) {
++    let fallback_guard = guard.clone();
++    let fallback_callback = callback.clone();
++    window.on_window_should_close_or(
++        cx,
++        move |_window, _cx| close_guard_should_close(&guard, &callback),
++        move || close_guard_should_close(&fallback_guard, &fallback_callback),
++    );
++}
++
+ #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+ #[napi]
+ impl GpuixRenderer {
+@@ -1174,7 +1281,9 @@ impl GpuixRenderer {
+     pub fn new(event_callback: Option<ThreadsafeFunction<EventPayload>>) -> Self {
+         let _ = env_logger::try_init();
+         Self {
++            has_event_callback: event_callback.is_some(),
+             event_callback: Mutex::new(event_callback.map(Arc::new)),
++            close_guard: Arc::new(AtomicU64::new(0)),
+             tree: Arc::new(Mutex::new(RetainedTree::new())),
+             initialized: Arc::new(Mutex::new(false)),
+             selection: SharedSelection::default(),
+@@ -1245,6 +1354,7 @@ impl GpuixRenderer {
+
+         let tree = self.tree.clone();
+         let callback = self.event_callback_for_view();
++        let close_guard = self.close_guard.clone();
+
+         let selection = self.selection.clone();
+         let opened_window = Rc::new(RefCell::new(None));
+@@ -1274,7 +1384,8 @@ impl GpuixRenderer {
+
+             match cx.open_window(
+                 to_gpui_window_options(&window_options, bounds),
+-                |_window, cx| {
++                |window, cx| {
++                    install_close_guard(window, cx, close_guard, callback.clone());
+                     cx.new(|_| {
+                         GpuixView::new(tree.clone(), callback.clone(), title, selection.clone())
+                     })
+@@ -1377,6 +1488,7 @@ impl GpuixRenderer {
+         let tree = self.tree.clone();
+         let selection = self.selection.clone();
+         let callback = self.event_callback_for_view();
++        let close_guard = self.close_guard.clone();
+         let (command_sender, command_receiver) = mpsc::unbounded();
+         let (startup_sender, startup_receiver) = sync_channel(1);
+         let exit_startup_sender = startup_sender.clone();
+@@ -1434,7 +1546,8 @@ impl GpuixRenderer {
+                             };
+                             let window = match cx.open_window(
+                                 to_gpui_window_options(&window_options, bounds),
+-                                |_window, cx| {
++                                |window, cx| {
++                                    install_close_guard(window, cx, close_guard, callback.clone());
+                                     cx.new(|_| GpuixView::new(tree, callback, title, selection))
+                                 },
+                             ) {
+@@ -1573,7 +1686,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
 
@@ -951,10 +1338,53 @@ index 8c104a4..f562bda 100644
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2151,45 @@ impl GpuixRenderer {
+@@ -2132,6 +2244,88 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
 
++    #[napi]
++    pub fn arm_close_guard(&self, event_id: f64) -> Result<()> {
++        let event_id = to_element_id(event_id)?;
++        if !*self.initialized.lock().unwrap() {
++            return Err(Error::from_reason("GPUI application is not initialized"));
++        }
++        if !self.has_event_callback {
++            return Err(Error::from_reason("GPUI event callback is required"));
++        }
++        if TERMINAL_MODE.load(Ordering::Acquire) {
++            return Err(Error::from_reason(
++                "Close guard is not supported in terminal mode",
++            ));
++        }
++        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++        if !self.ui_running.load(Ordering::Acquire) {
++            return Err(Error::from_reason("The GPUI UI thread is not running"));
++        }
++        arm_close_guard_state(&self.close_guard, event_id)
++    }
++
++    #[napi]
++    pub fn close_window(&self) -> Result<()> {
++        if !*self.initialized.lock().unwrap() {
++            return Err(Error::from_reason("GPUI application is not initialized"));
++        }
++        let guard = self.close_guard.load(Ordering::Acquire);
++        if guard == 0 || guard == WINDOW_CLOSE_STARTED {
++            return Err(Error::from_reason("Window close guard is not armed"));
++        }
++        #[cfg(target_os = "macos")]
++        return update_window_without_view(|window, _cx| window.remove_window());
++        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
++        return self.send_ui_command(UiCommand::CloseWindow);
++        #[cfg(not(any(
++            target_os = "macos",
++            target_os = "windows",
++            target_os = "linux",
++            target_os = "freebsd"
++        )))]
++        Err(Error::from_reason("Unsupported operating system"))
++    }
++
 +    /// Execute a revision-guarded editor command. Offsets use UTF-16 code units.
 +    /// Returns JSON editor state, or a versioned snapshot for getSnapshot.
 +    #[napi]
@@ -997,7 +1427,7 @@ index 8c104a4..f562bda 100644
      // ── Selection API ────────────────────────────────────────────────
 
      /// The current text selection joined in document order, or null.
-@@ -3820,8 +3878,12 @@ pub(crate) fn emit_key_event(
+@@ -3820,8 +4014,12 @@ pub(crate) fn emit_key_event(
      });
  }
 
@@ -1012,7 +1442,7 @@ index 8c104a4..f562bda 100644
  }
 
  fn window_key_events(
-@@ -3869,7 +3931,13 @@ fn window_key_events(
+@@ -3869,7 +4067,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -1027,7 +1457,7 @@ index 8c104a4..f562bda 100644
                  }
              });
          },
-@@ -3957,6 +4025,25 @@ fn resolve_highlight(
+@@ -3957,6 +4161,25 @@ fn resolve_highlight(
  }
 
  impl GpuixView {
@@ -1053,7 +1483,7 @@ index 8c104a4..f562bda 100644
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -4041,10 +4128,8 @@ impl GpuixView {
+@@ -4041,10 +4264,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -1066,7 +1496,7 @@ index 8c104a4..f562bda 100644
          self.set_live_image(id, image, window, cx)
      }
 
-@@ -4314,7 +4399,9 @@ impl GpuixView {
+@@ -4314,7 +4535,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -1077,7 +1507,7 @@ index 8c104a4..f562bda 100644
              }
              current = parent_id;
          };
-@@ -4764,7 +4851,12 @@ impl VirtualListEntry {
+@@ -4764,7 +4987,12 @@ impl VirtualListEntry {
  }
 
  impl GpuixView {
@@ -1091,7 +1521,7 @@ index 8c104a4..f562bda 100644
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -6731,10 +6823,7 @@ fn report_layout(
+@@ -6731,10 +6959,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -1103,220 +1533,3 @@ index 8c104a4..f562bda 100644
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
-diff --git a/packages/native/src/custom_elements/editor_protocol.rs b/packages/native/src/custom_elements/editor_protocol.rs
-new file mode 100644
-index 0000000..da6f81e
---- /dev/null
-+++ b/packages/native/src/custom_elements/editor_protocol.rs
-@@ -0,0 +1,211 @@
-+use serde::{Deserialize, Serialize};
-+use std::ops::Range;
-+use unicode_segmentation::UnicodeSegmentation;
-+
-+pub const HISTORY_BYTES: usize = 8 * 1024 * 1024;
-+
-+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-+#[serde(rename_all = "camelCase")]
-+pub enum EditorMode {
-+    #[default]
-+    Insert,
-+    Normal,
-+    ReadOnly,
-+}
-+impl EditorMode {
-+    pub fn accepts_text(self) -> bool {
-+        self == Self::Insert
-+    }
-+    pub fn routes_keys(self) -> bool {
-+        self == Self::Normal
-+    }
-+}
-+
-+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-+#[serde(rename_all = "camelCase")]
-+pub enum Direction {
-+    Forward,
-+    Backward,
-+}
-+
-+#[derive(Clone, Debug, Serialize, Deserialize)]
-+#[serde(rename_all = "camelCase", deny_unknown_fields)]
-+pub struct TextSnapshot {
-+    pub text: String,
-+    pub start: usize,
-+    pub end: usize,
-+    pub direction: Direction,
-+}
-+
-+#[derive(Clone, Debug, Serialize, Deserialize)]
-+#[serde(rename_all = "camelCase", deny_unknown_fields)]
-+pub struct EditorSnapshot {
-+    pub version: u32,
-+    pub current: TextSnapshot,
-+    pub undo: Vec<TextSnapshot>,
-+    pub redo: Vec<TextSnapshot>,
-+    pub scroll_top: f32,
-+    pub scroll_left: f32,
-+}
-+
-+#[derive(Debug, Deserialize)]
-+#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
-+pub enum EditorCommand {
-+    GetState,
-+    GetSnapshot,
-+    SetMode {
-+        mode: EditorMode,
-+    },
-+    SetSelection {
-+        revision: u64,
-+        start: usize,
-+        end: usize,
-+        direction: Direction,
-+    },
-+    ReplaceRange {
-+        revision: u64,
-+        start: usize,
-+        end: usize,
-+        text: String,
-+        selection: Option<TextSelection>,
-+    },
-+    Undo {
-+        revision: u64,
-+    },
-+    Redo {
-+        revision: u64,
-+    },
-+    SetViewport {
-+        top: f32,
-+        left: f32,
-+    },
-+    RestoreSnapshot {
-+        revision: u64,
-+        snapshot: EditorSnapshot,
-+    },
-+}
-+
-+#[derive(Debug, Deserialize)]
-+#[serde(deny_unknown_fields)]
-+pub struct TextSelection {
-+    pub start: usize,
-+    pub end: usize,
-+    pub direction: Direction,
-+}
-+
-+pub fn checked_offset(text: &str, offset: usize) -> Result<usize, String> {
-+    let mut units = 0;
-+    for (byte, ch) in text.char_indices() {
-+        if units == offset {
-+            return Ok(byte);
-+        }
-+        units += ch.len_utf16();
-+        if units > offset {
-+            return Err("UTF-16 offset splits a surrogate pair".into());
-+        }
-+    }
-+    if units == offset {
-+        Ok(text.len())
-+    } else {
-+        Err("UTF-16 offset exceeds text length".into())
-+    }
-+}
-+
-+pub fn checked_range(text: &str, start: usize, end: usize) -> Result<Range<usize>, String> {
-+    if start > end {
-+        return Err("Selection start exceeds end".into());
-+    }
-+    let start = checked_offset(text, start)?;
-+    let end = checked_offset(text, end)?;
-+    for offset in [start, end] {
-+        if offset != text.len()
-+            && !text
-+                .grapheme_indices(true)
-+                .any(|(index, _)| index == offset)
-+        {
-+            return Err("Range splits an extended grapheme cluster".into());
-+        }
-+    }
-+    Ok(start..end)
-+}
-+
-+pub fn next_grapheme_boundary(text: &str, byte: usize) -> usize {
-+    text.grapheme_indices(true)
-+        .map(|(index, _)| index)
-+        .find(|index| *index >= byte)
-+        .unwrap_or(text.len())
-+}
-+
-+pub fn check_revision(actual: u64, expected: u64, composing: bool) -> Result<(), String> {
-+    if actual != expected {
-+        return Err("Stale editor revision".into());
-+    }
-+    if composing {
-+        return Err("Editor owns an active IME composition".into());
-+    }
-+    Ok(())
-+}
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::*;
-+
-+    #[test]
-+    fn utf16_rejects_surrogates_and_out_of_bounds() {
-+        let text = "a😀e\u{301}中";
-+        assert_eq!(checked_offset(text, 0), Ok(0));
-+        assert_eq!(checked_offset(text, 1), Ok(1));
-+        assert!(checked_offset(text, 2).is_err());
-+        assert_eq!(checked_offset(text, 3), Ok(5));
-+        assert!(checked_offset(text, 7).is_err());
-+        assert_eq!(checked_offset(text, 6), Ok(text.len()));
-+    }
-+
-+    #[test]
-+    fn commands_keep_graphemes_whole() {
-+        assert!(checked_range("e\u{301}😀", 0, 1).is_err());
-+        assert_eq!(checked_range("e\u{301}😀", 0, 2), Ok(0..3));
-+        assert!(checked_range("abc", 2, 1).is_err());
-+    }
-+
-+    #[test]
-+    fn caret_stays_after_a_joined_grapheme() {
-+        assert_eq!(next_grapheme_boundary("e\u{301}", 1), 3);
-+        assert_eq!(
-+            next_grapheme_boundary("👩\u{200d}💻", "👩\u{200d}".len()),
-+            "👩\u{200d}💻".len()
-+        );
-+        assert_eq!(next_grapheme_boundary("abc", 1), 1);
-+        assert_eq!(next_grapheme_boundary("", 0), 0);
-+    }
-+
-+    #[test]
-+    fn command_wire_format_is_strict() {
-+        assert!(
-+            serde_json::from_str::<EditorCommand>(r#"{"type":"setMode","mode":"normal"}"#).is_ok()
-+        );
-+        assert!(
-+            serde_json::from_str::<EditorCommand>(r#"{"type":"setMode","mode":"wrong"}"#).is_err()
-+        );
-+        assert!(serde_json::from_str::<EditorCommand>(
-+            r#"{"type":"setSelection","revision":1,"start":-1,"end":0,"direction":"forward"}"#
-+        )
-+        .is_err());
-+    }
-+
-+    #[test]
-+    fn revision_and_composition_guards_precede_mutation() {
-+        assert!(check_revision(4, 3, false).is_err());
-+        assert!(check_revision(4, 4, true).is_err());
-+        assert!(check_revision(4, 4, false).is_ok());
-+    }
-+
-+    #[test]
-+    fn modal_routing_preserves_insert_and_read_only() {
-+        assert!(EditorMode::Insert.accepts_text());
-+        assert!(!EditorMode::Normal.accepts_text());
-+        assert!(!EditorMode::ReadOnly.accepts_text());
-+        assert!(EditorMode::Normal.routes_keys());
-+        assert!(!EditorMode::ReadOnly.routes_keys());
-+    }
-+}
