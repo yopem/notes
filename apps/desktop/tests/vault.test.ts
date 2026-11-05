@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -11,8 +11,8 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
-  statSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
@@ -173,6 +173,7 @@ describe("native Markdown vault", () => {
     const directory = root()
     const lock = join(directory, ".still-notes/vault.lock")
     open(directory).close()
+
     const attempt = () =>
       spawnSync(
         "/bin/sh",
@@ -212,33 +213,52 @@ describe("native Markdown vault", () => {
   test("competing processes publish one complete owner and release it safely", async () => {
     const directory = root()
     open(directory).close()
+
     const lock = join(directory, ".still-notes/vault.lock")
     const source = `import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; process.stdin.once("data", () => { try { const vault = new Vault(${JSON.stringify(directory)}); process.stdout.write("acquired\\n"); process.stdin.once("data", () => { vault.close(); process.exit(0) }); } catch (error) { process.stdout.write("denied:" + error.message + "\\n"); process.exitCode = 1; process.stdin.pause(); } }); process.stdout.write("ready\\n");`
+
     const children = [0, 1].map(() =>
       spawn(process.execPath, ["-e", source], {
         cwd: resolve("."),
         stdio: ["pipe", "pipe", "pipe"],
       }),
     )
+
     const exits = children.map((child) => once(child, "exit"))
 
     try {
       await Promise.all(children.map((child) => once(child.stdout, "data")))
+
       const results = children.map((child) => once(child.stdout, "data"))
+
       for (const child of children) child.stdin.write("start\n")
+
       const messages = (await Promise.all(results)).map(([bytes]) =>
         String(bytes).trim(),
       )
+
       const winner = messages.indexOf("acquired")
       expect(winner).toBeGreaterThanOrEqual(0)
-      expect(messages.filter((message) => message === "acquired")).toHaveLength(1)
+      expect(messages.filter((message) => message === "acquired")).toHaveLength(
+        1,
+      )
       expect(messages[1 - winner]).toMatch(/^denied:.*lock/i)
       const ownerBytes = readFileSync(lock, "utf8")
-      const owner = JSON.parse(ownerBytes)
-      expect(owner.pid).toBe(children[winner]?.pid)
+
+      const owner = Schema.decodeUnknownSync(
+        Schema.Struct({ pid: Schema.Int, token: Schema.String }),
+        { onExcessProperty: "error" },
+      )(JSON.parse(ownerBytes))
+
+      const winnerChild = children[winner]
+
+      if (winnerChild?.pid === undefined)
+        throw new Error("Missing lock owner process")
+      expect(owner.pid).toBe(winnerChild.pid)
       expect(owner.token).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       )
+
       if (process.platform !== "win32")
         expect(statSync(lock).mode & 0o777).toBe(0o600)
       expect(() => new Vault(directory)).toThrow(/lock/i)
@@ -280,9 +300,9 @@ describe("native Markdown vault", () => {
     writeFileSync(join(directory, "unrelated:backup.txt"), "keep")
     const vault = open(directory)
 
-    expect(Effect.runSync(vault.listNotes()).map((note) => note.path)).toContain(
-      "Books/A.md",
-    )
+    expect(
+      Effect.runSync(vault.listNotes()).map((note) => note.path),
+    ).toContain("Books/A.md")
     expect(
       Effect.runSync(vault.listFolders()).map((folder) => folder.path),
     ).toContain("Books")
