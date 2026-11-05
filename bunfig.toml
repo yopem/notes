@@ -1,11 +1,12 @@
+[fmt]
 bracketSpacing = true
 jsxSingleQuote = false
 printWidth = 80
+proseWrap = "always"
 semi = false
 singleQuote = false
 tabWidth = 2
 trailingComma = "all"
-sortImports = true
 sortPackageJson = true
 ignorePatterns = [
   "**/node_modules",
@@ -41,7 +42,21 @@ ignorePatterns = [
   "**/*.config.*",
 ]
 
+[fmt.sortImports]
+newlinesBetween = true
+groups = [
+  "type-import",
+  ["value-builtin", "value-external"],
+  "type-internal",
+  "value-internal",
+  ["type-parent", "type-sibling", "type-index"],
+  ["value-parent", "value-sibling", "value-index"],
+  "unknown",
+]
+
 [lint]
+# Keep the shared Yopem rule semantics in Bun's native engine.
+flavor = "oxlint"
 plugins = [
   "eslint-plugin-oxfmt",
   { "name" = "effect", "specifier" = "@yopem/eslint-plugin/effect" },
@@ -134,7 +149,10 @@ ignorePatterns = [
 "no-unused-expressions" = "error"
 "no-unused-labels" = "error"
 "no-unused-private-class-members" = "error"
-"no-unused-vars" = ["error", { "argsIgnorePattern" = "^_", "varsIgnorePattern" = "^_" }]
+"no-unused-vars" = [
+  "error",
+  { "argsIgnorePattern" = "^_", "varsIgnorePattern" = "^_" },
+]
 "no-useless-backreference" = "error"
 "no-useless-catch" = "error"
 "no-useless-escape" = "error"
@@ -758,11 +776,7 @@ ignorePatterns = [
 "no-restricted-imports" = [
   "error",
   { "paths" = [
-    { "name" = "react", "importNames" = [
-      "useEffect",
-      "useCallback",
-      "useMemo",
-    ], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." },
+    { "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." },
   ] },
 ]
 "stylistic/require-readable-spacing" = "error"
@@ -801,7 +815,10 @@ ignorePatterns = [
 "typescript/no-inferrable-types" = "error"
 "typescript/no-misused-new" = "error"
 "typescript/no-misused-spread" = "error"
-"typescript/no-misused-promises" = ["error", { "checksVoidReturn" = { "attributes" = false } }]
+"typescript/no-misused-promises" = [
+  "error",
+  { "checksVoidReturn" = { "attributes" = false } },
+]
 "typescript/no-namespace" = "error"
 "typescript/no-non-null-asserted-optional-chain" = "error"
 "typescript/no-redundant-type-constituents" = "error"
@@ -838,3 +855,46 @@ ignorePatterns = [
 [[lint.overrides]]
 files = ["**/env.ts", "**/env/**"]
 rules = { "quality/no-environment-access" = "off" }
+
+[[lint.overrides]]
+files = ["packages/notes/src/**/*.ts"]
+[lint.overrides.rules]
+"no-restricted-imports" = [
+  "error",
+  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["node:*", "bun", "react", "react/**", "@gpuix/**", "@still-notes/env", "@still-notes/env/**", "@still-notes/desktop", "@still-notes/desktop/**", "fs", "fs/*", "path", "path/*", "os", "crypto", "child_process", "worker_threads", "net", "tls", "http", "https", "dns", "stream", "zlib", "vm", "module", "sqlite"], "message" = "Keep shared note contracts platform-neutral." }] },
+]
+"no-restricted-globals" = [
+  "error",
+  "Bun",
+  "process",
+  "Buffer",
+  "require",
+  "__dirname",
+  "__filename",
+  "window",
+  "document",
+  "navigator",
+  "localStorage",
+  "sessionStorage",
+]
+
+[[lint.overrides]]
+files = [
+  "apps/desktop/src/features/**/service.ts",
+  "apps/desktop/src/features/**/store.ts",
+  "apps/desktop/src/features/tasks/periodic.ts",
+  "apps/desktop/src/features/assistant/*.ts",
+]
+[lint.overrides.rules]
+"no-restricted-imports" = [
+  "error",
+  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["react", "react/**", "@gpuix/**", "@/components/**", "@/features/*/components/**", "@/app"], "message" = "Keep domain services independent of native UI." }] },
+]
+
+[[lint.overrides]]
+files = ["apps/desktop/src/platform/**/*.ts"]
+[lint.overrides.rules]
+"no-restricted-imports" = [
+  "error",
+  { "paths" = [{ "name" = "react", "importNames" = ["useEffect", "useCallback", "useMemo"], "message" = "Use derived values, event handlers, framework APIs, and React Compiler." }], "patterns" = [{ "group" = ["@/features/**", "@/app"], "message" = "Platform adapters must not import feature implementations." }] },
+]

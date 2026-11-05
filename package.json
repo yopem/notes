@@ -2,50 +2,38 @@
   "name": "still-notes",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "type": "module",
   "scripts": {
-    "dev": "bun --hot src/main.tsx",
-    "start": "bun src/main.tsx",
-    "check": "tsc --noEmit",
-    "lint": "bun lint",
-    "format": "bun fmt",
-    "format:check": "bun fmt --check",
-    "test:store": "bun test tests/store.test.ts",
-    "test:native": "bun scripts/native-e2e.ts",
-    "build": "bun scripts/build.ts"
-  },
-  "dependencies": {
-    "@gpuix/native": "0.11.0",
-    "@gpuix/react": "0.11.0",
-    "date-fns": "4.1.0",
-    "mdast-util-frontmatter": "2.0.1",
-    "mdast-util-gfm": "3.1.0",
-    "mdast-util-math": "3.0.0",
-    "mdast-util-to-markdown": "2.1.2",
-    "mdast-util-to-string": "4.0.0",
-    "micromark-util-decode-string": "2.0.1",
-    "react": "19.2.0",
-    "remark-frontmatter": "5.0.0",
-    "remark-gfm": "4.0.1",
-    "remark-math": "6.0.0",
-    "remark-parse": "11.0.0",
-    "unified": "11.0.5",
-    "unist-util-visit": "5.0.0",
-    "unist-util-visit-parents": "6.0.2",
-    "yaml": "2.8.2",
-    "zod": "4.6.7"
+    "dev": "STILL_NOTES_LAUNCH_DIRECTORY=\"$(pwd)\" turbo run dev --filter=@still-notes/desktop",
+    "start": "STILL_NOTES_LAUNCH_DIRECTORY=\"$(pwd)\" bun run --filter @still-notes/desktop start",
+    "build": "turbo run build --filter=@still-notes/desktop",
+    "build:native": "bun run --filter @still-notes/desktop build:native",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format:check": "turbo run format:check && bun fmt --no-script --check package.json tsconfig.json turbo.json bun-toolchain.json bunfig.toml README.md QA.md LICENSE.md",
+    "format:write": "turbo run format:write && bun fmt --no-script package.json tsconfig.json turbo.json bun-toolchain.json bunfig.toml README.md QA.md LICENSE.md",
+    "typecheck": "turbo run typecheck",
+    "test:store": "bun run --filter @still-notes/desktop test:store",
+    "test:native": "bun run --filter @still-notes/desktop test:native"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/mdast": "4.0.4",
-    "@types/react": "^19.2.0",
-    "@yopem/eslint-plugin": "^0.1.0",
+    "@yopem/eslint-plugin": "0.1.0",
     "@yopem/oxfmt-config": "0.0.11",
     "@yopem/oxlint-config": "0.7.1",
     "@yopem/typescript-config": "0.2.5",
-    "eslint-plugin-oxfmt": "^0.31.0",
-    "oxfmt": "latest",
-    "oxlint": "latest",
-    "typescript": "^5.9.3"
-  }
+    "bun": "1.4.4-canary.20261104.1",
+    "eslint-plugin-oxfmt": "0.26.0",
+    "turbo": "2.11.10"
+  },
+  "engines": {
+    "bun": "1.4.4"
+  },
+  "packageManager": "bun@1.4.4-canary.20261104.1",
+  "trustedDependencies": [
+    "bun"
+  ]
 }

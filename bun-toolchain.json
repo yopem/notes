@@ -1,0 +1,7 @@
+{
+  "packageVersion": "1.4.4-canary.20261104.1",
+  "version": "1.4.4",
+  "revision": "b9f2ec36352060f6b976508fa93d54bf8d5d978f",
+  "typescript": "7.0.2",
+  "linuxX64Image": "oven/bun@sha256:9e2fce34b811df0f2c6bbc9a4b9bb7deec5ed741879c27291504cbb5fd94431b"
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [
+    "bun.lock",
+    "bunfig.toml",
+    "tsconfig.json",
+    "bun-toolchain.json",
+    "package.json"
+  ],
+  "tasks": {
+    "dev": {
+      "persistent": true,
+      "cache": false,
+      "passThroughEnv": ["*"]
+    },
+    "build": {
+      "cache": false,
+      "outputs": ["dist/**"],
+      "passThroughEnv": ["*"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"],
+      "outputs": []
+    },
+    "lint:fix": {
+      "cache": false
+    },
+    "format:check": {
+      "outputs": []
+    },
+    "format:write": {
+      "cache": false
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "outputs": []
+    }
+  }
+}

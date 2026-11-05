@@ -1,0 +1,12 @@
+{
+  "extends": ["../../tsconfig.json", "@yopem/typescript-config/react"],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@gpuix/react",
+    "types": ["bun", "react"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "tests", "scripts"]
+}

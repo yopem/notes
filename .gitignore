@@ -3,4 +3,6 @@ dist/
 bundle/
 docs/
 .taste-skill/
+.turbo/
+apps/desktop/native/*.node
 *.log

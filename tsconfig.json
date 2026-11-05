@@ -1,11 +1,7 @@
 {
-  "extends": "@yopem/typescript-config/react",
+  "extends": "@yopem/typescript-config/base",
   "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "@gpuix/react",
-    "noUncheckedIndexedAccess": true,
-    "types": ["bun", "react"],
-    "paths": { "@/*": ["./src/*"] }
+    "noUncheckedIndexedAccess": true
   },
-  "include": ["src", "tests", "scripts", "oxlint.config.ts"]
+  "files": []
 }

@@ -1,0 +1,693 @@
+import { afterEach, describe, expect, test } from "bun:test"
+import { spawn, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { once } from "node:events"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
+
+import { Vault } from "@/features/vault/service"
+
+/*
+ * Contract defined before implementation. Reference evidence:
+ * main/vault.ts:1693-1735 layout; 2950-3035 filename titles and raw bodies;
+ * 3347-3367 append separators; 3751-3828 mirrored lifecycle paths;
+ * 3995-4101 persistent attachment restore; 4107-4295 folder lifecycle.
+ * bridge-contract/src/bridge.ts:412-506 defines filesystem operations.
+ * bridge-contract/src/ipc.ts:739-785 defines note metadata and raw bodies.
+ * main/note-creation-metadata.ts:94-130 preserves creation time across saves.
+ * shared-domain/src/frontmatter.ts defines flat fields and tag lists.
+ * app-core/src/browse.ts:250-270 consumes separate pin state.
+ * Titles use filenames; note bodies retain frontmatter. Archive/trash retain
+ * subpaths; attachments retain restore metadata. Pins are not inferred YAML.
+ * Safety extensions: exact origin restore, non-destructive imports, explicit
+ * delete guards, expected-content writes, and rollback journals.
+ * Limits: no link rewriting, system-folder remapping, full YAML, legacy
+ * migration, UI integration, or cross-platform runtime verification.
+ * Safety cases: traversal, symlinks, dotfiles, collisions, malformed metadata,
+ * interrupted writes, external conflicts, Unicode, restart, and process locks.
+ * Run: bun test tests/vault.test.ts. All files use temporary directories.
+ */
+const roots: string[] = []
+
+const vaults: Vault[] = []
+
+function root() {
+  const directory = mkdtempSync(join(tmpdir(), "still-vault-test-"))
+  roots.push(directory)
+
+  return directory
+}
+
+function open(
+  directory = root(),
+  primaryNotesLocation: "inbox" | "root" = "inbox",
+) {
+  const vault = new Vault(directory, { primaryNotesLocation })
+  vaults.push(vault)
+
+  return vault
+}
+
+function hash(content: string) {
+  return createHash("sha256").update(content).digest("hex")
+}
+
+afterEach(() => {
+  for (const vault of vaults.splice(0)) vault.close()
+
+  for (const directory of roots.splice(0))
+    rmSync(directory, { recursive: true, force: true })
+})
+
+describe("native Markdown vault", () => {
+  test("creates layout without seeding or moving unknown existing files", () => {
+    const directory = root()
+    writeFileSync(join(directory, "loose.bin"), "keep")
+    mkdirSync(join(directory, ".private"))
+    writeFileSync(join(directory, ".private", "hidden.md"), "secret")
+    const vault = open(directory)
+    expect(vault.listNotes()).toEqual([])
+    expect(readFileSync(join(directory, "loose.bin"), "utf8")).toBe("keep")
+    expect(existsSync(join(directory, ".private", "hidden.md"))).toBe(true)
+
+    for (const name of [
+      "inbox",
+      "quick",
+      "archive",
+      "trash",
+      "assets",
+      ".still-notes",
+    ])
+      expect(existsSync(join(directory, name))).toBe(true)
+  })
+  test("root primary and nested folder IDs remain vault-relative POSIX", () => {
+    const vault = open(root(), "root")
+    expect(vault.createFolder("inbox", "Work/研究").path).toBe("Work/研究")
+    const note = vault.createNote("inbox", "Café 😀", "Work/研究")
+    expect(note.path).toBe("Work/研究/Café 😀.md")
+    expect(note.id).toBe(note.path)
+    expect(note.body).toBe("# Café 😀\n\n")
+    expect(vault.createNote("quick", "Quick").path).toBe("quick/Quick.md")
+    expect(
+      vault.listFolders().some((folder) => folder.path === "Work/研究"),
+    ).toBe(true)
+    expect(vault.listNotes()).toHaveLength(2)
+  })
+  test("metadata uses filename, raw frontmatter, tags excluding code, stable creation and persisted pins", () => {
+    const directory = root()
+    let vault = open(directory)
+
+    const body =
+      "---\ntitle: Not filename\ntags:\n  - Alpha\n  - '#beta'\npinned: true\n---\n# Heading\n#日本語 #Alpha\n`#skip`\n  ```md\n#hidden\n  ```\n"
+
+    const note = vault.createNote("inbox", "Filename", "", body)
+    expect(note.title).toBe("Filename")
+    expect(note.frontmatter.title).toBe("Not filename")
+    expect(note.tags).toEqual(["Alpha", "beta", "日本語"])
+    expect(note.pinned).toBe(false)
+    vault.setPinned(note.path, true)
+
+    const written = vault.writeNote(note.path, body + "tail", {
+      expectedHash: note.hash,
+    })
+
+    expect(written.createdAt).toBe(note.createdAt)
+    expect(written.updatedAt).toBeGreaterThanOrEqual(note.updatedAt)
+    vault.close()
+    vault = open(directory)
+    expect(vault.readNote(note.path).pinned).toBe(true)
+    expect(vault.readNote(note.path).createdAt).toBe(note.createdAt)
+  })
+  test("write conflicts retain caller draft and disk bytes; explicit checks detect deletion", () => {
+    const vault = open()
+    const note = vault.createNote("inbox", "Conflict")
+    writeFileSync(join(vault.root, note.path), "external")
+    const draft = "pending draft"
+    expect(() =>
+      vault.writeNote(note.path, draft, { expectedContent: note.body }),
+    ).toThrow(/conflict/i)
+
+    const change = vault.checkExternalChange(
+      note.path,
+      { expectedHash: note.hash },
+      draft,
+    )
+
+    expect(change.changed).toBe(true)
+    expect(change.pendingContent).toBe(draft)
+    expect(change.disk?.body).toBe("external")
+    rmSync(join(vault.root, note.path))
+    expect(
+      vault.checkExternalChange(note.path, { expectedHash: note.hash }).deleted,
+    ).toBe(true)
+    expect(() =>
+      vault.writeNote(note.path, draft, { expectedHash: note.hash }),
+    ).toThrow()
+  })
+  test("append start/end respects separators and empty additions", () => {
+    const vault = open()
+    let note = vault.createNote("inbox", "Append", "", "body")
+    note = vault.appendToNote(note.path, " end  ", "end", {
+      expectedHash: note.hash,
+    })
+    expect(note.body).toBe("body\n\n end\n")
+    note = vault.appendToNote(note.path, "start", "start", {
+      expectedHash: note.hash,
+    })
+    expect(note.body).toBe("start\n\nbody\n\n end\n")
+    expect(
+      vault.appendToNote(note.path, "  ", "end", { expectedHash: note.hash })
+        .body,
+    ).toBe(note.body)
+  })
+  test("note lifecycle preserves exact origin through archive, trash, restart and collision", () => {
+    const directory = root()
+    let vault = open(directory)
+    let note = vault.createNote("quick", "Life", "nested", "payload")
+    const created = note.createdAt
+    note = vault.renameNote(note.path, "Renamed")
+    note = vault.archiveNote(note.path)
+    expect(note.path).toBe("archive/nested/Renamed.md")
+    note = vault.moveToTrash(note.path)
+    expect(note.path).toBe("trash/nested/Renamed.md")
+    vault.close()
+    vault = open(directory)
+    note = vault.restoreFromTrash(note.path)
+    expect(note.path).toBe("archive/nested/Renamed.md")
+    note = vault.unarchiveNote(note.path)
+    expect(note.path).toBe("quick/nested/Renamed.md")
+    expect(note.createdAt).toBe(created)
+    expect(note.body).toBe("payload")
+    const copy = vault.duplicateNote(note.path)
+    expect(copy.path).toBe("quick/nested/Renamed copy.md")
+    expect(copy.pinned).toBe(false)
+    vault.createNote("inbox", "Renamed", "target")
+    note = vault.moveNote(note.path, "inbox", "target")
+    expect(note.path).toBe("inbox/target/Renamed 2.md")
+    expect(() => vault.deleteNote(note.path, { confirm: true })).toThrow(
+      /trash/i,
+    )
+    note = vault.moveToTrash(note.path)
+    expect(() => vault.deleteNote(note.path, { confirm: false })).toThrow()
+    vault.deleteNote(note.path, { confirm: true })
+    expect(existsSync(join(directory, note.path))).toBe(false)
+  })
+  test("folder rename and duplicate preserve nested Markdown and hidden data; delete refuses unknown data", () => {
+    const vault = open()
+    vault.createNote("inbox", "Nested", "A/B", "exact")
+    mkdirSync(join(vault.root, "inbox/A/.hidden"))
+    writeFileSync(join(vault.root, "inbox/A/.hidden/keep"), "private")
+    expect(vault.renameFolder("inbox", "A", "Moved").path).toBe("inbox/Moved")
+    expect(vault.readNote("inbox/Moved/B/Nested.md").body).toBe("exact")
+    expect(vault.duplicateFolder("inbox", "Moved").path).toBe(
+      "inbox/Moved copy",
+    )
+    expect(
+      readFileSync(join(vault.root, "inbox/Moved copy/.hidden/keep"), "utf8"),
+    ).toBe("private")
+    expect(() =>
+      vault.deleteFolder("inbox", "Moved", { confirm: true }),
+    ).toThrow(/unknown|hidden/i)
+    expect(() => vault.renameFolder("inbox", "Moved", "Moved/inside")).toThrow()
+    expect(() => vault.renameFolder("inbox", "Moved", "Moved copy")).toThrow()
+    vault.createNote("inbox", "Delete", "Clean/Sub")
+    vault.deleteFolder("inbox", "Clean", { confirm: true })
+    expect(existsSync(join(vault.root, "inbox/Clean"))).toBe(false)
+    expect(() => vault.deleteFolder("inbox", "", { confirm: true })).toThrow()
+  })
+  test("empty trash deletes Markdown only, preserves unknown files and hidden folders", () => {
+    const vault = open()
+    vault.moveToTrash(vault.createNote("inbox", "Gone", "sub").path)
+    writeFileSync(join(vault.root, "trash/unknown.bin"), "keep")
+    mkdirSync(join(vault.root, "trash/.ignored"))
+    writeFileSync(join(vault.root, "trash/.ignored/private.md"), "keep")
+    expect(() => vault.emptyTrash({ confirm: false })).toThrow()
+    expect(vault.emptyTrash({ confirm: true }).deleted).toHaveLength(1)
+    expect(readFileSync(join(vault.root, "trash/unknown.bin"), "utf8")).toBe(
+      "keep",
+    )
+    expect(existsSync(join(vault.root, "trash/.ignored/private.md"))).toBe(true)
+  })
+  test("attachments support binary import, text limits, moves, restore metadata and guarded purge", () => {
+    const directory = root()
+    const source = join(root(), "résumé.txt")
+    writeFileSync(source, "日本語\n")
+    let vault = open(directory)
+    let asset = vault.importAsset(source)
+    expect(asset.path).toBe("assets/résumé.txt")
+    expect(existsSync(source)).toBe(true)
+    expect(vault.readAssetText(asset.path, 64)).toBe("日本語\n")
+    expect(() => vault.readAssetText(asset.path, 2)).toThrow(/limit/i)
+    asset = vault.writeAsset(asset.path, new TextEncoder().encode("updated"), {
+      expectedHash: asset.hash,
+    })
+    asset = vault.renameAsset(asset.path, "new.txt")
+    asset = vault.moveAsset(asset.path, "assets/deep")
+    expect(vault.duplicateAsset(asset.path).path).toBe(
+      "assets/deep/new copy.txt",
+    )
+    const deleted = vault.deleteAsset(asset.path)
+    vault.close()
+    vault = open(directory)
+    expect(vault.listDeletedAssets()).toEqual([deleted])
+    expect(vault.restoreDeletedAsset(deleted.undoToken).path).toBe(
+      "assets/deep/new.txt",
+    )
+    const binary = vault.createAsset("image.png", Uint8Array.from([255, 0, 1]))
+    expect(vault.readAsset(binary.path)).toEqual(Uint8Array.from([255, 0, 1]))
+    expect(() => vault.readAssetText(binary.path)).toThrow(/UTF-8|text/i)
+    const removed = vault.deleteAsset(binary.path)
+    expect(() =>
+      vault.purgeDeletedAsset(removed.undoToken, { confirm: false }),
+    ).toThrow()
+    vault.purgeDeletedAsset(removed.undoToken, { confirm: true })
+    expect(vault.listAssets()).toHaveLength(2)
+    expect(vault.emptyDeletedAssets({ confirm: true }).deleted).toEqual([])
+  })
+  test("collisions never overwrite or follow dangling links", () => {
+    const vault = open()
+    const a = vault.createNote("inbox", "Same", "", "one")
+    const b = vault.createNote("inbox", "Same", "", "two")
+    expect(b.path).toBe("inbox/Same 2.md")
+    expect(() => vault.renameNote(b.path, "Same")).toThrow(/exist|collision/i)
+    symlinkSync(join(root(), "missing"), join(vault.root, "inbox/Dangling.md"))
+    expect(vault.createNote("inbox", "Dangling").path).toBe(
+      "inbox/Dangling 2.md",
+    )
+    expect(vault.readNote(a.path).body).toBe("one")
+    expect(vault.createAsset("data.bin", Uint8Array.of(1)).path).toBe(
+      "assets/data.bin",
+    )
+    expect(vault.createAsset("data.bin", Uint8Array.of(2)).path).toBe(
+      "assets/data 2.bin",
+    )
+  })
+
+  for (const value of [
+    "../escape",
+    "/absolute",
+    "a/../b",
+    "a//b",
+    "a\\b",
+    ".hidden",
+    "a/.hidden",
+    "a\u0000b",
+    "C:escape",
+    "a/.",
+    "a ",
+    "a/%2f",
+  ]) {
+    test(`rejects unsafe path ${JSON.stringify(value)}`, () => {
+      const vault = open()
+      expect(() => vault.createFolder("inbox", value)).toThrow()
+      expect(() => vault.readNote(value)).toThrow()
+      expect(() => vault.createAsset(value, Uint8Array.of(1))).toThrow()
+    })
+  }
+
+  test("symlink files, parents, sidecars and root replacements cannot redirect access", () => {
+    const directory = root()
+    const outside = root()
+    writeFileSync(join(outside, "outside.md"), "safe")
+    const vault = open(directory)
+    symlinkSync(outside, join(directory, "inbox/link"))
+    symlinkSync(join(outside, "outside.md"), join(directory, "inbox/link.md"))
+    expect(() => vault.readNote("inbox/link.md")).toThrow(/symlink/i)
+    expect(() => vault.createNote("inbox", "outside", "link")).toThrow(
+      /symlink/i,
+    )
+    expect(vault.listNotes()).toEqual([])
+    expect(() => vault.duplicateFolder("inbox", "link")).toThrow()
+    vault.close()
+    rmSync(join(directory, ".still-notes"), { recursive: true })
+    symlinkSync(outside, join(directory, ".still-notes"))
+    expect(() => open(directory)).toThrow(/symlink/i)
+    expect(readFileSync(join(outside, "outside.md"), "utf8")).toBe("safe")
+  })
+  test("bounded reads reject malformed UTF8 and binary text without changing files", () => {
+    const vault = open()
+    writeFileSync(join(vault.root, "inbox/bad.md"), Uint8Array.of(255))
+    expect(() => vault.readNote("inbox/bad.md")).toThrow(/UTF-8/i)
+    writeFileSync(
+      join(vault.root, "inbox/large.md"),
+      "x".repeat(2 * 1024 * 1024 + 1),
+    )
+    expect(() => vault.readNote("inbox/large.md")).toThrow(/limit/i)
+    expect(() => vault.createNote("inbox", "Bad", "", "\u0000")).toThrow(
+      /text/i,
+    )
+  })
+  test("malformed metadata fails closed, remains untouched, and releases failed-open lock", () => {
+    const directory = root()
+    const vault = open(directory)
+    vault.createNote("inbox", "Keep", "", "payload")
+    vault.close()
+    writeFileSync(join(directory, ".still-notes/state.json"), "broken")
+    expect(() => open(directory)).toThrow(/metadata/i)
+    expect(
+      readFileSync(join(directory, ".still-notes/state.json"), "utf8"),
+    ).toBe("broken")
+    expect(readFileSync(join(directory, "inbox/Keep.md"), "utf8")).toBe(
+      "payload",
+    )
+    expect(existsSync(join(directory, ".still-notes/vault.lock"))).toBe(false)
+  })
+  test("schema-invalid metadata and attachment restore paths never authorize filesystem access", () => {
+    const directory = root()
+    const vault = open(directory)
+    const note = vault.createNote("inbox", "Keep", "", "saved")
+    const asset = vault.createAsset("keep.bin", Uint8Array.of(1, 2))
+    vault.close()
+
+    const valid = {
+      version: 1,
+      primaryNotesLocation: "inbox",
+      notes: {},
+      deletedAssets: {},
+    }
+
+    const token = "12345678-1234-4234-8234-123456789012"
+
+    const states = [
+      { ...valid, version: 2 },
+      { ...valid, notes: { [note.path]: { createdAt: -1, pinned: false } } },
+      {
+        ...valid,
+        notes: {
+          [note.path]: {
+            createdAt: 1,
+            pinned: false,
+            trashFrom: "../escape.md",
+          },
+        },
+      },
+      {
+        ...valid,
+        deletedAssets: {
+          [token]: {
+            path: "../escape.bin",
+            name: "escape.bin",
+            undoToken: token,
+            deletedAt: "2026-01-01T00:00:00.000Z",
+          },
+        },
+      },
+    ]
+
+    for (const state of states) {
+      const bytes = JSON.stringify(state)
+      writeFileSync(join(directory, ".still-notes/state.json"), bytes)
+      expect(() => open(directory)).toThrow(/metadata/i)
+      expect(
+        readFileSync(join(directory, ".still-notes/state.json"), "utf8"),
+      ).toBe(bytes)
+      expect(readFileSync(join(directory, note.path), "utf8")).toBe("saved")
+      expect(readFileSync(join(directory, asset.path))).toEqual(
+        Buffer.from([1, 2]),
+      )
+    }
+  })
+  test("metadata failures before writes preserve original and pending content", () => {
+    const vault = open()
+    const note = vault.createNote("inbox", "Keep", "", "old")
+    writeFileSync(
+      join(vault.root, ".still-notes/state.json"),
+      "external corruption",
+    )
+    expect(() =>
+      vault.writeNote(note.path, "draft", { expectedHash: note.hash }),
+    ).toThrow(/metadata|external/i)
+    expect(readFileSync(join(vault.root, note.path), "utf8")).toBe("old")
+  })
+  test("interrupted journal rolls back on restart, leaving unrelated temporary files untouched", () => {
+    const directory = root()
+    const vault = open(directory)
+    const note = vault.createNote("inbox", "Interrupted", "", "before")
+    vault.close()
+
+    const entry = {
+      path: note.path,
+      before: Buffer.from("before").toString("base64"),
+      after: Buffer.from("after").toString("base64"),
+    }
+
+    writeFileSync(
+      join(directory, ".still-notes/transaction.json"),
+      JSON.stringify({ version: 1, files: [entry], directories: [] }),
+    )
+    writeFileSync(join(directory, note.path), "after")
+    writeFileSync(join(directory, "inbox/.unknown.tmp"), "leave")
+    const reopened = open(directory)
+    expect(reopened.readNote(note.path).body).toBe("before")
+    expect(readFileSync(join(directory, "inbox/.unknown.tmp"), "utf8")).toBe(
+      "leave",
+    )
+    expect(existsSync(join(directory, ".still-notes/transaction.json"))).toBe(
+      false,
+    )
+  })
+  test("recovery conflict and malformed journal preserve all evidence", () => {
+    const directory = root()
+    open(directory).close()
+    writeFileSync(join(directory, "inbox/A.md"), "third party")
+
+    const journal = JSON.stringify({
+      version: 1,
+      files: [
+        {
+          path: "inbox/A.md",
+          before: Buffer.from("old").toString("base64"),
+          after: Buffer.from("new").toString("base64"),
+        },
+      ],
+      directories: [],
+    })
+
+    writeFileSync(join(directory, ".still-notes/transaction.json"), journal)
+    expect(() => open(directory)).toThrow(/recovery|conflict/i)
+    expect(readFileSync(join(directory, "inbox/A.md"), "utf8")).toBe(
+      "third party",
+    )
+    expect(
+      readFileSync(join(directory, ".still-notes/transaction.json"), "utf8"),
+    ).toBe(journal)
+    writeFileSync(join(directory, ".still-notes/transaction.json"), "bad")
+    expect(() => open(directory)).toThrow(/journal|recovery/i)
+  })
+  test("attachment restore collisions and unknown token files retain independent bytes", () => {
+    const vault = open()
+    const asset = vault.createAsset("restore.txt", Buffer.from("old"))
+    expect(() =>
+      vault.writeAsset(asset.path, Buffer.from("draft"), {
+        expectedHash: hash("wrong"),
+      }),
+    ).toThrow(/conflict/i)
+    const deleted = vault.deleteAsset(asset.path)
+    vault.createAsset("restore.txt", Buffer.from("new"))
+
+    const unknown = join(
+      vault.root,
+      ".still-notes/deleted-assets",
+      deleted.undoToken,
+      "unknown.bin",
+    )
+
+    writeFileSync(unknown, "preserve")
+    const restored = vault.restoreDeletedAsset(deleted.undoToken)
+    expect(restored.path).toBe("assets/restore 2.txt")
+    expect(vault.readAssetText(restored.path)).toBe("old")
+    expect(vault.readAssetText(asset.path)).toBe("new")
+    expect(readFileSync(unknown, "utf8")).toBe("preserve")
+    expect(() => vault.restoreDeletedAsset("../escape")).toThrow()
+    const next = vault.deleteAsset(restored.path)
+    expect(vault.emptyDeletedAssets({ confirm: true }).deleted).toEqual([
+      next.undoToken,
+    ])
+    expect(readFileSync(unknown, "utf8")).toBe("preserve")
+  })
+  test("same-process and child-process locks exclude writers; close blocks writes", () => {
+    const directory = root()
+    const vault = open(directory)
+    expect(() => open(directory)).toThrow(/lock/i)
+
+    const child = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `import { Vault } from ${JSON.stringify(resolve("src/services/vault.ts"))}; new Vault(${JSON.stringify(directory)});`,
+      ],
+      { cwd: resolve(".") },
+    )
+
+    expect(child.status).not.toBe(0)
+    expect(child.stderr.toString()).toMatch(/lock/i)
+    vault.close()
+    expect(() => vault.createNote("inbox", "Closed")).toThrow(/closed/i)
+    expect(open(directory).createNote("inbox", "Open").hash).toBe(
+      hash("# Open\n\n"),
+    )
+  })
+  test("failed move rolls back published target without touching unchanged read-only source", () => {
+    const vault = open()
+    const note = vault.createNote("inbox", "Protected", "locked", "original")
+    const directory = join(vault.root, "inbox/locked")
+    chmodSync(directory, 0o500)
+
+    try {
+      expect(() => vault.moveNote(note.path, "quick")).toThrow()
+      expect(readFileSync(join(vault.root, note.path), "utf8")).toBe("original")
+      expect(existsSync(join(vault.root, "quick/Protected.md"))).toBe(false)
+      expect(
+        existsSync(join(vault.root, ".still-notes/transaction.json")),
+      ).toBe(false)
+    } finally {
+      chmodSync(directory, 0o700)
+    }
+
+    expect(vault.moveNote(note.path, "quick").body).toBe("original")
+  })
+  test("crashed child lock recovers on restart without losing committed Markdown", () => {
+    const directory = root()
+
+    const child = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `import { Vault } from ${JSON.stringify(resolve("src/services/vault.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); vault.createNote("quick", "Crash", "", "committed"); process.kill(process.pid, "SIGKILL");`,
+      ],
+      { cwd: resolve(".") },
+    )
+
+    expect(child.signal).toBe("SIGKILL")
+    expect(existsSync(join(directory, ".still-notes/vault.lock"))).toBe(true)
+    const vault = open(directory)
+    expect(vault.readNote("quick/Crash.md").body).toBe("committed")
+    expect(vault.createNote("inbox", "After crash").path).toBe(
+      "inbox/After crash.md",
+    )
+  })
+  test("process interruption during atomic writes recovers complete bytes and metadata", async () => {
+    const directory = root()
+
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        `import { Vault } from ${JSON.stringify(resolve("src/services/vault.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); let note = vault.createNote("inbox", "Interrupted", "", "stable"); process.stdout.write("ready"); for (let revision = 0; revision < 200; revision++) note = vault.writeNote(note.path, "revision:" + revision + "\\n" + "x".repeat(1024 * 1024), { expectedHash: note.hash }); vault.close();`,
+      ],
+      { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] },
+    )
+
+    const exited = once(child, "exit")
+
+    try {
+      if (!child.stdout) throw new Error("Child stdout is required")
+      await once(child.stdout, "data")
+      const deadline = Date.now() + 5000
+
+      while (
+        !existsSync(join(directory, ".still-notes/transaction.json")) &&
+        Date.now() < deadline
+      )
+        await new Promise((done) => setTimeout(done, 1))
+      expect(existsSync(join(directory, ".still-notes/transaction.json"))).toBe(
+        true,
+      )
+      child.kill("SIGKILL")
+      await exited
+      const vault = open(directory)
+      const note = vault.readNote("inbox/Interrupted.md")
+      expect(
+        note.body === "stable" || /^revision:\d+\nx+$/.test(note.body),
+      ).toBe(true)
+      expect(
+        note.body === "stable"
+          ? note.size === 6
+          : note.body.split("\n")[1]?.length === 1024 * 1024,
+      ).toBe(true)
+      expect(note.hash).toBe(hash(note.body))
+      expect(existsSync(join(directory, ".still-notes/transaction.json"))).toBe(
+        false,
+      )
+      expect(
+        vault.writeNote(note.path, "recovered", { expectedHash: note.hash })
+          .body,
+      ).toBe("recovered")
+    } finally {
+      child.kill("SIGKILL")
+      await exited
+    }
+  }, 15000)
+  test("root replacement and unknown lock fail closed", () => {
+    const directory = root()
+    const vault = open(directory)
+    const held = join(root(), "held")
+    renameSync(directory, held)
+    symlinkSync(root(), directory)
+    expect(() => vault.createNote("inbox", "Escape")).toThrow(/symlink|root/i)
+    rmSync(directory)
+    renameSync(held, directory)
+    vault.close()
+    writeFileSync(join(directory, ".still-notes/vault.lock"), "unknown owner")
+    expect(() => open(directory)).toThrow(/lock/i)
+    expect(
+      readFileSync(join(directory, ".still-notes/vault.lock"), "utf8"),
+    ).toBe("unknown owner")
+  })
+  test("imports remain non-destructive and guarded writes preserve BOM and CRLF", () => {
+    const source = join(root(), "Imported.md")
+    const body = "\ufeff# Import\r\n\r\n日本語\r\n"
+    writeFileSync(source, body)
+    const vault = open()
+    const note = vault.importNote(source)
+    expect(note.body).toBe(body)
+    expect(readFileSync(source, "utf8")).toBe(body)
+    expect(
+      vault.writeNote(note.path, body + "tail", { expectedHash: note.hash })
+        .body,
+    ).toBe(body + "tail")
+    expect(vault.importNote(source).path).toBe("inbox/Imported 2.md")
+  })
+  test("real watcher receives external writes, nested creates, and unsubscribe stops events", async () => {
+    const vault = open()
+    const note = vault.createNote("inbox", "Watch")
+    const events: string[] = []
+
+    const unsubscribe = vault.subscribe((event) =>
+      events.push(event.path ?? "resync"),
+    )
+
+    writeFileSync(join(vault.root, note.path), "outside")
+    await new Promise((done) => setTimeout(done, 150))
+    expect(events.some((path) => path === note.path || path === "resync")).toBe(
+      true,
+    )
+    mkdirSync(join(vault.root, "inbox/new"))
+    await new Promise((done) => setTimeout(done, 100))
+    writeFileSync(join(vault.root, "inbox/new/Child.md"), "nested")
+    await new Promise((done) => setTimeout(done, 150))
+    expect(
+      events.some((path) => path.includes("new") || path === "resync"),
+    ).toBe(true)
+    unsubscribe()
+    const count = events.length
+    writeFileSync(join(vault.root, note.path), "stopped")
+    await new Promise((done) => setTimeout(done, 100))
+    expect(events).toHaveLength(count)
+    expect(readdirSync(join(vault.root, ".still-notes"))).not.toContain(
+      "transaction.json",
+    )
+  })
+})

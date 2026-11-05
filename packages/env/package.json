@@ -1,0 +1,22 @@
+{
+  "name": "@still-notes/env",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts"
+  },
+  "scripts": {
+    "lint": "bun lint --no-script",
+    "lint:fix": "bun lint --no-script --fix",
+    "format:check": "bun fmt --no-script --check",
+    "format:write": "bun fmt --no-script",
+    "typecheck": "bun check --no-script -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@still-notes/notes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./markdown": "./src/markdown.ts"
+  },
+  "scripts": {
+    "lint": "bun lint --no-script",
+    "lint:fix": "bun lint --no-script --fix",
+    "format:check": "bun fmt --no-script --check",
+    "format:write": "bun fmt --no-script",
+    "typecheck": "bun check --no-script -p tsconfig.json",
+    "test:markdown": "bun test src/markdown.test.ts"
+  },
+  "dependencies": {
+    "mdast-util-to-string": "4.0.0",
+    "remark-frontmatter": "5.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5",
+    "unist-util-visit": "5.0.0",
+    "unist-util-visit-parents": "6.0.2",
+    "yaml": "2.8.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "@types/mdast": "4.0.4"
+  }
+}
