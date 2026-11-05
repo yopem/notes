@@ -435,6 +435,7 @@ synchronous calculations in ordinary TypeScript.
     directory after its evidence is reviewed. Do not touch personal data.
   - **Status:** Pending. The named core tests passed with 81 tests and 343
     assertions. Scoped core lint passed with zero warnings. Native QA reached
-    screenshot capture, but `grim -T` exited with SIGSEGV. Draft recovery and
-    restart remain unrun. The existing user app was not stopped or captured.
-    Resolve client-only capture before rerunning the native cases.
+    the welcome screen. Its saved automation tree shows the test workspace, but
+    `grim -T` exited with SIGSEGV. Draft recovery and restart remain unrun. The
+    existing user app was not stopped or captured. Resolve client-only capture
+    before rerunning the native cases.
