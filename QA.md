@@ -57,6 +57,7 @@ data.
 | Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025, QA-032, QA-033, QA-034 |
 | Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                                                 |
 | Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                                         |
+| Note duplication and unsaved-draft safety                    | QA-038, QA-039                                                                 |
 | Reactive system appearance                                   | QA-022                                                                         |
 
 ## Storage and configuration
@@ -973,3 +974,47 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
   - **Status:** Pending. Source review found selected state on a button role is
     not valid for that role. Screenshot capture is blocked by QA-015.
+
+- [ ] **QA-038 — P1 — Duplicate a note in its notebook**
+  - **Purpose:** Create an independent copy with the same displayed content
+    while retaining the original note and notebook.
+  - **Prerequisites:** Shared isolated desktop setup and implemented duplicate
+    action. Use only the test-owned JSON workspace.
+  - **Inputs:** A pinned note `Plan` with body `First line Ω` and an existing
+    note `Plan copy` in the same notebook.
+  - **Steps:**
+    1. Select `Plan` and activate **Duplicate note** with the keyboard.
+    2. Inspect the selected copy, its notebook, title, body and pinned state.
+    3. Change the copy's body to `Copy only`, then reopen the original note.
+    4. Restart only the test app and inspect both notes again.
+  - **Expected results:** The new unpinned note is `Plan copy 2`, belongs to the
+    same notebook and initially has the exact body. Editing the copy does not
+    change the original. Both persist after restart. The action is not offered
+    for a trashed note.
+  - **Evidence:** Save sanitized app trees, client-only screenshots and the
+    isolated workspace snapshot in `docs/artifacts/duplication/QA-038/`.
+  - **Cleanup:** Stop the test app and remove only isolated data after review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-039 — P0 — Preserve a draft on duplicate failure**
+  - **Purpose:** A failed duplicate must not lose, clear, or falsely save the
+    original note's unsaved title or body.
+  - **Prerequisites:** Shared isolated desktop setup, implemented duplicate
+    action and the existing draft-conflict regression scenario.
+  - **Inputs:** The `Regression rescue` note and exact Unicode draft from
+    `apps/desktop/scripts/native-regressions.ts`; induce its workspace-byte
+    conflict before attempting to duplicate.
+  - **Steps:**
+    1. Follow the existing regression to create the pending draft and conflict.
+    2. Attempt **Duplicate note**, then inspect the error, list and draft.
+    3. Export the draft, restore the isolated workspace bytes, retry save and
+       duplicate it again.
+  - **Expected results:** The first duplicate fails visibly with no new note or
+    workspace write; the draft warning and exact title/body remain. Export has
+    the exact draft bytes without clearing it. After recovery, the copy has the
+    saved content and the original remains independently editable.
+  - **Evidence:** Save sanitized app tree, screenshots and isolated file hashes
+    under `docs/artifacts/duplication/QA-039/` with the tested revision.
+  - **Cleanup:** Restore only test-owned bytes, stop the test app and remove
+    isolated data after evidence review.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
