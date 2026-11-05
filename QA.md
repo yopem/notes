@@ -56,6 +56,7 @@ data.
 | Zero-warning lint and Effect migration                       | QA-013, QA-014, QA-015                                 |
 | Folder preview, editing, recovery and close safety           | QA-016, QA-018, QA-019, QA-020, QA-021, QA-024, QA-025 |
 | Assistant protocol, cancellation, privacy and frame limits   | QA-017, QA-023, QA-026, QA-027                         |
+| Persisted note ordering and draft safety                     | QA-028, QA-029, QA-030                                 |
 | Reactive system appearance                                   | QA-022                                                 |
 
 ## Storage and configuration
@@ -748,3 +749,78 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Close test-owned streams and child processes. Remove only
     disposable test data; no other cleanup is needed.
   - **Status:** Pending. The current limit applies before splitting a chunk.
+
+- [ ] **QA-028 — P1 — Persist note sorting across views**
+  - **Purpose:** Apply the saved note sort choice to the JSON workspace and
+    preserve selection and list stability while editing.
+  - **Prerequisites:** Shared isolated desktop setup, implemented sorting and
+    working client-only screenshots. Start with a new disposable workspace.
+  - **Inputs:** Create `Note 2`, `Note 10` and `Pinned note` in that order; pin
+    `Pinned note`. Change the first note after creating all three.
+  - **Steps:**
+    1. Open **Settings**, choose the navigation note sort order `name-asc`, and
+       inspect All notes. Choose `name-desc` and inspect the order again.
+    2. Select the first unpinned note, edit its title, and inspect the editor
+       identity and list order before changing the view.
+    3. Choose `created-asc`, `created-desc`, `updated-asc`, `updated-desc`, and
+       `none` in turn. Inspect the matching order in All notes, the owning
+       notebook, Pinned notes, Trash and an applicable search result.
+    4. Use the note-list sort control to reverse a sort direction; close and
+       restart only the test app and inspect the choice and order.
+  - **Expected results:** Pinned notes remain first. `Note 2` precedes `Note 10`
+    in ascending natural order. Each date direction follows the recorded created
+    or modified times. `none` uses workspace order. Editing does not switch the
+    selected note or unexpectedly reorder the current list. The changed choice
+    survives restart, and both controls report the same choice.
+  - **Evidence:** Save the test revision, settings file, sanitized app tree and
+    client-only screenshots under `docs/artifacts/sorting/QA-028/`; inspect the
+    displayed order and selected note.
+  - **Cleanup:** Stop only the test app and delete only its isolated data after
+    evidence inspection.
+  - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+    The current default setting is `none` but is not applied today.
+
+- [ ] **QA-029 — P0 — Keep failed drafts while changing sort**
+  - **Purpose:** Ensure ordering changes do not lose or silently save an unsaved
+    draft or replace the selected editor.
+  - **Prerequisites:** Shared isolated desktop setup, implemented sorting, and
+    the draft-rescue scenario in `apps/desktop/scripts/native-regressions.ts`.
+    Never use the normal workspace or another process's data.
+  - **Inputs:** Use the existing regression's `Regression rescue` note and exact
+    Unicode draft; induce its external workspace-byte conflict.
+  - **Steps:**
+    1. In the isolated test workspace, follow the existing regression to add a
+       newline to `workspace.json` and enter the unsaved draft.
+    2. Change sort, navigate away and back, and export the pending draft.
+    3. Restore the saved workspace bytes, select **Retry**, and inspect the
+       resulting note and exported file.
+  - **Expected results:** The draft warning stays visible until a successful
+    retry. Sorting never switches the editor to another note. Export contains
+    exact draft bytes and does not save or clear the draft; retry persists the
+    same text after the conflict is removed.
+  - **Evidence:** Save a sanitized app tree, screenshots, and hashes of the
+    isolated workspace and export in `docs/artifacts/sorting/QA-029/`.
+  - **Cleanup:** Restore the original bytes in the isolated workspace, stop only
+    the test app, and remove test data only after evidence review.
+  - **Status:** Pending implementation and blocked by QA-015 screenshot capture.
+
+- [ ] **QA-030 — P1 — Report a failed sort preference save**
+  - **Purpose:** Preserve the last committed ordering and report a settings
+    write conflict instead of displaying a choice that was not saved.
+  - **Prerequisites:** Shared isolated desktop setup, implemented sorting and no
+    second process using the test data. Keep the original settings bytes.
+  - **Inputs:** Append one newline to the isolated `settings.json` after the app
+    loads, then choose `name-asc` with the sort control.
+  - **Steps:**
+    1. Record the current sort selection and settings bytes in the test folder.
+    2. Append the newline and change the sort preference in the running app.
+    3. Inspect the error, displayed order and settings file. Restore the saved
+       settings bytes, retry the choice and restart the test app.
+  - **Expected results:** The conflict is visible; no external setting is
+    overwritten and the previous committed order remains active. After the bytes
+    are restored, the retry succeeds and the choice survives restart.
+  - **Evidence:** Save sanitized app tree, screenshots and hashes under
+    `docs/artifacts/sorting/QA-030/` and inspect them.
+  - **Cleanup:** Restore only the isolated settings file, stop the test app, and
+    remove test data after evidence review.
+  - **Status:** Pending implementation and blocked by QA-015 screenshot capture.
