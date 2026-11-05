@@ -449,3 +449,27 @@ synchronous calculations in ordinary TypeScript.
     shows the test workspace, but `grim -T` exited with SIGSEGV. Draft recovery
     and restart remain unrun. The existing user app was not stopped or captured.
     Resolve client-only capture before rerunning the native cases.
+
+- [ ] **QA-017 — P0 — MCP stdio cancellation and ordering**
+  - **Purpose:** Preserve the JSON-RPC protocol and release in-flight work when
+    stdio execution moves to Effect.
+  - **Prerequisites:** Shared setup and pinned Bun. Use only the in-memory
+    streams and disposable child-process data in the existing MCP test file.
+  - **Inputs:** `initialize`, `tools/call` for `read_note`, cancellation for the
+    same request ID, and existing invalid UTF-8 and oversized frame cases.
+  - **Steps:**
+    1. From `apps/desktop`, run
+       `../../node_modules/.bin/bun test tests/mcp.test.ts` after the stdio
+       migration is complete.
+    2. Inspect the cases for a request already running at cancellation, outer
+       interruption, output ordering and the existing invalid-frame assertions.
+    3. Confirm the child process and stream readers end after the test.
+  - **Expected results:** The named file passes without skipped assertions.
+    Cancellation reaches the in-flight adapter, scoped resources close, and each
+    response remains a complete JSON-RPC line in the expected order. Invalid
+    input cannot call the adapter. No real client config is modified.
+  - **Evidence:** `docs/artifacts/effect-migration/QA-017-mcp.txt`; save the
+    command, revision, runtime, test output and any sanitized failure details.
+  - **Cleanup:** Existing cases close their streams and child processes. Remove
+    only data created by those cases. No other cleanup is required.
+  - **Status:** Pending; stdio migration and test scenarios are in progress.
