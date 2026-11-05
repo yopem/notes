@@ -1,14 +1,18 @@
 import type { App } from "@gpuix/react/automation"
 
+import { Schema } from "effect"
 import assert from "node:assert/strict"
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { z } from "zod"
 
-const regressionWorkspaceSchema = z.object({
-  notes: z.array(
-    z.object({ id: z.string(), title: z.string(), body: z.string() }),
+const regressionWorkspaceSchema = Schema.Struct({
+  notes: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      body: Schema.String,
+    }),
   ),
 })
 
@@ -38,7 +42,7 @@ async function savedNoteIs(dataDirectory: string, title: string, body: string) {
   const path = join(dataDirectory, "workspace.json")
   const deadline = Date.now() + 5000
 
-  let workspace = regressionWorkspaceSchema.parse(
+  let workspace = Schema.decodeUnknownSync(regressionWorkspaceSchema)(
     JSON.parse(readFileSync(path, "utf8")),
   )
 
@@ -47,7 +51,7 @@ async function savedNoteIs(dataDirectory: string, title: string, body: string) {
     Date.now() < deadline
   ) {
     await Bun.sleep(16)
-    workspace = regressionWorkspaceSchema.parse(
+    workspace = Schema.decodeUnknownSync(regressionWorkspaceSchema)(
       JSON.parse(readFileSync(path, "utf8")),
     )
   }
@@ -270,7 +274,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await absent(app, "pending-drafts")
   await textIs(app, "save-status", "Saved locally")
 
-  const retried = regressionWorkspaceSchema.parse(
+  const retried = Schema.decodeUnknownSync(regressionWorkspaceSchema)(
     JSON.parse(readFileSync(workspacePath, "utf8")),
   )
 
