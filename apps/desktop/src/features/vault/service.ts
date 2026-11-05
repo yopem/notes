@@ -6,6 +6,7 @@ import {
   fstatSync,
   type FSWatcher,
   fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -655,23 +656,28 @@ export class Vault {
 
   private acquireLock() {
     const attempt = () => {
-      let fd: number
+      const temporary = this.safe(`${internal}/.vault.lock.${randomUUID()}.tmp`)
+      const fd = openSync(temporary, "wx", 0o600)
 
       try {
-        fd = openSync(this.safe(lockPath), "wx", 0o600)
-      } catch (error) {
-        if (Option.getOrUndefined(decodeError(error))?.code === "EEXIST")
-          return false
-        throw error
-      }
+        try {
+          writeFileSync(fd, JSON.stringify(this.owner))
+          fsyncSync(fd)
+        } finally {
+          closeSync(fd)
+        }
 
-      this.locked = true
+        try {
+          linkSync(temporary, this.safe(lockPath))
+        } catch (error) {
+          if (Option.getOrUndefined(decodeError(error))?.code === "EEXIST")
+            return false
+          throw error
+        }
 
-      try {
-        writeFileSync(fd, JSON.stringify(this.owner))
-        fsyncSync(fd)
+        this.locked = true
       } finally {
-        closeSync(fd)
+        unlinkSync(temporary)
       }
 
       syncDirectory(this.safe(internal))
