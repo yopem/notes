@@ -168,6 +168,7 @@ describe("NotesStore real disk integration", () => {
       store.setTheme("dark"),
       store.importMarkdown([join(root, "missing.md")]),
       store.exportMarkdown(note.id, output),
+      store.recoverWrite(),
     ]
 
     expect(operations.every(Effect.isEffect)).toBe(true)
@@ -185,6 +186,60 @@ describe("NotesStore real disk integration", () => {
       expect(error.message).toMatch(/closed/i)
       expect(error.cause).toBeInstanceOf(Error)
     }
+  })
+
+  test("write recovery is a bound ready state and a deferred no-op without pending writes", () => {
+    const root = directory()
+    const store = open(root)
+    const before = store.getSnapshot()
+    const bytes = readFileSync(primary(root))
+    const getWriteRecoveryState = store.getWriteRecoveryState
+    let notifications = 0
+    store.subscribe(() => {
+      notifications += 1
+    })
+
+    expect(getWriteRecoveryState()).toBe("ready")
+    expect(store.getWriteRecoveryState).toBe(getWriteRecoveryState)
+    const recovery = store.recoverWrite()
+    expect(Effect.isEffect(recovery)).toBe(true)
+    expect(notifications).toBe(0)
+    expect(Effect.runSync(recovery)).toBeUndefined()
+    expect(Effect.runSync(recovery)).toBeUndefined()
+    expect(getWriteRecoveryState()).toBe("ready")
+    expect(store.getSnapshot()).toBe(before)
+    expect(readFileSync(primary(root))).toEqual(bytes)
+    expect(existsSync(backup(root))).toBe(false)
+    expect(notifications).toBe(0)
+
+    store.close()
+    const error = Effect.runSync(Effect.flip(recovery))
+    expect(error).toBeInstanceOf(NotesError)
+    expect(error.operation).toBe("recoverWrite")
+    expect(error.message).toMatch(/closed/i)
+  })
+
+  test("pre-replacement failures leave recovery ready and preserve draft export", () => {
+    const root = directory()
+    const store = open(root)
+    const before = store.getSnapshot()
+    const bytes = readFileSync(primary(root))
+    mkdirSync(backup(root))
+    const error = Effect.runSync(
+      Effect.flip(store.updateNote(before.selectedNoteId ?? "", { body: "Unsaved Ω" })),
+    )
+    expect(error).toBeInstanceOf(NotesError)
+    expect(store.getWriteRecoveryState()).toBe("ready")
+    expect(store.getSnapshot()).toBe(before)
+    expect(readFileSync(primary(root))).toEqual(bytes)
+    expect(Effect.runSync(store.recoverWrite())).toBeUndefined()
+    const exported = Effect.runSync(
+      store.exportMarkdown(before.selectedNoteId ?? "", join(root, "exports"), {
+        body: "Unsaved Ω",
+      }),
+    )
+    expect(readFileSync(exported, "utf8")).toBe("Unsaved Ω")
+    expect(readFileSync(primary(root))).toEqual(bytes)
   })
 
   test("the Notes layer defers acquisition and releases its lock on success", () => {
