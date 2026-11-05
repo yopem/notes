@@ -271,6 +271,32 @@ test("removes the close handler when native arming fails", function failedCloseA
   binding.detach()
 })
 
+test("rejects arming after an unguarded close starts", function closeAlreadyStarted() {
+  const native = {
+    applyBatch() {
+      return []
+    },
+    armCloseGuard() {
+      throw new Error("Window is closing")
+    },
+    closeWindow: unexpectedClose,
+  }
+
+  const dispatcher = createRendererState(native)
+  const binding = dispatcher.attach()
+
+  expect(function arm() {
+    createNativeCloseGuard(native, unexpectedClose)
+  }).toThrow("Window is closing")
+  expect(
+    dispatcher.dispatch({
+      elementId: binding.windowKeyEventId,
+      eventType: "windowCloseRequested",
+    }),
+  ).toBe(false)
+  binding.detach()
+})
+
 test("refuses to replace an active close handler", function duplicateCloseGuard() {
   let arms = 0
   let requests = 0
