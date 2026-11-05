@@ -14,6 +14,32 @@ index fac0b7513be093df518555c4e0dff25e1cb3ceb4..24c2c5251c16d3b7e89976f18a84ade8
  }
  
  export interface TextareaProps extends InputProps {
+diff --git a/packages/native/src/app_menu.rs b/packages/native/src/app_menu.rs
+index 9e22b1b3c5e9975439292e43dbd405363105d221..05612e888114d425ba443db6af4386bf469fd36e 100644
+--- a/packages/native/src/app_menu.rs
++++ b/packages/native/src/app_menu.rs
+@@ -40,7 +40,7 @@ gpui::actions!(
+ /// installs the menu bar. The window-level actions (`MinimizeWindow`,
+ /// `ZoomWindow`, `CloseWindow`) are handled by the root element in
+ /// `GpuixView::render`, which is the only place a `Window` exists.
+-pub(crate) fn init(app_name: &str, cx: &mut App) {
++pub(crate) fn init(app_name: &str, request_quit: impl Fn() -> bool + 'static, cx: &mut App) {
+     cx.bind_keys([
+         gpui::KeyBinding::new("cmd-q", Quit, None),
+         gpui::KeyBinding::new("cmd-h", Hide, None),
+@@ -49,7 +49,11 @@ pub(crate) fn init(app_name: &str, cx: &mut App) {
+         gpui::KeyBinding::new("cmd-w", CloseWindow, None),
+     ]);
+
+-    cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
++    cx.on_action(move |_: &Quit, cx: &mut App| {
++        if request_quit() {
++            cx.quit();
++        }
++    });
+     cx.on_action(|_: &Hide, cx: &mut App| cx.hide());
+     cx.on_action(|_: &HideOthers, cx: &mut App| cx.hide_other_apps());
+     cx.on_action(|_: &ShowAll, cx: &mut App| cx.unhide_other_apps());
 diff --git a/packages/native/src/custom_elements/editor_protocol.rs b/packages/native/src/custom_elements/editor_protocol.rs
 new file mode 100644
 index 0000000000000000000000000000000000000000..da6f81e119a7dd6106f36389d8cae3b8ad890e3b
@@ -1337,7 +1363,7 @@ index c5f4fa1212554676217279fa2a3873c26c58a477..e8aa3bb2ea2c27284982e18beb404999
  // types instead of a copy that silently drifts from them.
  pub mod retained_tree;
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66ebec1720 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b946ab189 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -2092,7 +2118,23 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
  
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
-@@ -1274,9 +1909,18 @@ impl GpuixRenderer {
+@@ -1264,7 +1899,14 @@ impl GpuixRenderer {
+             if terminal {
+                 crate::custom_elements::input::init_terminal(cx);
+             } else {
+-                crate::app_menu::init(&app_name, cx);
++                let quit_guard = close_guard.clone();
++                let quit_owner = close_owner.clone();
++                let quit_callback = callback.clone();
++                crate::app_menu::init(
++                    &app_name,
++                    move || owned_close_should_close(&quit_guard, &quit_owner, &quit_callback),
++                    cx,
++                );
+             }
+             let bounds = gpui::Bounds::centered(
+                 None,
+@@ -1274,9 +1916,18 @@ impl GpuixRenderer {
  
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
@@ -2113,7 +2155,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
                      })
                  },
              ) {
-@@ -1377,6 +2021,8 @@ impl GpuixRenderer {
+@@ -1377,6 +2028,8 @@ impl GpuixRenderer {
          let tree = self.tree.clone();
          let selection = self.selection.clone();
          let callback = self.event_callback_for_view();
@@ -2122,7 +2164,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
          let (command_sender, command_receiver) = mpsc::unbounded();
          let (startup_sender, startup_receiver) = sync_channel(1);
          let exit_startup_sender = startup_sender.clone();
-@@ -1434,8 +2080,20 @@ impl GpuixRenderer {
+@@ -1434,8 +2087,20 @@ impl GpuixRenderer {
                              };
                              let window = match cx.open_window(
                                  to_gpui_window_options(&window_options, bounds),
@@ -2145,7 +2187,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
                                  },
                              ) {
                                  Ok(window) => window,
-@@ -1573,7 +2231,6 @@ impl GpuixRenderer {
+@@ -1573,7 +2238,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
  
@@ -2153,7 +2195,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2789,228 @@ impl GpuixRenderer {
+@@ -2132,6 +2796,228 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
@@ -2382,7 +2424,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      // ── Selection API ────────────────────────────────────────────────
  
      /// The current text selection joined in document order, or null.
-@@ -2467,14 +3346,95 @@ impl GpuixRenderer {
+@@ -2467,14 +3353,95 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
  
@@ -2484,7 +2526,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      }
  
      #[napi]
-@@ -3428,11 +4388,7 @@ impl WebGpuixRenderer {
+@@ -3428,11 +4395,7 @@ impl WebGpuixRenderer {
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
      pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
          notify_web();
@@ -2497,7 +2539,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      }
  
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
-@@ -3652,6 +4608,7 @@ pub(crate) struct GpuixView {
+@@ -3652,6 +4615,7 @@ pub(crate) struct GpuixView {
      pub(crate) window_key_event_id: u64,
      pub(crate) window_selection_change: bool,
      pub(crate) window_selection_event_id: u64,
@@ -2505,7 +2547,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      /// Last identity delivered through `selectionChange`. Only written once an
      /// event is really queued, so adding the listener later still reports.
      reported_selection: Option<u64>,
-@@ -3820,8 +4777,12 @@ pub(crate) fn emit_key_event(
+@@ -3820,8 +4784,12 @@ pub(crate) fn emit_key_event(
      });
  }
  
@@ -2520,7 +2562,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
  }
  
  fn window_key_events(
-@@ -3869,7 +4830,13 @@ fn window_key_events(
+@@ -3869,7 +4837,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -2535,7 +2577,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
                  }
              });
          },
-@@ -3957,6 +4924,34 @@ fn resolve_highlight(
+@@ -3957,6 +4931,34 @@ fn resolve_highlight(
  }
  
  impl GpuixView {
@@ -2570,7 +2612,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -3972,6 +4967,7 @@ impl GpuixView {
+@@ -3972,6 +4974,7 @@ impl GpuixView {
              window_key_event_id: 0,
              window_selection_change: false,
              window_selection_event_id: 0,
@@ -2578,7 +2620,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
              reported_selection: None,
              focus_handles: HashMap::new(),
              pending_focus_element: None,
-@@ -4041,10 +5037,8 @@ impl GpuixView {
+@@ -4041,10 +5044,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -2591,7 +2633,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
          self.set_live_image(id, image, window, cx)
      }
  
-@@ -4066,6 +5060,24 @@ impl GpuixView {
+@@ -4066,6 +5067,24 @@ impl GpuixView {
          Ok(())
      }
  
@@ -2616,7 +2658,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      pub(crate) fn scroll_element_into_view(&self, id: u64) -> bool {
          let Some((scroller_id, child_index)) = self.scroll_target(id) else {
              return false;
-@@ -4314,7 +5326,9 @@ impl GpuixView {
+@@ -4314,7 +5333,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -2627,7 +2669,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
              }
              current = parent_id;
          };
-@@ -4764,7 +5778,12 @@ impl VirtualListEntry {
+@@ -4764,7 +5785,12 @@ impl VirtualListEntry {
  }
  
  impl GpuixView {
@@ -2641,7 +2683,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -5188,7 +6207,7 @@ impl gpui::Render for GpuixView {
+@@ -5188,7 +6214,7 @@ impl gpui::Render for GpuixView {
              let drag_move_view = cx.weak_entity();
              let drag_end_view = drag_move_view.clone();
              let root = gpui::div().size_full();
@@ -2650,7 +2692,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
                  .child(window_key_events(
                      callback.clone(),
                      self.window_key_down,
-@@ -6731,10 +7750,7 @@ fn report_layout(
+@@ -6731,10 +7757,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -2662,7 +2704,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..d31daa1aa354c67eb11044ae0885aa66
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
-@@ -8329,3 +9345,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
+@@ -8329,3 +9352,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
      }
      Ok(())
  }
