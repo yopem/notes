@@ -153,7 +153,7 @@ describe("native link trust boundary", () => {
     expect(classifyLink("mailto:person@example.com").kind).toBe("external")
     expect(classifyLink("../notes/Idea.md#Plan").kind).toBe("internal")
     expect(classifyLink("#Plan").kind).toBe("internal")
-    expect(classifyLink("obsidian://open", ["obsidian"]).kind).toBe("external")
+    expect(classifyLink("custom://open", ["custom"]).kind).toBe("external")
   })
   test("blocks executable and file schemes even if included in custom list", () => {
     for (const target of [
