@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
 import { createRequire } from "node:module"
+import { isPromise } from "node:util/types"
 
 const require = createRequire(import.meta.url)
 
@@ -18,6 +19,7 @@ const bridge = Schema.decodeUnknownSync(
     editorCommand: Schema.instanceOf(Function),
     armCloseGuard: Schema.instanceOf(Function),
     closeWindow: Schema.instanceOf(Function),
+    registerFontsAsyncV1: Schema.instanceOf(Function),
   }),
 )(renderer)
 
@@ -63,4 +65,26 @@ test("built addon reaches the UI boundary without opening a window", function no
   expect(function command() {
     bridge.editorCommand.call(renderer, 1, '{"type":"getState"}')
   }).toThrow("not initialized")
+})
+
+test("built addon rejects an empty font batch asynchronously", async function emptyFontBatch() {
+  const reply: unknown = bridge.registerFontsAsyncV1.call(renderer, [])
+  expect(isPromise(reply)).toBe(true)
+  await expect(reply).rejects.toThrow("Invalid font batch count")
+})
+
+test("built addon rejects an empty font asynchronously", async function emptyFont() {
+  const reply: unknown = bridge.registerFontsAsyncV1.call(renderer, [
+    Buffer.alloc(0),
+  ])
+  expect(isPromise(reply)).toBe(true)
+  await expect(reply).rejects.toThrow("Invalid font batch size")
+})
+
+test("built addon rejects font work without a UI", async function unavailableFontUi() {
+  const reply: unknown = bridge.registerFontsAsyncV1.call(renderer, [
+    Buffer.from("Owned boundary input"),
+  ])
+  expect(isPromise(reply)).toBe(true)
+  await expect(reply).rejects.toThrow("not initialized")
 })
