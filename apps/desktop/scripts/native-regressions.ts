@@ -108,11 +108,13 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   await app.getByTestId("pin-note").click()
   await app.getByTestId("nav-pinned").click()
   await app.getByTestId("duplicate-note").press("enter")
+
   const duplicated = await savedNoteIs(
     dataDirectory,
     "Plan copy 2",
     "First line Ω",
   )
+
   const source = duplicated.notes.find((note) => note.title === "Plan")
   const copy = duplicated.notes.find((note) => note.title === "Plan copy 2")
   assert(source && copy)
@@ -123,11 +125,13 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   assert.equal(duplicated.selectedNoteId, copy.id)
   await app.getByTestId("note-row").getByText("Plan copy 2").waitFor()
   await app.getByTestId("note-body").fill("Copy only")
+
   const editedCopy = await savedNoteIs(
     dataDirectory,
     "Plan copy 2",
     "Copy only",
   )
+
   assert.equal(
     editedCopy.notes.find((note) => note.id === source.id)?.body,
     "First line Ω",
@@ -337,17 +341,21 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   }
 
   await app.getByTestId("duplicate-note").click()
+
   const copiedDraft = await savedNoteIs(
     dataDirectory,
     `${draftTitle} copy`,
     draftBody,
   )
+
   const originalNote = copiedDraft.notes.find(
     (note) => note.title === "Regression rescue",
   )
+
   const draftCopy = copiedDraft.notes.find(
     (note) => note.title === `${draftTitle} copy`,
   )
+
   assert(originalNote && draftCopy)
   assert.equal(originalNote.body, "Saved rescue body")
   assert.notEqual(draftCopy.id, originalNote.id)
@@ -541,11 +549,13 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
     "Final trash note",
   )
   await app.getByTestId("duplicate-note").press("enter")
+
   const compactCopy = await savedNoteIs(
     dataDirectory,
     "Regression compact delete copy",
     "Final trash note",
   )
+
   assert.equal(
     compactCopy.selectedNoteId,
     compactCopy.notes.find(
