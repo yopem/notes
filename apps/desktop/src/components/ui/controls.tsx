@@ -4,6 +4,14 @@ import { Button as NativeButton } from "@gpuix/react/button"
 
 import type { Palette } from "@/components/ui/theme"
 
+import {
+  getButtonStyle,
+  getButtonTextStyle,
+  getLabelStyle,
+  getNavStyle,
+  getNavTextStyle,
+  navContentStyle,
+} from "@/components/ui/control-styles"
 import { Icon, type IconName } from "@/components/ui/icons"
 
 export function Label({
@@ -21,13 +29,11 @@ export function Label({
 }) {
   return (
     <text
-      style={{
+      style={getLabelStyle({
         color: muted ? color.mutedForeground : color.foreground,
-        fontFamily: "Inter",
-        fontSize: size,
-        fontWeight: weight,
-        lineHeight: size * 1.5,
-      }}
+        size,
+        weight,
+      })}
     >
       {children}
     </text>
@@ -66,51 +72,15 @@ export function Button({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-        minHeight: 36,
-        minWidth: 36,
-        paddingLeft: children ? 12 : 8,
-        paddingRight: children ? 12 : 8,
-        borderRadius: 12,
-        borderWidth: variant === "outline" ? 1 : 0,
-        borderColor: color.border,
-        backgroundColor: variant === "primary" ? color.primary : "transparent",
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.64 : 1,
-        flexShrink: 0,
-        hover: {
-          backgroundColor:
-            variant === "primary" ? color.primaryHover : color.accent,
-        },
-        active: {
-          backgroundColor:
-            variant === "primary" ? color.primary : color.secondary,
-        },
-        focusVisible: {
-          outlineWidth: 2,
-          outlineColor: color.ring,
-          outlineOffset: 2,
-        },
-      }}
+      style={getButtonStyle({
+        color,
+        variant,
+        hasChildren: Boolean(children),
+        disabled,
+      })}
     >
       {icon && <Icon name={icon} color={ink} size={16} />}
-      {children && (
-        <text
-          style={{
-            color: ink,
-            fontFamily: "Inter",
-            fontSize: 13,
-            fontWeight: 500,
-          }}
-        >
-          {children}
-        </text>
-      )}
+      {children && <text style={getButtonTextStyle(ink)}>{children}</text>}
     </NativeButton>
   )
 }
@@ -138,41 +108,15 @@ export function NavItem({
       aria-label={children}
       aria-selected={selected}
       onClick={onClick}
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        minHeight: 38,
-        paddingLeft: 12,
-        paddingRight: 12,
-        borderRadius: 12,
-        backgroundColor: selected ? color.accent : "transparent",
-        cursor: "pointer",
-        hover: { backgroundColor: color.accent },
-        focusVisible: {
-          outlineWidth: 2,
-          outlineColor: color.ring,
-          outlineOffset: -2,
-        },
-      }}
+      style={getNavStyle({ color, selected })}
     >
       <Icon
         name={icon}
         color={selected ? color.foreground : color.mutedForeground}
         size={17}
       />
-      <div style={{ flexGrow: 1, minWidth: 0 }}>
-        <text
-          style={{
-            color: color.foreground,
-            fontFamily: "Inter",
-            fontSize: 13,
-            fontWeight: selected ? 500 : 400,
-            whiteSpace: "nowrap",
-            textOverflow: "ellipsis",
-          }}
-        >
+      <div style={navContentStyle}>
+        <text style={getNavTextStyle({ color: color.foreground, selected })}>
           {children}
         </text>
       </div>
