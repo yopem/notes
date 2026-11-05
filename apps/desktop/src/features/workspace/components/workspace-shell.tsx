@@ -11,17 +11,23 @@ import { useRef, useState, useSyncExternalStore } from "react"
 import type { NotesStore } from "@/features/notes/store"
 import type { SettingsStore } from "@/features/settings/store"
 
-import { Button, Label } from "@/components/ui/controls"
-import { Icon } from "@/components/ui/icons"
-import { inputStyle, palettes } from "@/components/ui/theme"
+import { palettes } from "@/components/ui/theme"
 import { Editor, type EditorMode } from "@/features/editor/components/editor"
 import { NoteList } from "@/features/notes/components/note-list"
 import { SettingsPanel } from "@/features/settings/components/settings-panel"
+import { attempt } from "@/features/workspace/attempt"
 import {
   AppDialog,
   type DialogState,
 } from "@/features/workspace/components/app-dialog"
 import { Sidebar, type View } from "@/features/workspace/components/sidebar"
+import { WorkspaceEmpty } from "@/features/workspace/components/workspace-empty"
+import { WorkspaceHeader } from "@/features/workspace/components/workspace-header"
+import { WorkspaceMessages } from "@/features/workspace/components/workspace-messages"
+import {
+  getWorkspaceStyles,
+  workspaceStyles,
+} from "@/features/workspace/components/workspace-styles"
 import { registerFonts } from "@/native/fonts"
 
 const editorModeShortcuts: Record<"4" | "5" | "6", EditorMode> = {
@@ -38,16 +44,6 @@ const linkCommands = new Map([
 interface Draft {
   title?: string
   body?: string
-}
-
-function attempt(action: () => void) {
-  try {
-    action()
-
-    return ""
-  } catch (cause) {
-    return cause instanceof Error ? cause.message : String(cause)
-  }
 }
 
 export function App({
@@ -93,6 +89,7 @@ export function App({
     preferences.themeMode === "system" ? workspace.theme : preferences.themeMode
 
   const color = palettes[theme]
+  const styles = getWorkspaceStyles(color)
   const search = query.trim().toLocaleLowerCase()
 
   const notes = workspace.notes
@@ -359,24 +356,9 @@ export function App({
       aria-label="Still Notes workspace"
       onKeyDown={onKeyDown}
       onFileDrop={(event) => importFiles(event.paths ?? [])}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: "100%",
-        height: "100%",
-        backgroundColor: color.sidebar,
-        color: color.foreground,
-        fontFamily: "Inter",
-      }}
+      style={styles.root}
     >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          flexGrow: 1,
-          minHeight: 0,
-        }}
-      >
+      <div style={workspaceStyles.row}>
         {showSidebar && (
           <Sidebar
             color={color}
@@ -398,227 +380,45 @@ export function App({
           />
         )}
         <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            flexGrow: 1,
-            minWidth: 0,
-            paddingRight: 8,
-            paddingBottom: 8,
-            paddingLeft: showSidebar ? 0 : 8,
-          }}
+          style={
+            showSidebar
+              ? workspaceStyles.content
+              : workspaceStyles.contentWithoutSidebar
+          }
         >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              height: 62,
-              flexShrink: 0,
-              gap: 12,
-              paddingLeft: 8,
-              paddingRight: 4,
+          <WorkspaceHeader
+            color={color}
+            theme={theme}
+            settings={settings}
+            narrow={narrow}
+            showSidebar={showSidebar}
+            searchRef={searchRef}
+            query={query}
+            onSearch={(event) => {
+              setQuery(event.value ?? "")
+              setActiveNoteId(null)
+              setMobileEditor(false)
+              setFocusMode(false)
             }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              {!showSidebar && (
-                <Button
-                  color={color}
-                  icon="menu"
-                  label="Show notebooks"
-                  testId="show-notebooks"
-                  onClick={() => {
-                    setFocusMode(false)
-                    setNavigationOpen(true)
-                  }}
-                />
-              )}
-              {!showSidebar && !narrow && (
-                <Label color={color} weight={600}>
-                  Still Notes
-                </Label>
-              )}
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                width: narrow ? "60%" : 340,
-                paddingLeft: 12,
-                paddingRight: 12,
-                backgroundColor: color.background,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: color.border,
-                height: 36,
-              }}
-            >
-              <Icon name="search" color={color.mutedForeground} size={15} />
-              <input
-                ref={searchRef}
-                testId="search"
-                aria-label="Search notes in current view"
-                value={query}
-                placeholder="Search your notes…"
-                onChange={(event) => {
-                  setQuery(event.value ?? "")
-                  setActiveNoteId(null)
-                  setMobileEditor(false)
-                  setFocusMode(false)
-                }}
-                style={{
-                  ...inputStyle(color),
-                  height: 32,
-                  padding: 0,
-                  borderWidth: 0,
-                  flexGrow: 1,
-                  minWidth: 0,
-                }}
-              />
-              {!narrow && (
-                <Label color={color} size={11} muted>
-                  {process.platform === "darwin" ? "⌘ P" : "Ctrl P"}
-                </Label>
-              )}
-            </div>
-            <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
-              {!showSidebar && (
-                <Button
-                  color={color}
-                  icon="upload"
-                  label="Import Markdown"
-                  testId="import"
-                  onClick={() => setDialog({ kind: "import" })}
-                />
-              )}
-              <Button
-                color={color}
-                icon={theme === "light" ? "moon" : "sun"}
-                label={theme === "light" ? "Use dark theme" : "Use light theme"}
-                testId="theme-toggle"
-                onClick={() =>
-                  setError(
-                    attempt(() =>
-                      settings.update({
-                        themeMode: theme === "light" ? "dark" : "light",
-                      }),
-                    ),
-                  )
-                }
-              />
-              <Button
-                color={color}
-                icon="settings"
-                label="Settings"
-                testId="settings-open"
-                onClick={() => setSettingsOpen(true)}
-              />
-              <Button
-                color={color}
-                icon="help"
-                label="Help and keyboard shortcuts"
-                testId="help"
-                onClick={() => setDialog({ kind: "help" })}
-              />
-            </div>
-          </div>
-          {(error || hasDrafts) && (
-            <div
-              testId={hasDrafts ? "pending-drafts" : "command-error"}
-              role="alert"
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                padding: 12,
-                gap: 12,
-                backgroundColor: color.background,
-                borderWidth: 1,
-                borderColor: color.destructive,
-                borderRadius: 12,
-                marginBottom: 8,
-              }}
-            >
-              <text
-                style={{
-                  color: color.destructive,
-                  fontFamily: "Inter",
-                  fontSize: 12,
-                  flexGrow: 1,
-                }}
-              >{`${error}${error && hasDrafts ? " " : ""}${hasDrafts ? "Unsaved edits remain in this window. Retry before closing." : ""}`}</text>
-              {hasDrafts && (
-                <Button color={color} testId="retry-save" onClick={retry}>
-                  Retry save
-                </Button>
-              )}
-              {!hasDrafts && (
-                <Button
-                  color={color}
-                  icon="close"
-                  label="Dismiss error"
-                  onClick={() => setError("")}
-                />
-              )}
-            </div>
-          )}
-          {notice && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                padding: 12,
-                gap: 12,
-                backgroundColor: color.background,
-                borderRadius: 12,
-                marginBottom: 8,
-              }}
-            >
-              <text
-                testId="notice"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
-                role="status"
-                style={{
-                  color: color.foreground,
-                  fontFamily: "Inter",
-                  fontSize: 12,
-                  flexGrow: 1,
-                }}
-              >
-                {notice}
-              </text>
-              <Button
-                color={color}
-                icon="close"
-                label="Dismiss notice"
-                onClick={() => setNotice("")}
-              />
-            </div>
-          )}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              flexGrow: 1,
-              minHeight: 0,
-              backgroundColor: color.background,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: color.border,
-              overflow: "hidden",
+            onShowNotebooks={() => {
+              setFocusMode(false)
+              setNavigationOpen(true)
             }}
-          >
+            onImport={() => setDialog({ kind: "import" })}
+            onSettings={() => setSettingsOpen(true)}
+            onHelp={() => setDialog({ kind: "help" })}
+            onError={setError}
+          />
+          <WorkspaceMessages
+            color={color}
+            error={error}
+            notice={notice}
+            hasDrafts={hasDrafts}
+            onRetry={retry}
+            onDismissError={() => setError("")}
+            onDismissNotice={() => setNotice("")}
+          />
+          <div style={styles.panes}>
             {(!focusMode || !note) && (!narrow || !mobileEditor || !note) && (
               <NoteList
                 color={color}
@@ -681,41 +481,12 @@ export function App({
               />
             ) : (
               !narrow && (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 16,
-                    flexGrow: 1,
-                    padding: 40,
-                  }}
-                >
-                  <Icon name="book" color={color.mutedForeground} size={36} />
-                  <Label color={color} size={20} weight={500}>
-                    {query
-                      ? "Nothing found. Something next?"
-                      : view.kind === "trash"
-                        ? "Nothing to let go of."
-                        : "A quiet place to begin."}
-                  </Label>
-                  <Label color={color} muted>
-                    {query
-                      ? "Search another thought, or start a new one."
-                      : "Select a note, or put your first thought on a page."}
-                  </Label>
-                  {view.kind !== "trash" && (
-                    <Button
-                      color={color}
-                      icon="plus"
-                      variant="primary"
-                      onClick={newNote}
-                    >
-                      Write a note
-                    </Button>
-                  )}
-                </div>
+                <WorkspaceEmpty
+                  color={color}
+                  query={query}
+                  view={view}
+                  onNew={newNote}
+                />
               )
             )}
           </div>
