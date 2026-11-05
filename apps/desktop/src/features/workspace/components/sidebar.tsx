@@ -1,8 +1,15 @@
+import { useLayoutEffect, useRef, useState } from "react"
+
 import type { Palette } from "@/components/ui/theme"
 import type { Note, Notebook } from "@/features/notes/store"
 
 import { Button, Label, NavItem } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
+import { NotebookItem } from "@/features/workspace/components/navigation/notebook-item"
+import {
+  getNotebookListStyle,
+  sidebarStyles,
+} from "@/features/workspace/components/navigation/sidebar-styles"
 
 export type View =
   | { kind: "all" | "pinned" | "trash" }
@@ -27,31 +34,40 @@ export function Sidebar({
   onRename: (notebook: Notebook) => void
   onImport: () => void
 }) {
+  const changeView = useRef(onView)
+
+  const [navigation] = useState(function createNavigationHandlers() {
+    function showAllNotes() {
+      changeView.current({ kind: "all" })
+    }
+
+    function showPinnedNotes() {
+      changeView.current({ kind: "pinned" })
+    }
+
+    function showTrash() {
+      changeView.current({ kind: "trash" })
+    }
+
+    return { showAllNotes, showPinnedNotes, showTrash }
+  })
+
+  useLayoutEffect(
+    function updateNavigationTarget() {
+      changeView.current = onView
+    },
+    [onView],
+  )
+
   return (
     <div
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- GPUix has no semantic HTML host elements.
+      // GPUix has no nav host. Keep its AccessKit navigation role.
+      // eslint-disable-next-line react-doctor/prefer-tag-over-role
       role="navigation"
       aria-label="Notebooks"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: 220,
-        flexShrink: 0,
-        padding: 12,
-        gap: 8,
-      }}
+      style={sidebarStyles.frame}
     >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 10,
-          paddingLeft: 12,
-          height: 44,
-          marginBottom: 12,
-        }}
-      >
+      <div style={sidebarStyles.brand}>
         <Icon name="book" color={color.foreground} size={24} />
         <Label color={color} size={18} weight={600}>
           Still Notes
@@ -60,13 +76,13 @@ export function Sidebar({
       <Label color={color} size={12} muted>
         Personal workspace
       </Label>
-      <div style={{ height: 4 }} />
+      <div style={sidebarStyles.spacer} />
       <NavItem
         color={color}
         icon="notes"
         selected={view.kind === "all"}
         testId="nav-all"
-        onClick={() => onView({ kind: "all" })}
+        onClick={navigation.showAllNotes}
       >
         All notes
       </NavItem>
@@ -75,7 +91,7 @@ export function Sidebar({
         icon="pin"
         selected={view.kind === "pinned"}
         testId="nav-pinned"
-        onClick={() => onView({ kind: "pinned" })}
+        onClick={navigation.showPinnedNotes}
       >
         Pinned
       </NavItem>
@@ -84,20 +100,11 @@ export function Sidebar({
         icon="trash"
         selected={view.kind === "trash"}
         testId="nav-trash"
-        onClick={() => onView({ kind: "trash" })}
+        onClick={navigation.showTrash}
       >
         Trash
       </NavItem>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingLeft: 12,
-          marginTop: 24,
-        }}
-      >
+      <div style={sidebarStyles.notebooksHeading}>
         <Label color={color} size={12} weight={500} muted>
           Notebooks
         </Label>
@@ -109,71 +116,25 @@ export function Sidebar({
           onClick={onNewNotebook}
         />
       </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flexGrow: 1,
-          minHeight: 0,
-          overflow: "scroll",
-          scrollbarColor: color.border,
-          gap: 4,
-        }}
-      >
+      <div style={getNotebookListStyle(color)}>
         {notebooks.map((notebook) => (
-          <div
+          <NotebookItem
             key={notebook.id}
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ flexGrow: 1, minWidth: 0 }}>
-              <NavItem
-                color={color}
-                icon="book"
-                selected={
-                  view.kind === "notebook" && view.notebookId === notebook.id
-                }
-                onClick={() =>
-                  onView({ kind: "notebook", notebookId: notebook.id })
-                }
-              >
-                {notebook.name}
-              </NavItem>
-            </div>
-            {view.kind === "notebook" && view.notebookId === notebook.id && (
-              <Button
-                color={color}
-                icon="edit"
-                label={`Rename ${notebook.name}`}
-                onClick={() => onRename(notebook)}
-              />
-            )}
-          </div>
+            color={color}
+            notebook={notebook}
+            selected={
+              view.kind === "notebook" && view.notebookId === notebook.id
+            }
+            onView={onView}
+            onRename={onRename}
+          />
         ))}
       </div>
       <Button color={color} icon="upload" testId="import" onClick={onImport}>
         Import Markdown
       </Button>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-          padding: 12,
-          marginTop: 12,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+      <div style={sidebarStyles.footer}>
+        <div style={sidebarStyles.device}>
           <Icon name="check" color={color.mutedForeground} size={14} />
           <Label color={color} size={12}>
             On this device
