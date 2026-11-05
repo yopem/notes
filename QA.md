@@ -321,3 +321,42 @@ data.
   - **Cleanup:** Stop only owned processes. Remove only the newly created
     `docs/artifacts/monorepo/qa012-data` after evidence is inspected.
   - **Status:** Pending.
+
+## Existing lint findings
+
+Acceptance: all existing and new workspace lint warnings and errors must be
+resolved. Feature work is paused until QA-013 passes. Baseline at `48e0257`: 177
+desktop warnings and zero errors. The other workspaces have no findings.
+
+- [ ] **QA-013 — P1 — Zero workspace lint diagnostics**
+  - **Purpose:** Remove all existing warnings and errors without weakening the
+    current policy or changing native notes behavior.
+  - **Prerequisites:** Shared setup, pinned project-local Bun, approved local
+    lint/typecheck/format and isolated native QA. Read all affected components
+    and the exact rule requirements before each refactor.
+  - **Inputs:** Complete workspace source; baseline
+    `docs/desktop-lint-zero.json`. Findings include unstable props, native-only
+    JSX properties, component size and complexity, and one schema API.
+  - **Steps:**
+    1. Record every finding by rule, file and source line.
+    2. Fix all findings. Keep native roles, event handlers, automation IDs,
+       unsaved-draft recovery, settings validation and guarded writes intact.
+    3. From repository root, run `bun run lint`, `bun run typecheck`, and
+       `bun run format:check`. Run each workspace's native lint command with
+       `--no-script --max-warnings=0` from that workspace.
+    4. Run the existing affected test files and native E2E workflow through
+       `bun run test:native`. Inspect the report, screenshots and saved data.
+    5. Confirm that no rules or severities were weakened. For a native-only
+       property or role that cannot use a valid alternative, inspect any
+       one-line exception and its required reason.
+  - **Expected results:** Every workspace reports zero warnings and zero errors.
+    Typecheck, format and relevant regressions pass. Native layout, keyboard
+    actions, dialogs, persistence and draft rescue remain functional. No
+    memoization hooks, unsafe types, fallback runners or blanket disables are
+    added.
+  - **Evidence:** `docs/artifacts/lint-zero/`; save baseline and final JSON,
+    commands, revision, runtime, native report and client-only screenshots.
+    Inspect counts and observable outcomes, not only command exit codes.
+  - **Cleanup:** Close only owned native sessions. Remove isolated QA data after
+    its evidence is inspected. Keep reports ignored and local.
+  - **Status:** Pending. User explicitly includes all existing findings.
