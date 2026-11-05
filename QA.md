@@ -1726,9 +1726,21 @@ mark those cases passed until capture works and the evidence is inspected.
     acceptance workflow.
   - **Cleanup:** Stop only owned build/test processes and remove owned data.
     Preserve the installed addon and all user app processes.
-  - **Status:** Pending implementation. The current native arm is single-use and
-    tied to a root-generation event ID. Native input quiescence, remount draft
-    handoff and actual window-close decisions remain unverified.
+  - **Status:** Native v2 implementation is complete at 22bb68e; acceptance
+    stays pending. The implementation compares and retargets owners under one
+    lock, preserves the pending request and veto, and checks the owner and
+    request again at UI execution before removal begins. Cancel, release,
+    retarget and lost or timed-out replies keep old queued requests from
+    removing the window. Legacy arming and removal cannot bypass a versioned
+    owner. The window-menu action uses the guarded callback; macOS runtime
+    behavior remains unrun. At this revision, 26 focused Rust close cases and
+    four retained async-font cases passed on Rust 1.97.1. Evidence is
+    `docs/artifacts/native-close-lifecycle/v2/native-v2-tests.txt`. Dependency
+    and existing native Rust warnings remain; no zero-warning Rust claim is
+    made. The launch/build verifier requires all four v2 methods. The isolated
+    release build, TS adapter, compiled-host probes, UI integration and live
+    acceptance are not complete. Native input quiescence, other platforms and
+    actual window-close decisions remain unverified.
 
 - [ ] **QA-062 — P1 — Await actual native font completion without blocking JS**
   - **Purpose:** Replace the synchronous two-second font wait with a verified
@@ -1826,4 +1838,11 @@ mark those cases passed until capture works and the evidence is inspected.
     `app-run-20261105T182727Z-946586` passed settings and reached source
     selection after duplicate recovery, then failed because the retained row had
     no painted bounds. The revised fixture keeps all existing assertions; no
-    application data-loss failure is established by that earlier result.
+    application data-loss failure is established by that earlier result. The
+    next private run `app-run-20261105T183950Z-1122444` passed settings and
+    reached sorting positions, then failed because a title matched both its list
+    row and the active editor. Commit 12c3629 scopes all 14 sort-position
+    lookups to actual note rows without changing the assertions. A later CLI
+    failure changed directory before a root-relative redirect and launched no
+    app; its error is retained in `native-isolation/sort-qa-cli-error.txt`. The
+    corrected pinned private rerun remains pending.
