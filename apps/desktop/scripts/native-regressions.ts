@@ -869,7 +869,8 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
     resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
     "Regression checks require a disposable native E2E data directory.",
   )
-  assert((await app.getByTestId("app").bounds()).width < 780)
+  const compactWidth = (await app.getByTestId("app").bounds()).width
+  assert(compactWidth < 780)
   await app.getByTestId("settings-open").click()
   await app.getByTestId("settings-tab-navigation").click()
   await textIs(app, "setting-current-noteSortOrder", "name-asc")
@@ -913,7 +914,35 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
   await textIs(app, "note-count", "0 notes")
   await app.getByText("Trash is empty").waitFor()
   await absent(app, "note-title")
-  const steps = ["Compact final trash deletion returns to the empty note list"]
+  const panel = app.getByTestId("note-list-panel")
+  const empty = app.getByTestId("note-list-empty")
+  await empty.waitFor()
+  const deadline = Date.now() + 5000
+  let panelBounds = (await panel.element()).bounds
+  let emptyBounds = (await empty.element()).bounds
+
+  while (
+    (!panelBounds ||
+      !emptyBounds ||
+      panelBounds.width < compactWidth - 48 ||
+      emptyBounds.y - panelBounds.y > 180) &&
+    Date.now() < deadline
+  ) {
+    await Bun.sleep(16)
+    panelBounds = (await panel.element()).bounds
+    emptyBounds = (await empty.element()).bounds
+  }
+
+  assert(panelBounds && emptyBounds)
+  assert(panelBounds.width >= compactWidth - 48, "Compact list fills its pane")
+  assert(
+    emptyBounds.y - panelBounds.y <= 180,
+    "Empty feedback follows the header",
+  )
+  const steps = [
+    "Compact final trash deletion returns to the empty note list",
+    "Compact note list fills its pane with empty feedback below the header",
+  ]
   saveReport("native-regressions-compact.json", dataDirectory, steps)
 
   return steps
