@@ -1213,8 +1213,9 @@ mark those cases passed until capture works and the evidence is inspected.
     details, hashes and tested revision under `docs/artifacts/vault/QA-047/`.
   - **Cleanup:** Close test vaults and remove only isolated test data after
     evidence review.
-  - **Status:** Pending. Source review identified a case-sensitive comparison;
-    no case-insensitive platform run has verified the defect or repair.
+  - **Status:** Pending. The repair is committed. The implementation agent
+    reports 59 Linux vault tests and 972 assertions passed at `d55cf29`. A
+    case-insensitive macOS or Windows run has not verified the repair.
 
 - [ ] **QA-048 — P1 — Development startup and shutdown**
   - **Purpose:** Distinguish a normal Turbo shutdown message from a desktop
