@@ -71,6 +71,7 @@ export function AppDialog({
   const renderer = useGpuixRequired()
 
   const title = dialogTitles[state.kind]
+
   const fields =
     dialogFields[
       state.kind === "import" || state.kind === "export"
