@@ -64,7 +64,7 @@ data.
 | Reserved path aliases and distinct legacy folders            | QA-047, QA-049                                                                         |
 | Development startup and shutdown                             | QA-048                                                                                 |
 | Actual native input, verified addon and private capture      | QA-051, QA-054, QA-055, QA-056                                                         |
-| Native action, font setup and remount draft safety           | QA-057, QA-058, QA-059                                                                 |
+| Native action, font setup and remount draft safety           | QA-057, QA-058, QA-059, QA-062                                                         |
 | Typed folder entry and picker-independent access             | QA-060                                                                                 |
 | Window close binding lifetime across root replacement        | QA-061                                                                                 |
 
@@ -1723,3 +1723,45 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Pending implementation. The current native arm is single-use and
     tied to a root-generation event ID. Native input quiescence, remount draft
     handoff and actual window-close decisions remain unverified.
+
+- [ ] **QA-062 — P1 — Await actual native font completion without blocking JS**
+  - **Purpose:** Replace the synchronous two-second font wait with a verified
+    asynchronous batch operation. Keep pending work shared across roots and
+    mount application text only after the actual native success reply.
+  - **Prerequisites:** Shared isolated setup, the completed versioned batch-font
+    API, bundled Inter and IBM Plex Mono, and a matching unpublished test addon.
+    Confirm the exact new method and focused commands from its implementation.
+    Keep the old installed addon and all user processes unchanged during QA.
+  - **Inputs:** The two bundled font files and one owned native completion
+    delayed beyond the previous two-second wait. Use a fresh disposable
+    workspace with the unchanged welcome note.
+  - **Steps:**
+    1. Confirm old-addon rejection through QA-055. Run the affected existing
+       native editor/addon and native protocol cases for delayed completion.
+       Record the exact filtered commands after implementation defines them.
+    2. In the private source app, begin the valid batch and replace the actual
+       React root while it is pending. Check one native initialization, one
+       registration batch, live event-loop progress and no editor before
+       success.
+    3. Complete the owned delayed operation. Check the current root mounts the
+       editor once, while detached roots cannot mount application text. Confirm
+       both registered families and unchanged note bytes before user edits.
+    4. Inspect actual native command and reply ordering. Do not model delayed
+       native work with an artificial JS exception. Keep failure and asset
+       acceptance in QA-058 and do not carry its earlier result forward to a
+       changed async API.
+  - **Expected results:** The JS thread does not wait synchronously for native
+    registration. An actual success reply is required for readiness. A failed or
+    uncertain operation is not replayed on root replacement. Old hosts fail
+    clearly before window startup. A Promise wrapper around the old blocking
+    calls does not satisfy this case.
+  - **Evidence:** Save the fixture, source/addon/runtime hashes, real completion
+    ordering, event-loop and registration counts, private screenshots and owned
+    cleanup under `docs/artifacts/native-isolation/QA-062/`. State which
+    evidence is protocol-only and which exercises the native UI thread.
+  - **Cleanup:** Stop only owned children and compositor groups. Remove isolated
+    data, verify store-lock release, and preserve the installed addon.
+  - **Status:** Pending implementation. The current blocking API times out after
+    two seconds without canceling queued UI work. A real timeout remains
+    reproduced after the startup boundary fix. This case does not establish
+    normal-font latency, root cause, OS composition or platform parity.
