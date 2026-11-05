@@ -122,6 +122,69 @@ function saveReport(name: string, dataDirectory: string, steps: string[]) {
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), report)
 }
 
+export async function verifyDraftRemount(
+  app: App,
+  dataDirectory: string,
+  remount: () => Promise<{
+    rootReplaced: boolean
+    nativeInitializations: number
+    fontRegistrations: number
+  }>,
+) {
+  assert(
+    resolve(dataDirectory).startsWith(join(tmpdir(), "still-notes-e2e-")),
+    "Regression checks require a disposable native E2E data directory.",
+  )
+  const workspacePath = join(dataDirectory, "workspace.json")
+  const title = "Remount delivered draft"
+  const body = "Delivered draft body Ω"
+  const beforeExport = join(dataDirectory, "remount-export-before")
+  const afterExport = join(dataDirectory, "remount-export-after")
+  mkdirSync(beforeExport)
+  mkdirSync(afterExport)
+  await createNote(app, dataDirectory, "Remount saved", "Saved body")
+  const original = readFileSync(workspacePath, "utf8")
+  const conflict = `${original}\n`
+  writeFileSync(workspacePath, conflict)
+
+  async function exportDraft(directory: string) {
+    await app.getByTestId("export").click()
+    await app.getByTestId("dialog-input").waitFor()
+    await app.getByTestId("dialog-input").fill(directory)
+    await app.getByTestId("dialog-confirm").click()
+    await absent(app, "dialog-confirm")
+    assert.deepEqual(readdirSync(directory), [`${title}.md`])
+    assert.equal(readFileSync(join(directory, `${title}.md`), "utf8"), body)
+    assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+  }
+
+  try {
+    await app.getByTestId("note-title").fill(title)
+    await app.getByTestId("note-body").fill(body)
+    await app.getByTestId("pending-drafts").waitFor()
+    await app.getByTestId("retry-save").waitFor()
+    await exportDraft(beforeExport)
+    assert.deepEqual(await remount(), {
+      rootReplaced: true,
+      nativeInitializations: 1,
+      fontRegistrations: 2,
+    })
+    await textIs(app, "note-title", title)
+    await textIs(app, "note-body", body)
+    await app.getByTestId("pending-drafts").waitFor()
+    await app.getByTestId("retry-save").waitFor()
+    await textIs(app, "save-status", "Not saved · Retry before closing")
+    await exportDraft(afterExport)
+  } finally {
+    writeFileSync(workspacePath, original)
+  }
+
+  await app.getByTestId("retry-save").click()
+  await savedNoteIs(dataDirectory, title, body)
+  await absent(app, "pending-drafts")
+  await textIs(app, "save-status", "Saved locally")
+}
+
 export async function verifyRegressions(
   app: App,
   dataDirectory: string,
