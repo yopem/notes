@@ -1406,3 +1406,54 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Follow QA-052 cleanup. Do not delete another process's lock.
   - **Status:** Pending. Transaction-stage handling and fault acceptance are not
     implemented. Existing rollback tests do not cover these syscall points.
+
+- [ ] **QA-054 — P1 — Use the required addon in source and binary builds**
+  - **Purpose:** Prevent source launch and standalone packaging from silently
+    using the stock host instead of the required editor/close bridge.
+  - **Prerequisites:** Shared pinned Bun setup and a verified custom addon from
+    `apps/desktop/scripts/build-native.ts`. Keep existing user processes
+    unchanged. Use isolated artifact directories for build probes.
+  - **Inputs:** The pinned custom addon, its SHA-256 hash, and the existing
+    platform-native package filename. No note content is required for the
+    packaging probe.
+  - **Steps:**
+    1. Record the custom addon hash and required native method availability
+       without initializing a renderer or opening a window.
+    2. Launch a source probe with the configured native-library path and compare
+       method availability with the expected host.
+    3. Build a standalone probe with the same addon under the platform package's
+       native filename. Run it from `/` with no native-library override.
+    4. After implementation, run `bun run build` from the repository root and
+       the isolated binary workflows in QA-008. Do not start another dev server.
+  - **Expected results:** Both source and compiled execution load the required
+    host. Binary execution does not depend on the build machine's addon path.
+    The original package and user runtime remain unchanged. Compilation alone
+    does not count as native workflow acceptance.
+  - **Evidence:** Save addon hashes, capability results, build logs and binary
+    workflow artifacts under `docs/artifacts/native-packaging/`.
+  - **Cleanup:** Remove only owned probe binaries and temporary packaging copies
+    after evidence review. Preserve the generated development addon.
+  - **Status:** Pending. A no-GUI probe verified that using the platform-native
+    filename embeds the custom editor bridge. Close-bridge packaging and full
+    binary workflows remain unverified.
+
+- [ ] **QA-055 — P1 — Fail clearly when the required native host is missing**
+  - **Purpose:** Stop unsupported native startup/builds before exposing editor
+    or close controls whose methods are unavailable.
+  - **Prerequisites:** QA-054 setup. Copy the verifier into a private synthetic
+    desktop tree; never rename or replace the user's active native addon.
+  - **Inputs:** A missing addon, a stock addon without bridge methods, and the
+    verified custom addon. Use only copies in the isolated tree.
+  - **Steps:**
+    1. Invoke the verifier against the missing and stock-addon copies.
+    2. Invoke it against the valid custom copy without initializing a renderer.
+    3. Check source launch/build scripts use this verifier and preserve the
+       caller-directory contract from QA-012.
+  - **Expected results:** Missing or incompatible addons fail with a clear
+    `bun run build:native` instruction. The valid addon passes. No unsupported
+    host is silently accepted, no user files change, and no window is opened.
+  - **Evidence:** Save input hashes, exit statuses and sanitized output under
+    `docs/artifacts/native-packaging/QA-055/`.
+  - **Cleanup:** Remove owned copies after inspection. No user cleanup is
+    needed; existing application processes must remain untouched.
+  - **Status:** Pending implementation and execution.
