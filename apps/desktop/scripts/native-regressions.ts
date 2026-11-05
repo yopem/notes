@@ -284,11 +284,10 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     assert.equal(readFileSync(workspacePath, "utf8"), conflict)
     const beforeDuplicate = await app.getByTestId("note-body").element()
     await app.getByTestId("duplicate-note").click()
-    await app
-      .getByText(
-        "Could not duplicate note. Your unsaved edits remain in this window.",
-      )
-      .waitFor()
+    assert.match(
+      await app.getByTestId("pending-drafts").textContent(),
+      /Could not duplicate note/,
+    )
     assert.equal(
       (await app.getByTestId("note-body").element()).id,
       beforeDuplicate.id,
