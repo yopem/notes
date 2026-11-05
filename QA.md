@@ -454,9 +454,12 @@ synchronous calculations in ordinary TypeScript.
     passed with 81 tests and 343 assertions. Scoped core lint passed with zero
     warnings. Native QA reached the welcome screen. Its saved automation tree
     shows the test workspace, and its store lock was absent after shutdown.
-    `grim -T` exited with SIGSEGV. Draft recovery and restart remain unrun. The
-    existing user app was not stopped or captured. Resolve client-only capture
-    before rerunning the native cases.
+    `grim -T` exited with SIGSEGV. Later isolated controls showed GPUix native
+    initialization can stall before the automation handler starts; a separate
+    successful connection then failed a bounds query. Evidence is in
+    `docs/artifacts/sorting/diagnosis/`. Draft recovery and restart remain
+    unrun. The existing user app was not stopped or captured. Resolve startup
+    and client-only capture before rerunning the native cases.
 
 - [ ] **QA-017 — P0 — MCP stdio cancellation and ordering**
   - **Purpose:** Preserve the JSON-RPC protocol and release in-flight work when
