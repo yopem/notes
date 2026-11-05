@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --hot src/app.tsx",
-    "start": "bun src/app.tsx",
+    "dev": "bun scripts/native-binding.ts && NAPI_RS_NATIVE_LIBRARY_PATH=\"$PWD/native/gpuix-native.node\" bun --hot src/app.tsx",
+    "start": "bun scripts/native-binding.ts && NAPI_RS_NATIVE_LIBRARY_PATH=\"$PWD/native/gpuix-native.node\" bun src/app.tsx",
     "build": "bun scripts/build.ts",
     "build:native": "bun scripts/build-native.ts",
     "lint": "bun lint --no-script",

@@ -46,6 +46,8 @@ uses its exact dated Bun package, not a moving canary or a global upgrade:
 bun install --frozen-lockfile
 export PATH="$PWD/node_modules/.bin:$PATH"
 bun --revision
+mkdir -p docs/tmp
+bun run build:native "$PWD/docs/tmp/gpuix-source"
 bun run dev
 ```
 
@@ -145,10 +147,21 @@ bun run build
 ./apps/desktop/dist/still-notes
 ```
 
+Build the custom native host before source launch or standalone packaging. The
+native build needs Rust and the GPUix platform build dependencies. The build
+script pins the renderer and backend source revisions and applies the repository
+patches. It writes `apps/desktop/native/gpuix-native.node`.
+
+Source launch checks the required bridge methods and loads that file. Standalone
+packaging embeds the same addon under its platform-native filename. A missing or
+incompatible addon stops launch or build with a rebuild instruction. Restart the
+app after a native-host change; hot reload cannot replace a loaded native
+library.
+
 Bun compiles the app and renderer into a host-platform executable. Build on each
-target OS. The custom editor bridge source and native build script belong to
-`apps/desktop`; generated native binaries stay ignored. This repository does not
-claim signed installers or automatic updates.
+target OS. Generated native binaries stay ignored. Native platform acceptance
+remains subject to `QA.md`; this repository does not claim signed installers or
+automatic updates.
 
 ## Implementation status
 

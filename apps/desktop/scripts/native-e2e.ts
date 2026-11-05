@@ -13,6 +13,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { captureScreenshot, sizeTestWindow } from "./capture"
+import { requireDesktopNativeBinding } from "./native-binding"
 import {
   verifyCompactRegression,
   verifyRegressions,
@@ -40,6 +41,9 @@ async function open(width = 1360, height = 900) {
     : [resolve(import.meta.dir, "../src/app.tsx")]
 
   const env = {
+    NAPI_RS_NATIVE_LIBRARY_PATH: environment.binary
+      ? ""
+      : requireDesktopNativeBinding(),
     GPUIX_BACKGROUND: "1",
     STILL_NOTES_DATA_DIR: dataDirectory,
     STILL_NOTES_WIDTH: String(width),
