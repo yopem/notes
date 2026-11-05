@@ -381,7 +381,10 @@ export class McpClients {
         }
       : { command: this.runtime.command, args: this.runtime.args }
   }
-  status(id: McpClientId): McpClientStatus {
+  status(id: McpClientId) {
+    return Effect.try({ try: () => this.statusValue(id), catch: configError })
+  }
+  private statusValue(id: McpClientId): McpClientStatus {
     const configPath = this.path(id)
 
     try {
@@ -423,7 +426,7 @@ export class McpClients {
     }
   }
   statuses() {
-    return clientSchema.literals.map((id) => this.status(id))
+    return Effect.all(clientSchema.literals.map((id) => this.status(id)))
   }
   install(id: McpClientId) {
     return this.change(id, true)
@@ -432,134 +435,153 @@ export class McpClients {
     return this.change(id, false)
   }
   private change(id: McpClientId, install: boolean) {
-    const path = this.path(id)
-    safeFile(path)
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-    const lock = `${path}.still-notes-mcp.lock`
-    safeFile(lock)
-    const fd = openSync(lock, "wx", 0o600)
+    return Effect.acquireUseRelease(
+      Effect.try({
+        try: () => {
+          const path = this.path(id)
+          safeFile(path)
+          mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+          const lock = `${path}.still-notes-mcp.lock`
+          safeFile(lock)
+          return { path, lock, fd: openSync(lock, "wx", 0o600) }
+        },
+        catch: configError,
+      }),
+      ({ path }) =>
+        Effect.try({
+          try: () => {
+            const original = readOptional(path)
+            const receiptPath = `${path}.still-notes-mcp.json`
+            const receiptRaw = readOptional(receiptPath)
 
-    try {
-      const original = readOptional(path)
-      const receiptPath = `${path}.still-notes-mcp.json`
-      const receiptRaw = readOptional(receiptPath)
+            const receipt =
+              receiptRaw === null ? null : decodeReceipt(JSON.parse(receiptRaw))
 
-      const receipt =
-        receiptRaw === null ? null : decodeReceipt(JSON.parse(receiptRaw))
+            const container = id === "opencode" ? "mcp" : "mcpServers"
+            const raw = original ?? (id === "codex" ? "" : "{}")
 
-      const container = id === "opencode" ? "mcp" : "mcpServers"
-      const raw = original ?? (id === "codex" ? "" : "{}")
+            const config =
+              id === "codex" ? tomlConfig(raw) : jsonConfig(raw, container)
 
-      const config =
-        id === "codex" ? tomlConfig(raw) : jsonConfig(raw, container)
+            const current = config.servers[serverKey]
 
-      const current = config.servers[serverKey]
-
-      if (current !== undefined && receipt?.entry !== fingerprint(current))
-        throw new Error(
-          "Existing entry is not owned or changed outside this app",
-        )
-
-      if (!install && current === undefined) return this.status(id)
-      const expected = this.entry(id)
-
-      if (
-        install &&
-        current !== undefined &&
-        fingerprint(current) === fingerprint(expected)
-      )
-        return this.status(id)
-      let next: string
-      let blockHash: string | null = null
-
-      const createdContainer =
-        receipt?.createdContainer ??
-        (id !== "codex" && !jsonConfig(raw, container).field)
-
-      let separator = receipt?.separator ?? ""
-
-      if (id === "codex") {
-        const toml = tomlConfig(raw)
-        let base = raw
-
-        if (current !== undefined) {
-          if (toml.start < 0 || !receipt)
-            throw new Error("Managed block missing")
-          const block = raw.slice(toml.start, toml.end)
-          const parsed = tomlConfig(block)
-
-          if (
-            parsed.serverCount !== 1 ||
-            fingerprint(parsed.servers[serverKey]) !== receipt.entry ||
-            fingerprint(block) !== receipt.block
-          )
-            throw new Error("Managed block changed")
-          const before = raw.slice(0, toml.start)
-
-          if (separator && !before.endsWith(separator))
-            throw new Error("Managed block boundary changed")
-          base =
-            before.slice(0, before.length - separator.length) +
-            raw.slice(toml.end + (raw[toml.end] === "\n" ? 1 : 0))
-        } else if (toml.start >= 0)
-          throw new Error("Unowned managed block exists")
-        separator = base && !base.endsWith("\n") ? "\n" : ""
-        const block = `${startMarker}\n[mcp_servers.${serverKey}]\ncommand = ${JSON.stringify(this.runtime.command)}\nargs = ${JSON.stringify(this.runtime.args)}\n${endMarker}\n`
-        next = install ? base + separator + block : base
-        blockHash = fingerprint(block.slice(0, -1))
-        tomlConfig(next)
-      } else {
-        let base = raw
-        const parsed = jsonConfig(base, container)
-
-        if (current !== undefined && parsed.field)
-          base = removeMember(base, parsed.field.valueStart, serverKey)
-        const remaining = jsonConfig(base, container)
-
-        if (install)
-          next = remaining.field
-            ? insertMember(
-                base,
-                remaining.field.valueStart,
-                serverKey,
-                expected,
+            if (
+              current !== undefined &&
+              receipt?.entry !== fingerprint(current)
+            )
+              throw new Error(
+                "Existing entry is not owned or changed outside this app",
               )
-            : insertMember(base, base.indexOf("{"), container, {
-                [serverKey]: expected,
-              })
-        else
-          next =
-            createdContainer &&
-            remaining.field &&
-            Object.keys(remaining.servers).length === 0
-              ? removeMember(base, base.indexOf("{"), container)
-              : base
-        jsonConfig(next, container)
-      }
 
-      if (readOptional(path) !== original) throw new Error("Config conflict")
+            if (!install && current === undefined) return this.statusValue(id)
+            const expected = this.entry(id)
 
-      // Save ownership first. A failed config write cannot claim a different entry.
-      if (install)
-        save(
-          receiptPath,
-          JSON.stringify({
-            version: 1,
-            entry: fingerprint(expected),
-            separator,
-            createdContainer,
-            block: blockHash,
-          }),
-        )
-      save(path, next)
+            if (
+              install &&
+              current !== undefined &&
+              fingerprint(current) === fingerprint(expected)
+            )
+              return this.statusValue(id)
+            let next: string
+            let blockHash: string | null = null
 
-      if (!install) rmSync(receiptPath, { force: true })
+            const createdContainer =
+              receipt?.createdContainer ??
+              (id !== "codex" && !jsonConfig(raw, container).field)
 
-      return this.status(id)
-    } finally {
-      closeSync(fd)
-      rmSync(lock, { force: true })
-    }
+            let separator = receipt?.separator ?? ""
+
+            if (id === "codex") {
+              const toml = tomlConfig(raw)
+              let base = raw
+
+              if (current !== undefined) {
+                if (toml.start < 0 || !receipt)
+                  throw new Error("Managed block missing")
+                const block = raw.slice(toml.start, toml.end)
+                const parsed = tomlConfig(block)
+
+                if (
+                  parsed.serverCount !== 1 ||
+                  fingerprint(parsed.servers[serverKey]) !== receipt.entry ||
+                  fingerprint(block) !== receipt.block
+                )
+                  throw new Error("Managed block changed")
+                const before = raw.slice(0, toml.start)
+
+                if (separator && !before.endsWith(separator))
+                  throw new Error("Managed block boundary changed")
+                base =
+                  before.slice(0, before.length - separator.length) +
+                  raw.slice(toml.end + (raw[toml.end] === "\n" ? 1 : 0))
+              } else if (toml.start >= 0)
+                throw new Error("Unowned managed block exists")
+              separator = base && !base.endsWith("\n") ? "\n" : ""
+              const block = `${startMarker}\n[mcp_servers.${serverKey}]\ncommand = ${JSON.stringify(this.runtime.command)}\nargs = ${JSON.stringify(this.runtime.args)}\n${endMarker}\n`
+              next = install ? base + separator + block : base
+              blockHash = fingerprint(block.slice(0, -1))
+              tomlConfig(next)
+            } else {
+              let base = raw
+              const parsed = jsonConfig(base, container)
+
+              if (current !== undefined && parsed.field)
+                base = removeMember(base, parsed.field.valueStart, serverKey)
+              const remaining = jsonConfig(base, container)
+
+              if (install)
+                next = remaining.field
+                  ? insertMember(
+                      base,
+                      remaining.field.valueStart,
+                      serverKey,
+                      expected,
+                    )
+                  : insertMember(base, base.indexOf("{"), container, {
+                      [serverKey]: expected,
+                    })
+              else
+                next =
+                  createdContainer &&
+                  remaining.field &&
+                  Object.keys(remaining.servers).length === 0
+                    ? removeMember(base, base.indexOf("{"), container)
+                    : base
+              jsonConfig(next, container)
+            }
+
+            if (readOptional(path) !== original)
+              throw new Error("Config conflict")
+
+            // Save ownership first. A failed config write cannot claim a different entry.
+            if (install)
+              save(
+                receiptPath,
+                JSON.stringify({
+                  version: 1,
+                  entry: fingerprint(expected),
+                  separator,
+                  createdContainer,
+                  block: blockHash,
+                }),
+              )
+            save(path, next)
+
+            if (!install) rmSync(receiptPath, { force: true })
+
+            return this.statusValue(id)
+          },
+          catch: configError,
+        }),
+      ({ fd, lock }) =>
+        Effect.try({
+          try: () => {
+            closeSync(fd)
+            rmSync(lock, { force: true })
+          },
+          catch: configError,
+        }),
+    )
   }
 }
 

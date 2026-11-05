@@ -50,7 +50,7 @@ describe("MCP client config integration", () => {
     test(`${id}: detects, installs, restarts, and removes only owned settings`, () => {
       const root = directory()
       const manager = clients(root)
-      const path = manager.status(id).configPath
+      const path = Effect.runSync(manager.status(id)).configPath
       mkdirSync(resolve(path, ".."), { recursive: true })
 
       const original =
@@ -64,21 +64,21 @@ describe("MCP client config integration", () => {
             })
 
       writeFileSync(path, original)
-      expect(manager.status(id).installed).toBe(false)
-      expect(manager.install(id).upToDate).toBe(true)
-      expect(clients(root).install(id).upToDate).toBe(true)
+      expect(Effect.runSync(manager.status(id)).installed).toBe(false)
+      expect(Effect.runSync(manager.install(id)).upToDate).toBe(true)
+      expect(Effect.runSync(clients(root).install(id)).upToDate).toBe(true)
       const installed = readFileSync(path, "utf8")
       expect(installed).toContain("other")
       expect(installed).toContain(
         id === "codex" ? "# keep comment" : "untouched",
       )
-      expect(clients(root).uninstall(id).installed).toBe(false)
+      expect(Effect.runSync(clients(root).uninstall(id)).installed).toBe(false)
       expect(readFileSync(path, "utf8")).toBe(original)
-      expect(manager.uninstall(id).installed).toBe(false)
+      expect(Effect.runSync(manager.uninstall(id)).installed).toBe(false)
     })
     test(`${id}: malformed and outside-modified configs remain byte-identical`, () => {
       const manager = clients(directory())
-      const path = manager.status(id).configPath
+      const path = Effect.runSync(manager.status(id)).configPath
       mkdirSync(resolve(path, ".."), { recursive: true })
 
       for (const raw of [
@@ -89,12 +89,12 @@ describe("MCP client config integration", () => {
           : '{"mcpServers":[],"mcp":[]}',
       ]) {
         writeFileSync(path, raw)
-        expect(() => manager.install(id)).toThrow()
+        expect(() => Effect.runSync(manager.install(id))).toThrow()
         expect(readFileSync(path, "utf8")).toBe(raw)
       }
 
       rmSync(path)
-      manager.install(id)
+      Effect.runSync(manager.install(id))
       const external = `${readFileSync(path, "utf8")} `
       writeFileSync(path, external)
 
@@ -106,7 +106,9 @@ describe("MCP client config integration", () => {
         )
 
         writeFileSync(path, changed)
-        expect(() => manager.uninstall(id)).toThrow(/changed|owned|conflict/i)
+        expect(() => Effect.runSync(manager.uninstall(id))).toThrow(
+          /changed|owned|conflict/i,
+        )
         expect(readFileSync(path, "utf8")).toBe(changed)
       }
     })
@@ -115,16 +117,20 @@ describe("MCP client config integration", () => {
   test("refuses existing unowned entries, broken markers, symlinks, and invalid runtime", () => {
     const root = directory()
     const manager = clients(root)
-    const path = manager.status("claude-code").configPath
+    const path = Effect.runSync(manager.status("claude-code")).configPath
     const raw = '{"mcpServers":{"still-notes":{"command":"mine"}}}'
     writeFileSync(path, raw)
-    expect(() => manager.install("claude-code")).toThrow(/owned|exists/i)
+    expect(() => Effect.runSync(manager.install("claude-code"))).toThrow(
+      /owned|exists/i,
+    )
     expect(readFileSync(path, "utf8")).toBe(raw)
     rmSync(path)
     const other = join(root, "other")
     writeFileSync(other, "{}")
     symlinkSync(other, path)
-    expect(() => manager.install("claude-code")).toThrow(/symbolic|symlink/i)
+    expect(() => Effect.runSync(manager.install("claude-code"))).toThrow(
+      /symbolic|symlink/i,
+    )
     expect(readFileSync(other, "utf8")).toBe("{}")
     expect(
       () =>
@@ -136,8 +142,8 @@ describe("MCP client config integration", () => {
   })
   test("preserves unrelated JSON edits and TOML comments on uninstall", () => {
     const manager = clients(directory())
-    manager.install("claude-code")
-    const path = manager.status("claude-code").configPath
+    Effect.runSync(manager.install("claude-code"))
+    const path = Effect.runSync(manager.status("claude-code")).configPath
     writeFileSync(
       path,
       readFileSync(path, "utf8").replace(
@@ -145,29 +151,29 @@ describe("MCP client config integration", () => {
         '"outside": 42, "mcpServers":',
       ),
     )
-    manager.uninstall("claude-code")
+    Effect.runSync(manager.uninstall("claude-code"))
     expect(readFileSync(path, "utf8")).toContain('"outside": 42')
-    manager.install("codex")
-    const toml = manager.status("codex").configPath
+    Effect.runSync(manager.install("codex"))
+    const toml = Effect.runSync(manager.status("codex")).configPath
     writeFileSync(
       toml,
       `${readFileSync(toml, "utf8")}\n# outside comment\n[other]\nvalue = 42\n`,
     )
-    manager.uninstall("codex")
+    Effect.runSync(manager.uninstall("codex"))
     expect(readFileSync(toml, "utf8")).toContain(
       "# outside comment\n[other]\nvalue = 42",
     )
   })
   test("keeps existing empty containers and refuses edited TOML block comments", () => {
     const manager = clients(directory())
-    const json = manager.status("claude-code").configPath
+    const json = Effect.runSync(manager.status("claude-code")).configPath
     const original = '{ "mcpServers": {  }, "other": [1, {"keep": "x"}] }'
     writeFileSync(json, original)
-    manager.install("claude-code")
-    manager.uninstall("claude-code")
+    Effect.runSync(manager.install("claude-code"))
+    Effect.runSync(manager.uninstall("claude-code"))
     expect(readFileSync(json, "utf8")).toBe(original)
-    manager.install("codex")
-    const toml = manager.status("codex").configPath
+    Effect.runSync(manager.install("codex"))
+    const toml = Effect.runSync(manager.status("codex")).configPath
 
     const changed = readFileSync(toml, "utf8").replace(
       "args =",
@@ -175,20 +181,20 @@ describe("MCP client config integration", () => {
     )
 
     writeFileSync(toml, changed)
-    expect(() => manager.uninstall("codex")).toThrow(/changed/i)
+    expect(() => Effect.runSync(manager.uninstall("codex"))).toThrow(/changed/i)
     expect(readFileSync(toml, "utf8")).toBe(changed)
   })
   test("preserves valid non-JSON TOML values outside the owned entry", () => {
     const manager = clients(directory())
-    const path = manager.status("codex").configPath
+    const path = Effect.runSync(manager.status("codex")).configPath
     mkdirSync(resolve(path, ".."), { recursive: true })
 
     const original =
       '# retain exact values\nratio = inf\nunknown = nan\nwhen = 2025-01-01T00:00:00Z\n[mcp_servers.other]\ncommand = "other"\ncustom = -inf\n'
 
     writeFileSync(path, original)
-    expect(manager.install("codex").owned).toBe(true)
-    manager.uninstall("codex")
+    expect(Effect.runSync(manager.install("codex")).owned).toBe(true)
+    Effect.runSync(manager.uninstall("codex"))
     expect(readFileSync(path, "utf8")).toBe(original)
   })
   test("instructions are atomic, independent defaults, and restart-safe", () => {
