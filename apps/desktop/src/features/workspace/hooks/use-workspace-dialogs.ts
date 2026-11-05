@@ -116,6 +116,7 @@ export function useWorkspaceDialogs({
       } else if (dialog.kind === "import") importPath(value)
       else if (dialog.kind === "export") {
         const note = getCurrentNote(dialog.id)
+
         const destination = run(
           store.exportMarkdown(
             dialog.id,

@@ -37,9 +37,11 @@ export function useNoteDrafts({
   const [handlers] = useState(function createDraftHandlers() {
     function changeNote(patch: Draft) {
       const { store, note, onActiveNote, onError, run } = current.current
+
       if (!note) return
       const state = getDraftState(store)
       const live = state.getCurrentNote(note.id)
+
       if (!live || live.trashedAt) return
       const draft = { ...state.getSnapshot()[note.id], ...patch }
       onActiveNote(note.id)
@@ -69,6 +71,7 @@ export function useNoteDrafts({
   })
 
   return {
+    drafts,
     note: getDraftNote(note, note ? drafts[note.id] : undefined),
     hasDrafts: Object.keys(drafts).length > 0,
     getCurrentNote: state.getCurrentNote,

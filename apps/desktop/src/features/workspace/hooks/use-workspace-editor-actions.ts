@@ -24,6 +24,7 @@ export function useWorkspaceEditorActions({
   onError: (message: string) => void
 }) {
   const run = useDesktopEffect()
+
   const current = useRef({
     store,
     note,
@@ -66,8 +67,10 @@ export function useWorkspaceEditorActions({
         onError,
         run,
       } = current.current
+
       if (!selected) return
       const note = getCurrentNote(selected.id)
+
       if (!note || note.trashedAt) return
 
       try {

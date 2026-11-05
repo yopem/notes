@@ -95,6 +95,7 @@ export function App({
   })
 
   const {
+    drafts,
     note,
     hasDrafts,
     getCurrentNote,

@@ -1,20 +1,20 @@
 import type { Note, NotesStore } from "@/features/notes/store"
 
-interface Draft {
-  title?: string
-  body?: string
+export interface Draft {
+  readonly title?: string
+  readonly body?: string
 }
 
 type Drafts = Readonly<Record<string, Draft>>
 
 interface DraftState {
-  getSnapshot(): Drafts
-  subscribe(listener: () => void): () => void
-  getCurrentNote(id: string): Note | undefined
-  hasPendingDrafts(): boolean
-  setDraft(id: string, draft: Draft): void
-  discardDraft(id: string): void
-  reconcile(): void
+  getSnapshot(this: void): Drafts
+  subscribe(this: void, listener: () => void): () => void
+  getCurrentNote(this: void, id: string): Note | undefined
+  hasPendingDrafts(this: void): boolean
+  setDraft(this: void, id: string, draft: Draft): void
+  discardDraft(this: void, id: string): void
+  reconcile(this: void): void
 }
 
 declare global {
@@ -46,11 +46,12 @@ export function getDraftState(store: NotesStore) {
   const existing = states.get(store)
 
   if (existing) return existing
-  let drafts: Drafts = {}
+  let drafts: Drafts = Object.freeze({})
   const listeners = new Set<() => void>()
 
   function publish(next: Drafts) {
-    drafts = next
+    drafts = Object.freeze(next)
+
     for (const listener of listeners) listener()
   }
 
@@ -60,6 +61,7 @@ export function getDraftState(store: NotesStore) {
 
   function subscribe(listener: () => void) {
     listeners.add(listener)
+
     return function unsubscribe() {
       listeners.delete(listener)
     }
@@ -77,7 +79,7 @@ export function getDraftState(store: NotesStore) {
   }
 
   function setDraft(id: string, draft: Draft) {
-    publish({ ...drafts, [id]: draft })
+    publish({ ...drafts, [id]: Object.freeze({ ...draft }) })
   }
 
   function discardDraft(id: string) {
@@ -93,20 +95,25 @@ export function getDraftState(store: NotesStore) {
 
     for (const [id, draft] of Object.entries(drafts)) {
       const note = store.getSnapshot().notes.find((item) => item.id === id)
+
       if (!note) continue
       const remaining = { ...draft }
+
       if (remaining.title !== undefined && remaining.title === note.title) {
         delete remaining.title
         changed = true
       }
+
       if (remaining.body !== undefined && remaining.body === note.body) {
         delete remaining.body
         changed = true
       }
+
       if (remaining.title === undefined && remaining.body === undefined)
         delete next[id]
-      else next[id] = remaining
+      else next[id] = Object.freeze(remaining)
     }
+
     if (changed) publish(next)
   }
 
@@ -119,6 +126,8 @@ export function getDraftState(store: NotesStore) {
     discardDraft,
     reconcile,
   }
+
   states.set(store, state)
+
   return state
 }
