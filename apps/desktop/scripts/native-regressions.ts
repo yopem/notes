@@ -334,7 +334,7 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     "Next visible note after trash",
   )
   await app.getByTestId("nav-trash").click()
-  await app.getByTestId("note-row").click()
+  await app.getByTestId("note-row").getByText("Regression outside").click()
   await app.getByTestId("restore-note").click()
   steps.push("Trash selects the next visible note, not the first sorted note")
 
