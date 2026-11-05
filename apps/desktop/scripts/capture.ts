@@ -42,12 +42,14 @@ function currentWindow(pid: number, requireActive = false) {
     JSON.parse(run("hyprctl", ["-j", "clients"])),
   )
 
-  const matches = clients.filter((client) => client.title === "Still Notes")
+  const matches = clients.filter(
+    (client) => client.title === "Still Notes" && client.pid === pid,
+  )
 
   assert.equal(
     matches.length,
     1,
-    "Expected exactly one Still Notes window. Close other instances.",
+    "Expected exactly one Still Notes window owned by the test process.",
   )
 
   const client = matches[0]
