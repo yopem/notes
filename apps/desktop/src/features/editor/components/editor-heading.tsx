@@ -27,15 +27,11 @@ export function EditorHeading({
     <div style={narrow ? styles.headingNarrow : styles.heading}>
       <input
         key={`${note.id}-title`}
-        // GPUix uses testId for native automation; data attributes are not supported.
-        // eslint-disable-next-line react-doctor/no-unknown-property
         testId="note-title"
         aria-label="Note title"
         value={note.title}
         placeholder="Untitled"
         readOnly={Boolean(note.trashedAt)}
-        // GPUix inputs need the native theme; HTML input props cannot set it.
-        // eslint-disable-next-line react-doctor/no-unknown-property
         theme={getEditorTheme(color)}
         onChange={changes.title}
         style={styles.title}

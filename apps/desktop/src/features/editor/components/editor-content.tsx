@@ -40,15 +40,11 @@ export function EditorContent({
       {mode !== "preview" && (
         <textarea
           key={`${note.id}-body`}
-          // GPUix uses testId for native automation; data attributes are not supported.
-          // eslint-disable-next-line react-doctor/no-unknown-property
           testId="note-body"
           aria-label="Note Markdown"
           value={note.body}
           placeholder="Start writing. Markdown is welcome."
           readOnly={Boolean(note.trashedAt)}
-          // GPUix text controls need the native theme; HTML props cannot set it.
-          // eslint-disable-next-line react-doctor/no-unknown-property
           theme={getEditorTheme(color)}
           onChange={changes.body}
           style={textStyles.bodyText}
@@ -56,20 +52,12 @@ export function EditorContent({
       )}
       {(mode === "preview" || split) && (
         <div
-          // GPUix uses testId for native automation; data attributes are not supported.
-          // eslint-disable-next-line react-doctor/no-unknown-property
           testId="markdown-preview"
           style={split ? styles.splitPreview : styles.preview}
         >
           <markdown
-            // GPUix renders Markdown from source; HTML has no Markdown host.
-            // eslint-disable-next-line react-doctor/no-unknown-property
             source={note.body || "*Nothing here yet.*"}
-            // GPUix text controls need the native theme; HTML props cannot set it.
-            // eslint-disable-next-line react-doctor/no-unknown-property
             theme={getEditorTheme(color)}
-            // GPUix sends link URLs through its native onLinkClick event.
-            // eslint-disable-next-line react-doctor/no-unknown-property
             onLinkClick={getEditorLinkHandler(onLink)}
             style={textStyles.previewText}
           />

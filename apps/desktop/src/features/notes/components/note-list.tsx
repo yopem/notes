@@ -53,8 +53,6 @@ export function NoteList({
         </div>
         <div style={noteListStyles.countRow}>
           <text
-            // GPUix HostProps uses testId for native automation, not data-*.
-            // eslint-disable-next-line react-doctor/no-unknown-property
             testId="note-count"
             style={styles.count}
           >{`${notes.length} ${notes.length === 1 ? "note" : "notes"}`}</text>

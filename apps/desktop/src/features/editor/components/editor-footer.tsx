@@ -35,8 +35,6 @@ export function EditorFooter({
           size={13}
         />
         <text
-          // GPUix uses testId for native automation; data attributes are not supported.
-          // eslint-disable-next-line react-doctor/no-unknown-property
           testId="save-status"
           style={dirty ? styles.unsavedStatus : styles.savedStatus}
         >
