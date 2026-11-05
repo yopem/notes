@@ -444,7 +444,8 @@ ignorePatterns = [
 "react-doctor/no-unguarded-numeric-input-parse" = "warn"
 "react-doctor/no-unguarded-throwing-parse-call" = "warn"
 "react-doctor/no-uninformative-aria-label" = "warn"
-"react-doctor/no-unknown-property" = "warn"
+# GPUix has native host props. Its TypeScript types check these props.
+"react-doctor/no-unknown-property" = "off"
 "react-doctor/no-unowned-async-error-clear" = "warn"
 "react-doctor/no-unsafe" = "warn"
 "react-doctor/no-unsafe-json-parse" = "warn"

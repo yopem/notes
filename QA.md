@@ -346,9 +346,10 @@ desktop warnings and zero errors. The other workspaces have no findings.
        `--no-script --max-warnings=0` from that workspace.
     4. Run the existing affected test files and native E2E workflow through
        `bun run test:native`. Inspect the report, screenshots and saved data.
-    5. Confirm that no rules or severities were weakened. For a native-only
-       property or role that cannot use a valid alternative, inspect any
-       one-line exception and its required reason.
+    5. Confirm that all other rules keep their severity. The user approved
+       disabling only the DOM-specific `react-doctor/no-unknown-property` rule
+       because GPUix has native host props. Typecheck those props with GPUix
+       types. Inspect any required one-line native role exception.
   - **Expected results:** Every workspace reports zero warnings and zero errors.
     Typecheck, format and relevant regressions pass. Native layout, keyboard
     actions, dialogs, persistence and draft rescue remain functional. No
