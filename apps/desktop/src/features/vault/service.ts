@@ -41,6 +41,12 @@ const metadataLimit = 8 * 1024 * 1024
 
 const internal = ".still-notes"
 
+function asciiLowercase(value: string) {
+  return value.replace(/[A-Z]/g, (letter) =>
+    String.fromCharCode(letter.charCodeAt(0) + 32),
+  )
+}
+
 const statePath = `${internal}/state.json`
 
 const journalPath = `${internal}/transaction.json`
@@ -628,8 +634,22 @@ export class Vault {
     const parts = id.split("/")
 
     for (const [index, part] of parts.entries()) {
-      current = join(current, part)
+      const parent = current
+      current = join(parent, part)
       const stat = fileStat(current)
+
+      if (stat || (index === 0 && this.reservedRoot(part))) {
+        const entries = readdirSync(parent)
+
+        if (
+          !entries.includes(part) &&
+          (stat ||
+            entries.some(
+              (entry) => asciiLowercase(entry) === asciiLowercase(part),
+            ))
+        )
+          throw new Error("Path spelling does not match an existing entry")
+      }
 
       if (stat?.isSymbolicLink())
         throw new Error(`Symlink path is not supported: ${id}`)
@@ -1001,6 +1021,16 @@ export class Vault {
       ? ""
       : folder
   }
+  private reservedRoot(name: string) {
+    return [
+      "quick",
+      "archive",
+      "trash",
+      "assets",
+      internal,
+      ...(this.state.primaryNotesLocation === "inbox" ? ["inbox"] : []),
+    ].includes(asciiLowercase(name))
+  }
   private folderPath(folder: NoteFolder, subpath = "") {
     decodeArea(folder)
 
@@ -1019,14 +1049,7 @@ export class Vault {
 
     if (
       this.areaRoot(folder) === "" &&
-      [
-        "quick",
-        "archive",
-        "trash",
-        "assets",
-        internal,
-        ...(this.state.primaryNotesLocation === "inbox" ? ["inbox"] : []),
-      ].includes(id.split("/")[0] ?? "")
+      this.reservedRoot(id.split("/")[0] ?? "")
     )
       throw new Error("Reserved system area")
 
@@ -1035,7 +1058,10 @@ export class Vault {
     return id
   }
   private folderOf(id: string): NoteFolder {
-    const first = id.split("/")[0]
+    const first = id.split("/")[0] ?? ""
+
+    if (this.reservedRoot(first) && first !== asciiLowercase(first))
+      throw new Error("Reserved system area spelling")
 
     if (first === "quick" || first === "archive" || first === "trash")
       return first
@@ -1048,7 +1074,13 @@ export class Vault {
   private notePath(id: string) {
     this.safe(id, true)
 
-    if (!/\.md$/i.test(id) || id.startsWith("assets/"))
+    const first = id.split("/")[0] ?? ""
+
+    if (
+      !/\.md$/i.test(id) ||
+      (this.reservedRoot(first) && first !== asciiLowercase(first)) ||
+      asciiLowercase(first) === "assets"
+    )
       throw new Error("Expected a Markdown note path")
 
     return id
@@ -1093,6 +1125,12 @@ export class Vault {
 
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       if (!hidden && entry.name.startsWith(".")) continue
+      if (
+        !id &&
+        this.reservedRoot(entry.name) &&
+        entry.name !== asciiLowercase(entry.name)
+      )
+        continue
       const child = id ? `${id}/${entry.name}` : entry.name
 
       if (entry.isSymbolicLink()) {
