@@ -8,6 +8,7 @@ import { palettes } from "@/components/ui/theme"
 import { DuplicateNoteContext } from "@/features/editor/components/duplicate-note-context"
 import { NoteList } from "@/features/notes/components/note-list"
 import { SettingsPanel } from "@/features/settings/components/settings-panel"
+import { TaskView } from "@/features/tasks/components/task-view"
 import { AppDialog } from "@/features/workspace/components/app-dialog"
 import { Sidebar } from "@/features/workspace/components/sidebar"
 import { WorkspaceEditor } from "@/features/workspace/components/workspace-editor"
@@ -165,21 +166,23 @@ export function App({
               : workspaceStyles.contentWithoutSidebar
           }
         >
-          <WorkspaceHeader
-            color={color}
-            theme={theme}
-            settings={settings}
-            narrow={narrow}
-            showSidebar={showSidebar}
-            searchRef={native.searchRef}
-            query={navigation.query}
-            onSearch={navigation.searchNotes}
-            onShowNotebooks={navigation.showNotebooks}
-            onImport={dialogs.showImport}
-            onSettings={handlers.openSettings}
-            onHelp={dialogs.showHelp}
-            onError={setError}
-          />
+          {navigation.view.kind !== "tasks" && (
+            <WorkspaceHeader
+              color={color}
+              theme={theme}
+              settings={settings}
+              narrow={narrow}
+              showSidebar={showSidebar}
+              searchRef={native.searchRef}
+              query={navigation.query}
+              onSearch={navigation.searchNotes}
+              onShowNotebooks={navigation.showNotebooks}
+              onImport={dialogs.showImport}
+              onSettings={handlers.openSettings}
+              onHelp={dialogs.showHelp}
+              onError={setError}
+            />
+          )}
           <WorkspaceMessages
             color={color}
             error={error}
@@ -190,42 +193,57 @@ export function App({
             onDismissNotice={handlers.dismissNotice}
           />
           <div style={styles.panes}>
-            {(!navigation.focusMode || !note) &&
-              (!narrow || !navigation.mobileEditor || !note) && (
-                <NoteList
-                  color={color}
-                  notes={navigation.notes}
-                  selectedId={note?.id}
-                  title={navigation.title}
-                  query={navigation.query}
-                  onSelect={navigation.selectNote}
-                  onNew={intake.newNote}
-                  trash={navigation.view.kind === "trash"}
-                  sortOrder={preferences.noteSortOrder}
-                  onSort={navigation.toggleSort}
-                />
-              )}
-            <DuplicateNoteContext value={editor.duplicateNote}>
-              <WorkspaceEditor
+            {navigation.view.kind === "tasks" ? (
+              <TaskView
                 color={color}
-                preferences={preferences}
-                note={note}
-                notebookName={notebook?.name ?? "Notebook"}
-                mode={navigation.mode}
-                onMode={navigation.setMode}
-                onChange={changeNote}
-                actions={editor}
-                focusMode={navigation.focusMode}
-                onFocusMode={navigation.toggleFocus}
-                dirty={hasDrafts}
-                narrow={narrow}
-                mobileEditor={navigation.mobileEditor}
-                onBack={navigation.showList}
-                query={navigation.query}
-                view={navigation.view}
-                onNew={intake.newNote}
+                notes={workspace.notes}
+                drafts={drafts}
+                searchRef={native.searchRef}
+                showSidebar={showSidebar}
+                onShowNotebooks={navigation.showNotebooks}
+                onSettings={handlers.openSettings}
+                onOpenNote={navigation.openTaskNote}
               />
-            </DuplicateNoteContext>
+            ) : (
+              <>
+                {(!navigation.focusMode || !note) &&
+                  (!narrow || !navigation.mobileEditor || !note) && (
+                    <NoteList
+                      color={color}
+                      notes={navigation.notes}
+                      selectedId={note?.id}
+                      title={navigation.title}
+                      query={navigation.query}
+                      onSelect={navigation.selectNote}
+                      onNew={intake.newNote}
+                      trash={navigation.view.kind === "trash"}
+                      sortOrder={preferences.noteSortOrder}
+                      onSort={navigation.toggleSort}
+                    />
+                  )}
+                <DuplicateNoteContext value={editor.duplicateNote}>
+                  <WorkspaceEditor
+                    color={color}
+                    preferences={preferences}
+                    note={note}
+                    notebookName={notebook?.name ?? "Notebook"}
+                    mode={navigation.mode}
+                    onMode={navigation.setMode}
+                    onChange={changeNote}
+                    actions={editor}
+                    focusMode={navigation.focusMode}
+                    onFocusMode={navigation.toggleFocus}
+                    dirty={hasDrafts}
+                    narrow={narrow}
+                    mobileEditor={navigation.mobileEditor}
+                    onBack={navigation.showList}
+                    query={navigation.query}
+                    view={navigation.view}
+                    onNew={intake.newNote}
+                  />
+                </DuplicateNoteContext>
+              </>
+            )}
           </div>
         </div>
       </div>

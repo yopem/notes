@@ -5,7 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react"
 import type { EditorMode } from "@/features/editor/components/editor"
 import type { Note, NotesStore, Workspace } from "@/features/notes/store"
 import type { Preferences, SettingsStore } from "@/features/settings/store"
-import type { View } from "@/features/workspace/components/sidebar"
+import type { WorkspaceView } from "@/features/workspace/components/sidebar"
 
 import { useDesktopEffect } from "@/components/effect-boundary"
 import { attempt } from "@/features/workspace/attempt"
@@ -50,7 +50,7 @@ export function useWorkspaceNavigation({
   onError: (message: string) => void
 }) {
   const run = useDesktopEffect()
-  const [view, setView] = useState<View>({ kind: "all" })
+  const [view, setView] = useState<WorkspaceView>({ kind: "all" })
   const [query, setQuery] = useState("")
   const [mode, setMode] = useState(defaultMode)
   const [focusMode, setFocusMode] = useState(false)
@@ -60,7 +60,7 @@ export function useWorkspaceNavigation({
 
   const selection = getWorkspaceSelection({
     workspace,
-    view,
+    view: view.kind === "tasks" ? { kind: "all" } : view,
     query,
     oldestFirst: false,
     activeNoteId,
@@ -156,12 +156,13 @@ export function useWorkspaceNavigation({
   )
 
   const [handlers] = useState(function createNavigationHandlers() {
-    function changeView(next: View) {
+    function changeView(next: WorkspaceView) {
       setView(next)
       setActiveNoteId(null)
       setQuery("")
       setNavigationOpen(false)
       setMobileEditor(false)
+      if (next.kind === "tasks") setFocusMode(false)
     }
 
     function searchNotes(
@@ -173,11 +174,34 @@ export function useWorkspaceNavigation({
       setFocusMode(false)
     }
 
+    function activateNote(id: string | null) {
+      setActiveNoteId(id)
+      if (id)
+        setView((previous) =>
+          previous.kind === "tasks" ? { kind: "all" } : previous,
+        )
+    }
+
     function selectNote(id: string) {
       const { store, onError, run } = current.current
       setActiveNoteId(id)
       setMobileEditor(true)
       onError(attempt(() => run(store.selectNote(id))))
+    }
+
+    function openTaskNote(id: string) {
+      const { store, onError } = current.current
+      const source = store.getSnapshot().notes.find((note) => note.id === id)
+      if (!source || source.trashedAt) {
+        onError("The task source note is no longer available.")
+        return
+      }
+      setView({ kind: "all" })
+      setQuery("")
+      setActiveNoteId(id)
+      setMobileEditor(true)
+      setFocusMode(false)
+      setNavigationOpen(false)
     }
 
     // Use the list from before the write, even if a store update commits at once.
@@ -231,7 +255,9 @@ export function useWorkspaceNavigation({
     return {
       changeView,
       searchNotes,
+      activateNote,
       selectNote,
+      openTaskNote,
       selectNextNote,
       showNotebooks,
       showSearch,
@@ -256,12 +282,13 @@ export function useWorkspaceNavigation({
     setView,
     setQuery,
     setMode,
-    setActiveNoteId,
+    setActiveNoteId: handlers.activateNote,
     setNavigationOpen,
     setMobileEditor,
     changeView: handlers.changeView,
     searchNotes: handlers.searchNotes,
     selectNote: handlers.selectNote,
+    openTaskNote: handlers.openTaskNote,
     selectNextNote: handlers.selectNextNote,
     showNotebooks: handlers.showNotebooks,
     showSearch: handlers.showSearch,

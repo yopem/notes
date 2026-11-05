@@ -15,6 +15,8 @@ export type View =
   | { kind: "all" | "pinned" | "trash" }
   | { kind: "notebook"; notebookId: string }
 
+export type WorkspaceView = View | { kind: "tasks" }
+
 export function Sidebar({
   color,
   notebooks,
@@ -28,8 +30,8 @@ export function Sidebar({
   color: Palette
   notebooks: Notebook[]
   notes: Note[]
-  view: View
-  onView: (view: View) => void
+  view: WorkspaceView
+  onView: (view: WorkspaceView) => void
   onNewNotebook: () => void
   onRename: (notebook: Notebook) => void
   onImport: () => void
@@ -49,7 +51,11 @@ export function Sidebar({
       changeView.current({ kind: "trash" })
     }
 
-    return { showAllNotes, showPinnedNotes, showTrash }
+    function showTasks() {
+      changeView.current({ kind: "tasks" })
+    }
+
+    return { showAllNotes, showPinnedNotes, showTrash, showTasks }
   })
 
   useLayoutEffect(
@@ -94,6 +100,15 @@ export function Sidebar({
         onClick={navigation.showPinnedNotes}
       >
         Pinned
+      </NavItem>
+      <NavItem
+        color={color}
+        icon="check"
+        selected={view.kind === "tasks"}
+        testId="nav-tasks"
+        onClick={navigation.showTasks}
+      >
+        Tasks
       </NavItem>
       <NavItem
         color={color}
