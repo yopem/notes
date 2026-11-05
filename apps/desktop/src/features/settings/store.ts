@@ -18,7 +18,7 @@ import {
 } from "node:fs"
 import { join, resolve } from "node:path"
 
-import { atomicWrite } from "@/platform/files"
+import { atomicWrite, AtomicWriteError, syncDirectory } from "@/platform/files"
 
 function frozen<S extends Schema.Constraint & { readonly Type: object }>(
   schema: S,
@@ -446,7 +446,7 @@ function readSettings(path: string) {
 export class SettingsError extends Schema.TaggedError<SettingsError>()(
   "SettingsError",
   {
-    operation: Schema.Literals(["open", "save"]),
+    operation: Schema.Literals(["open", "save", "recover"]),
     message: Schema.String,
     cause: Schema.Defect(),
   },
@@ -457,6 +457,7 @@ export class SettingsStore {
   private readonly directory: string
   private bytes: string
   private snapshot: Preferences
+  private pendingWrite: { bytes: string; snapshot: Preferences } | undefined
   private readonly listeners = new Set<() => void>()
 
   constructor(directory: string) {
@@ -488,6 +489,51 @@ export class SettingsStore {
       JSON.stringify({ version: 1, preferences: this.snapshot }, null, 2) + "\n"
 
     if (existing === null) atomicWrite(this.path, this.bytes, this.directory)
+    this.getWriteRecoveryState = this.getWriteRecoveryState.bind(this)
+  }
+
+  getWriteRecoveryState(): "ready" | "uncertain" {
+    return this.pendingWrite ? "uncertain" : "ready"
+  }
+
+  recoverWrite() {
+    return Effect.suspend(() => {
+      let failedSubscribers = 0
+
+      return Effect.try({
+        try: () => {
+          const pending = this.pendingWrite
+
+          if (!pending) return
+
+          if (readSettings(this.path) !== pending.bytes)
+            throw new Error(
+              "Settings changed after an uncertain write. Preserve settings.json and reopen before recovery; no file was replaced.",
+            )
+
+          syncDirectory(this.directory)
+
+          if (readSettings(this.path) !== pending.bytes)
+            throw new Error(
+              "Settings changed during recovery. Preserve settings.json and reopen; no file was replaced.",
+            )
+
+          this.snapshot = pending.snapshot
+          this.bytes = pending.bytes
+          this.pendingWrite = undefined
+          failedSubscribers = this.notifySubscribers()
+        },
+        catch: (cause) =>
+          new SettingsError({
+            operation: "recover",
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Cannot recover settings",
+            cause,
+          }),
+      }).pipe(Effect.onExit(() => reportFailedSubscribers(failedSubscribers)))
+    }).pipe(Effect.uninterruptible, Effect.withSpan("Settings.recoverWrite"))
   }
 
   getSnapshot() {
@@ -509,57 +555,86 @@ export class SettingsStore {
   }
 
   private savePreferences(values: () => object) {
-    return Effect.try({
-      try: () => {
-        const next = Schema.decodeUnknownSync(preferencesSchema, {
-          onExcessProperty: "error",
-          errors: "all",
-        })(values())
+    return Effect.suspend(() => {
+      let failedSubscribers = 0
 
-        const bytes =
-          JSON.stringify({ version: 1, preferences: next }, null, 2) + "\n"
-
-        if (Buffer.byteLength(bytes, "utf8") > 1024 * 1024)
-          throw new Error("Settings exceed the 1 MB limit")
-
-        if (readSettings(this.path) !== this.bytes)
-          throw new Error(
-            "Settings changed outside this instance. Reopen before saving.",
-          )
-        atomicWrite(this.path, bytes, this.directory)
-        this.snapshot = next
-        this.bytes = bytes
-        let failures = 0
-
-        for (const listener of this.listeners) {
-          try {
-            listener()
-          } catch {
-            failures += 1
-          }
-        }
-
-        return failures
-      },
-      catch: (cause) =>
-        new SettingsError({
-          operation: "save",
-          message:
-            cause instanceof Error ? cause.message : "Cannot save settings",
-          cause,
-        }),
-    }).pipe(
-      Effect.uninterruptible,
-      Effect.flatMap(function reportFailedSubscribers(failedSubscribers) {
-        return failedSubscribers > 0
-          ? Effect.logWarning("Settings subscriber failed").pipe(
-              Effect.annotateLogs({ failedSubscribers }),
+      return Effect.try({
+        try: () => {
+          if (this.pendingWrite)
+            throw new Error(
+              "Settings have an uncertain write. Recover that write before making another change; do not repeat the original save.",
             )
-          : Effect.void
-      }),
-      Effect.withSpan("Settings.save"),
-    )
+
+          const next = Schema.decodeUnknownSync(preferencesSchema, {
+            onExcessProperty: "error",
+            errors: "all",
+          })(values())
+
+          const bytes =
+            JSON.stringify({ version: 1, preferences: next }, null, 2) + "\n"
+
+          if (Buffer.byteLength(bytes, "utf8") > 1024 * 1024)
+            throw new Error("Settings exceed the 1 MB limit")
+
+          if (readSettings(this.path) !== this.bytes)
+            throw new Error(
+              "Settings changed outside this instance. Reopen before saving.",
+            )
+          try {
+            atomicWrite(this.path, bytes, this.directory)
+          } catch (cause) {
+            if (
+              cause instanceof AtomicWriteError &&
+              cause.path === this.path &&
+              cause.replacementCompleted
+            ) {
+              this.pendingWrite = { bytes, snapshot: next }
+              failedSubscribers = this.notifySubscribers()
+              throw new Error(
+                "Settings were replaced, but durability is not confirmed. Recover the pending write before making another change.",
+                { cause },
+              )
+            }
+
+            throw cause
+          }
+
+          this.snapshot = next
+          this.bytes = bytes
+          failedSubscribers = this.notifySubscribers()
+        },
+        catch: (cause) =>
+          new SettingsError({
+            operation: "save",
+            message:
+              cause instanceof Error ? cause.message : "Cannot save settings",
+            cause,
+          }),
+      }).pipe(Effect.onExit(() => reportFailedSubscribers(failedSubscribers)))
+    }).pipe(Effect.uninterruptible, Effect.withSpan("Settings.save"))
   }
+
+  private notifySubscribers() {
+    let failures = 0
+
+    for (const listener of [...this.listeners]) {
+      try {
+        listener()
+      } catch {
+        failures += 1
+      }
+    }
+
+    return failures
+  }
+}
+
+function reportFailedSubscribers(failedSubscribers: number) {
+  return failedSubscribers > 0
+    ? Effect.logWarning("Settings subscriber failed").pipe(
+        Effect.annotateLogs({ failedSubscribers }),
+      )
+    : Effect.void
 }
 
 export class Settings extends Context.Service<Settings, SettingsStore>()(
