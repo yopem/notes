@@ -787,10 +787,14 @@ describe("native Markdown vault", () => {
     const writable = open(directory)
     const note = Effect.runSync(writable.createNote("inbox", "Café", "", "new"))
     Effect.runSync(writable.createFolder("inbox", "Folder"))
-    const asset = Effect.runSync(writable.createAsset("asset.txt", Buffer.from("asset")))
+    const asset = Effect.runSync(
+      writable.createAsset("asset.txt", Buffer.from("asset")),
+    )
     const deleted = Effect.runSync(
       writable.deleteAsset(
-        Effect.runSync(writable.createAsset("deleted.txt", Buffer.from("deleted"))).path,
+        Effect.runSync(
+          writable.createAsset("deleted.txt", Buffer.from("deleted")),
+        ).path,
       ),
     )
     writable.close()
@@ -798,13 +802,23 @@ describe("native Markdown vault", () => {
     const metadata = readFileSync(metadataPath)
     const preview = new Vault(directory, { preview: true })
     vaults.push(preview)
-    expect(Effect.runSync(preview.listNotes()).map((item) => item.path)).toContain(note.path)
+    expect(
+      Effect.runSync(preview.listNotes()).map((item) => item.path),
+    ).toContain(note.path)
     expect(Effect.runSync(preview.readNote(note.path)).body).toBe("new")
-    expect(Effect.runSync(preview.listFolders()).map((item) => item.path)).toContain("inbox/Folder")
-    expect(Effect.runSync(preview.listAssets()).map((item) => item.path)).toContain(asset.path)
+    expect(
+      Effect.runSync(preview.listFolders()).map((item) => item.path),
+    ).toContain("inbox/Folder")
+    expect(
+      Effect.runSync(preview.listAssets()).map((item) => item.path),
+    ).toContain(asset.path)
     expect(Effect.runSync(preview.readAssetText(asset.path))).toBe("asset")
-    expect(Effect.runSync(preview.readAsset(asset.path))).toEqual(Buffer.from("asset"))
-    expect(Effect.runSync(preview.listDeletedAssets()).map((item) => item.undoToken)).toContain(deleted.undoToken)
+    expect(Effect.runSync(preview.readAsset(asset.path))).toEqual(
+      Buffer.from("asset"),
+    )
+    expect(
+      Effect.runSync(preview.listDeletedAssets()).map((item) => item.undoToken),
+    ).toContain(deleted.undoToken)
     const guard = { expectedHash: note.hash }
     const assetGuard = { expectedHash: hash("asset") }
     const noteMutations: readonly Effect.Effect<unknown, VaultNoteError>[] = [
@@ -823,12 +837,13 @@ describe("native Markdown vault", () => {
       preview.deleteNote(note.path, { confirm: true }),
       preview.emptyTrash({ confirm: true }),
     ]
-    const folderMutations: readonly Effect.Effect<unknown, VaultFolderError>[] = [
-      preview.createFolder("inbox", "Added"),
-      preview.renameFolder("inbox", "Folder", "Folder"),
-      preview.duplicateFolder("inbox", "Folder"),
-      preview.deleteFolder("inbox", "Folder", { confirm: true }),
-    ]
+    const folderMutations: readonly Effect.Effect<unknown, VaultFolderError>[] =
+      [
+        preview.createFolder("inbox", "Added"),
+        preview.renameFolder("inbox", "Folder", "Folder"),
+        preview.duplicateFolder("inbox", "Folder"),
+        preview.deleteFolder("inbox", "Folder", { confirm: true }),
+      ]
     const assetMutations: readonly Effect.Effect<unknown, VaultAssetError>[] = [
       preview.createAsset("added.txt", Buffer.from("added")),
       preview.importAsset(join(directory, asset.path)),
@@ -869,7 +884,9 @@ describe("native Markdown vault", () => {
       directories: [],
     })
     writeFileSync(journalPath, journal)
-    const failure = Effect.runSync(Effect.flip(preview.writeNote(note.path, "changed", guard)))
+    const failure = Effect.runSync(
+      Effect.flip(preview.writeNote(note.path, "changed", guard)),
+    )
     expect(failure).toBeInstanceOf(VaultNoteError)
     expect(failure.message).toMatch(/preview|read.only/i)
     expect(readFileSync(join(directory, note.path), "utf8")).toBe("new")
