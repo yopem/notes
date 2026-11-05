@@ -438,9 +438,11 @@ synchronous calculations in ordinary TypeScript.
     persisted files and screenshots before recording a pass.
   - **Cleanup:** Close only the test processes. Remove only the disposable
     directory after its evidence is reviewed. Do not touch personal data.
-  - **Status:** Pending. The named core tests passed with 81 tests and 343
-    assertions. Scoped core lint passed with zero warnings. Native QA reached
-    the welcome screen. Its saved automation tree shows the test workspace, but
-    `grim -T` exited with SIGSEGV. Draft recovery and restart remain unrun. The
-    existing user app was not stopped or captured. Resolve client-only capture
-    before rerunning the native cases.
+  - **Status:** Blocked. Client-only screenshot capture requires a working
+    isolated compositor or a verified fix for `grim -T`. The installed headless
+    compositor cannot provide its required DRM allocator. The named core tests
+    passed with 81 tests and 343 assertions. Scoped core lint passed with zero
+    warnings. Native QA reached the welcome screen. Its saved automation tree
+    shows the test workspace, but `grim -T` exited with SIGSEGV. Draft recovery
+    and restart remain unrun. The existing user app was not stopped or captured.
+    Resolve client-only capture before rerunning the native cases.
