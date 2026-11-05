@@ -1,9 +1,11 @@
-import { z } from "zod"
+import { Schema } from "effect"
 
-const dataDirectorySchema = z.string().optional()
+const dataDirectorySchema = Schema.UndefinedOr(Schema.String)
 
 export function readDataDirectory() {
-  return dataDirectorySchema.parse(process.env.STILL_NOTES_DATA_DIR)
+  return Schema.decodeUnknownSync(dataDirectorySchema)(
+    process.env.STILL_NOTES_DATA_DIR,
+  )
 }
 
 export function writeDataDirectory(value: string | undefined) {
