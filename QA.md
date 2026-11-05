@@ -67,6 +67,7 @@ data.
 | Native action, font setup and remount draft safety           | QA-057, QA-058, QA-059, QA-062                                                         |
 | Typed folder entry and picker-independent access             | QA-060                                                                                 |
 | Window close binding lifetime across root replacement        | QA-061                                                                                 |
+| Painted native note selection after wheel navigation         | QA-063                                                                                 |
 
 ## Storage and configuration
 
@@ -1787,3 +1788,35 @@ mark those cases passed until capture works and the evidence is inspected.
     the lock was removed. Native pending-root, event-loop, remount and
     screenshot acceptance remain pending. This case does not establish
     normal-font latency, root cause, OS composition or platform parity.
+
+- [ ] **QA-063 — P1 — Select an offscreen note in the native list**
+  - **Purpose:** Keep the duplicate/draft regression valid when retained virtual
+    rows exist outside the painted viewport. Exercise real wheel navigation.
+  - **Prerequisites:** Private QA-056 setup, the verified asynchronous font
+    host, and the existing wide regression. Use no user windows or data.
+  - **Inputs:** 1360 by 900 window; the regression's generated notes and source
+    row `Regression rescue`. Keep the source's pending draft after duplication.
+  - **Steps:**
+    1. From the repository root, run the private `wide bundled` fixture with a
+       unique run ID and a recorded full source commit, as in shared setup.
+    2. Reach the existing failed-duplicate recovery scenario. Locate the source
+       row through the note-list panel. If it is not painted, use wheel events
+       inside that panel and wait for positive native bounds before selection.
+    3. Select the original source and complete Retry. Inspect the saved source,
+       independent duplicate, pending warning and remaining wide scenarios.
+  - **Expected results:** Selection uses a painted row, not a retained hidden
+    descendant. Scrolling does not edit either note or clear the pending draft.
+    The source remains unsaved until Retry, then saves the exact draft. All
+    existing duplicate, failed-save and original-note assertions remain active.
+  - **Evidence:** Save the immutable script and source hashes, result, native
+    tree, private screenshot and wheel steps under
+    `docs/artifacts/native-isolation/`. Record timeouts rather than suppressing
+    errors. Inspect the artifact before passing this case.
+  - **Cleanup:** Stop only owned app/compositor groups, remove their isolated
+    data/runtime, and verify the workspace lock is gone. Keep sanitized
+    evidence.
+  - **Status:** Pending implementation. The private wide run
+    `app-run-20261105T182727Z-946586` passed settings and reached the original
+    source selection after duplicate recovery, then failed because its retained
+    row had no painted bounds. The fixture must scroll; no application data-loss
+    failure is established by that result.
