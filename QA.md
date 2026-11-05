@@ -914,3 +914,62 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Restore only test-owned workspace bytes, stop the test app and
     remove its isolated data after evidence review.
   - **Status:** Pending implementation and blocked by QA-015 screenshot capture.
+
+- [ ] **QA-035 — P0 — Keep a search fallback note selected during sorting**
+  - **Purpose:** Sorting must not replace the active editor or hide a draft when
+    the current note comes from the first search result.
+  - **Prerequisites:** Shared isolated desktop setup; note sorting implemented;
+    no user workspace. Create notes `Apple`, `Apricot`, and `Banana` with
+    distinct content and select `Banana`.
+  - **Inputs:** Search for `Ap`, select no result manually, then reverse name
+    sorting while the first result is displayed.
+  - **Steps:**
+    1. In **Settings**, select `name-asc`, then search for `Ap`.
+    2. Record the title and content of the editor that appears.
+    3. Reverse the sort using the note-list control and inspect the editor.
+  - **Expected results:** The list changes order, but the original fallback
+    editor remains on the same note with the same content. No save, edit, or
+    draft export is applied to another note.
+  - **Evidence:** Save the sanitized native app tree and client-only screenshots
+    under `docs/artifacts/sorting/QA-035/` with the tested revision.
+  - **Cleanup:** Stop only the test app; remove its isolated data after review.
+  - **Status:** Pending. Source review found the fallback selection is not
+    anchored before the list order changes. Screenshot capture is blocked by
+    QA-015.
+
+- [ ] **QA-036 — P1 — Re-sort when leaving an edited note**
+  - **Purpose:** Keep the list stable during an edit, then apply the chosen
+    ordering once the user selects another note.
+  - **Prerequisites:** Shared isolated desktop setup and note sorting enabled.
+  - **Inputs:** Create `Note 2` and `Note 10`; choose `name-asc`.
+  - **Steps:**
+    1. Select `Note 2` and rename it `Note 20`.
+    2. Confirm the editor stays on `Note 20` while editing.
+    3. Select `Note 10` without changing view, filter, sort or pin state.
+  - **Expected results:** The edited note remains stable during editing. After
+    selecting `Note 10`, the list orders `Note 10` before `Note 20`, and the
+    editor shows `Note 10`. No note content is lost.
+  - **Evidence:** Save the sanitized app tree and client-only screenshots in
+    `docs/artifacts/sorting/QA-036/`, with the tested revision.
+  - **Cleanup:** Stop only the test app; remove its isolated data after review.
+  - **Status:** Pending. Source review found the cached order can remain stale
+    after selection changes. Screenshot capture is blocked by QA-015.
+
+- [ ] **QA-037 — P1 — Expose selected sort choices accessibly**
+  - **Purpose:** Let keyboard and assistive-technology users identify and change
+    the current note sort option without relying on color.
+  - **Prerequisites:** Shared isolated desktop setup; a platform accessibility
+    inspector and working screenshot capture.
+  - **Inputs:** Open **Settings** and select `name-asc`, then `created-desc`.
+  - **Steps:**
+    1. Reach both choices with the keyboard and inspect each control's role,
+       accessible name and selected or pressed state.
+    2. Activate `created-desc` with the keyboard and inspect both states again.
+  - **Expected results:** Exactly the current choice exposes a valid selected or
+    pressed state for its native role, and both choices remain keyboard
+    operable. The new state is announced without relying on visual color.
+  - **Evidence:** Save the sanitized accessibility tree and client-only
+    screenshots under `docs/artifacts/sorting/QA-037/`.
+  - **Cleanup:** Stop only the test app; remove its isolated data after review.
+  - **Status:** Pending. Source review found selected state on a button role is
+    not valid for that role. Screenshot capture is blocked by QA-015.
