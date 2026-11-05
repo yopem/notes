@@ -587,3 +587,27 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Close only the test app and remove the recorded isolated data
     after evidence review.
   - **Status:** Pending implementation; screenshot capture is blocked by QA-015.
+
+- [ ] **QA-022 — P1 — Follow system appearance**
+  - **Purpose:** Make the **System** appearance match the operating system
+    rather than the stored workspace theme.
+  - **Prerequisites:** A verified native appearance bridge; isolated supported
+    desktop sessions with controllable appearance; a working client-only
+    screenshot path. Do not change the user's desktop settings.
+  - **Inputs:** Appearance values **System**, **Light**, and **Dark** in the
+    existing settings dialog, with an isolated light and dark system session.
+  - **Steps:**
+    1. In an isolated light session, open settings and choose **System**.
+    2. Change only the isolated session to dark, then back to light.
+    3. Select **Dark** explicitly and change the isolated system appearance.
+    4. Restart the app with the same isolated settings and observe its palette.
+  - **Expected results:** System mode follows the initial and changed system
+    appearance. Explicit dark remains dark. Restart preserves the selected
+    setting, text remains readable, and editor controls match the app palette.
+  - **Evidence:** Save the appearance values, accessibility tree, and inspected
+    client-only screenshots under `docs/artifacts/effect-migration/QA-022/`.
+  - **Cleanup:** Close only the isolated app and session. Remove only its
+    disposable data after evidence review; do not alter the user's desktop.
+  - **Status:** Blocked. GPUix 0.11.0 exposes no documented system appearance
+    query or change event. A native bridge and isolated screenshot setup need
+    verification before this case can run.
