@@ -1,9 +1,16 @@
+import type { InputProps } from "@gpuix/react"
+
 import * as Dialog from "@gpuix/react/dialog"
-import { useState, useSyncExternalStore } from "react"
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { z } from "zod"
 
+import type { Palette } from "@/components/ui/theme"
+
 import { Button, Label } from "@/components/ui/controls"
-import { inputStyle, type Palette } from "@/components/ui/theme"
+import {
+  getSettingsStyles,
+  settingsStyles,
+} from "@/features/settings/components/settings-styles"
 import {
   type PreferenceInput,
   preferenceInputSchema,
@@ -133,6 +140,8 @@ const groups: Record<
   ],
 }
 
+const grouped = new Set(Object.values(groups).flat())
+
 const choices: Partial<Record<keyof Preferences, readonly string[]>> = {
   themeMode: ["system", "light", "dark"],
   defaultPaneMode: ["edit", "split", "preview"],
@@ -176,6 +185,83 @@ const choices: Partial<Record<keyof Preferences, readonly string[]>> = {
   ],
 }
 
+function initialPreferenceInput(value: Preferences[keyof Preferences]) {
+  const text = textPreferenceSchema.safeParse(value)
+
+  if (text.success) return text.data
+
+  if (value === null) return ""
+
+  return JSON.stringify(value, null, 2)
+}
+
+function parsePreferenceInput(
+  value: Preferences[keyof Preferences],
+  input: string,
+) {
+  if (numberPreferenceSchema.safeParse(value).success) return Number(input)
+
+  if (textPreferenceSchema.safeParse(value).success) return input
+
+  if (value === null) return input.trim() || null
+
+  return preferenceInputSchema.parse(JSON.parse(input))
+}
+
+function currentPreferenceValue(value: Preferences[keyof Preferences]) {
+  const text = textPreferenceSchema.safeParse(value)
+
+  if (text.success) return text.data
+  const numeric = numberPreferenceSchema.safeParse(value)
+
+  if (numeric.success) return String(numeric.data)
+
+  if (value === null) return "System default"
+
+  return "Custom values"
+}
+
+export function PreferenceChoice({
+  name,
+  option,
+  value,
+  color,
+  onCommit,
+}: {
+  name: keyof Preferences
+  option: string
+  value: Preferences[keyof Preferences]
+  color: Palette
+  onCommit: (next: PreferenceInput) => void
+}) {
+  const latest = useRef({ onCommit, option })
+
+  useLayoutEffect(
+    function updateCommit() {
+      latest.current = { onCommit, option }
+    },
+    [onCommit, option],
+  )
+
+  const [selectOption] = useState(
+    () =>
+      function selectPreferenceOption() {
+        latest.current.onCommit(latest.current.option)
+      },
+  )
+
+  return (
+    <Button
+      color={color}
+      testId={`setting-${name}-${option}`}
+      variant={value === option ? "primary" : "outline"}
+      onClick={selectOption}
+    >
+      {option}
+    </Button>
+  )
+}
+
 export function PreferenceControl({
   name,
   value,
@@ -189,66 +275,60 @@ export function PreferenceControl({
   color: Palette
   onError: (message: string) => void
 }) {
-  const text = textPreferenceSchema.safeParse(value)
+  const [input, setInput] = useState(() => initialPreferenceInput(value))
+  const boolean = booleanPreferenceSchema.safeParse(value)
+  const options = choices[name]
+  const styles = getSettingsStyles(color)
+  const latest = useRef({ name, value, store, onError, input })
 
-  const [input, setInput] = useState(
-    text.success
-      ? text.data
-      : value === null
-        ? ""
-        : JSON.stringify(value, null, 2),
+  // Commit current bindings before native events use the stable handlers.
+  useLayoutEffect(
+    function updatePreferenceBindings() {
+      latest.current = { name, value, store, onError, input }
+    },
+    [name, value, store, onError, input],
   )
 
-  const boolean = booleanPreferenceSchema.safeParse(value)
-  const numeric = numberPreferenceSchema.safeParse(value)
-  const options = choices[name]
+  const [actions] = useState(() => {
+    function commit(next: PreferenceInput) {
+      const current = latest.current
 
-  function commit(next: PreferenceInput) {
-    try {
-      store.setField(name, next)
-      onError("")
-    } catch (cause) {
-      onError(cause instanceof Error ? cause.message : String(cause))
+      try {
+        current.store.setField(current.name, next)
+        current.onError("")
+      } catch (cause) {
+        current.onError(cause instanceof Error ? cause.message : String(cause))
+      }
     }
-  }
 
-  function save() {
-    try {
-      commit(
-        numeric.success
-          ? Number(input)
-          : text.success
-            ? input
-            : value === null
-              ? input.trim() || null
-              : preferenceInputSchema.parse(JSON.parse(input)),
-      )
-    } catch (cause) {
-      onError(cause instanceof Error ? cause.message : String(cause))
+    function save() {
+      const current = latest.current
+
+      try {
+        commit(parsePreferenceInput(current.value, current.input))
+      } catch (cause) {
+        current.onError(cause instanceof Error ? cause.message : String(cause))
+      }
     }
-  }
+
+    function toggle() {
+      const current = booleanPreferenceSchema.safeParse(latest.current.value)
+
+      if (current.success) commit(!current.data)
+    }
+
+    function changeInput(
+      event: Parameters<NonNullable<InputProps["onChange"]>>[0],
+    ) {
+      setInput(event.value ?? "")
+    }
+
+    return { commit, save, toggle, changeInput }
+  })
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        paddingTop: 12,
-        paddingBottom: 16,
-        borderBottomWidth: 1,
-        borderColor: color.border,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-        }}
-      >
+    <div style={styles.preference}>
+      <div style={settingsStyles.preferenceHeading}>
         <Label color={color} size={13} weight={500}>
           {name.replace(/([a-z])([A-Z])/g, "$1 $2")}
         </Label>
@@ -258,62 +338,52 @@ export function PreferenceControl({
             testId={`setting-${name}`}
             label={`${name}: ${boolean.data ? "On" : "Off"}`}
             variant={boolean.data ? "primary" : "outline"}
-            onClick={() => commit(!boolean.data)}
+            onClick={actions.toggle}
           >
             {boolean.data ? "On" : "Off"}
           </Button>
         ) : (
           <text
+            // GPUix needs testId for native automation; this is not a DOM host.
+            // eslint-disable-next-line react-doctor/no-unknown-property
             testId={`setting-current-${name}`}
-            style={{ color: color.mutedForeground, fontSize: 12 }}
+            style={styles.currentValue}
           >
-            {text.success
-              ? text.data
-              : numeric.success
-                ? String(numeric.data)
-                : value === null
-                  ? "System default"
-                  : "Custom values"}
+            {currentPreferenceValue(value)}
           </text>
         )}
       </div>
       {!boolean.success &&
         (options ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 6,
-            }}
-          >
+          <div style={settingsStyles.options}>
             {options.map((option) => (
-              <Button
+              <PreferenceChoice
                 key={option}
+                name={name}
+                option={option}
+                value={value}
                 color={color}
-                testId={`setting-${name}-${option}`}
-                variant={value === option ? "primary" : "outline"}
-                onClick={() => commit(option)}
-              >
-                {option}
-              </Button>
+                onCommit={actions.commit}
+              />
             ))}
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
+          <div style={settingsStyles.editor}>
             <input
+              // GPUix needs testId for native automation; this is not a DOM host.
+              // eslint-disable-next-line react-doctor/no-unknown-property
               testId={`setting-${name}`}
               aria-label={name}
               value={input}
-              onChange={(event) => setInput(event.value ?? "")}
-              onSubmit={save}
-              style={{ ...inputStyle(color), flexGrow: 1, minWidth: 0 }}
+              onChange={actions.changeInput}
+              onSubmit={actions.save}
+              style={styles.input}
             />
             <Button
               color={color}
               testId={`setting-save-${name}`}
               variant="outline"
-              onClick={save}
+              onClick={actions.save}
             >
               Save
             </Button>
@@ -340,7 +410,38 @@ export function SettingsPanel({
   const [section, setSection] = useState<Section>("editor")
   const [query, setQuery] = useState("")
   const [error, setError] = useState("")
-  const grouped = new Set(Object.values(groups).flat())
+  const styles = getSettingsStyles(color)
+  const latestClose = useRef(onClose)
+
+  useLayoutEffect(
+    function updateClose() {
+      latestClose.current = onClose
+    },
+    [onClose],
+  )
+
+  const [actions] = useState(() => {
+    function openChange(open: boolean) {
+      if (!open) latestClose.current()
+    }
+
+    function changeQuery(
+      event: Parameters<NonNullable<InputProps["onChange"]>>[0],
+    ) {
+      setQuery(event.value ?? "")
+    }
+
+    const tabs = sections.map((item) => {
+      function selectSection() {
+        setSection(item)
+        setQuery("")
+      }
+
+      return { item, selectSection }
+    })
+
+    return { openChange, changeQuery, tabs }
+  })
 
   const names = (
     section === "advanced"
@@ -351,48 +452,17 @@ export function SettingsPanel({
   )
 
   return (
-    <Dialog.Root
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose()
-      }}
-    >
+    <Dialog.Root open onOpenChange={actions.openChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop style={{ backgroundColor: "#00000066" }} />
-        <Dialog.Popup
-          initialFocus
-          aria-label="Settings"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            width: 820,
-            maxWidth: "94%",
-            maxHeight: "90%",
-            padding: 24,
-            gap: 16,
-            borderRadius: 16,
-            backgroundColor: color.background,
-            borderWidth: 1,
-            borderColor: color.border,
-          }}
-        >
+        <Dialog.Backdrop style={settingsStyles.backdrop} />
+        <Dialog.Popup initialFocus aria-label="Settings" style={styles.popup}>
           <div
+            // GPUix needs testId for native automation; this is not a DOM host.
+            // eslint-disable-next-line react-doctor/no-unknown-property
             testId="settings-panel"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-              gap: 16,
-            }}
+            style={settingsStyles.panel}
           >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
+            <div style={settingsStyles.heading}>
               <Dialog.Title>
                 <Label color={color} size={22} weight={600}>
                   Settings
@@ -406,24 +476,14 @@ export function SettingsPanel({
                 onClick={onClose}
               />
             </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                gap: 6,
-                flexWrap: "wrap",
-              }}
-            >
-              {sections.map((item) => (
+            <div style={settingsStyles.tabs}>
+              {actions.tabs.map(({ item, selectSection }) => (
                 <Button
                   key={item}
                   color={color}
                   testId={`settings-tab-${item}`}
                   variant={section === item ? "primary" : "ghost"}
-                  onClick={() => {
-                    setSection(item)
-                    setQuery("")
-                  }}
+                  onClick={selectSection}
                 >
                   {item}
                 </Button>
@@ -433,28 +493,21 @@ export function SettingsPanel({
               aria-label="Search settings"
               value={query}
               placeholder="Filter settings in this section…"
-              onChange={(event) => setQuery(event.value ?? "")}
-              style={inputStyle(color)}
+              onChange={actions.changeQuery}
+              style={styles.search}
             />
             {error && (
               <text
+                // GPUix needs testId for native automation; this is not a DOM host.
+                // eslint-disable-next-line react-doctor/no-unknown-property
                 testId="settings-error"
                 role="alert"
-                style={{ color: color.destructive, fontSize: 12 }}
+                style={styles.error}
               >
                 {error}
               </text>
             )}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                overflow: "scroll",
-                height: 420,
-                minHeight: 180,
-                gap: 4,
-              }}
-            >
+            <div style={settingsStyles.list}>
               {names.map((name) => (
                 <PreferenceControl
                   key={`${name}-${JSON.stringify(preferences[name])}`}
