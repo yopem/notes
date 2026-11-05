@@ -29,6 +29,26 @@ afterEach(() => {
 })
 
 describe("SettingsStore real file integration", () => {
+  test("explicit write recovery is deferred and leaves ready settings unchanged", () => {
+    const root = directory()
+    const store = new SettingsStore(root)
+    const before = store.getSnapshot()
+    const bytes = readFileSync(join(root, "settings.json"))
+    let notifications = 0
+    store.subscribe(() => {
+      notifications += 1
+    })
+    const recovery = store.recoverWrite()
+    expect(store.getWriteRecoveryState()).toBe("ready")
+    expect(store.getSnapshot()).toBe(before)
+    Effect.runSync(recovery)
+    Effect.runSync(store.recoverWrite())
+    expect(store.getWriteRecoveryState()).toBe("ready")
+    expect(store.getSnapshot()).toBe(before)
+    expect(readFileSync(join(root, "settings.json"))).toEqual(bytes)
+    expect(notifications).toBe(0)
+  })
+
   test("defaults are complete and custom values survive restart", () => {
     const root = directory()
     const store = new SettingsStore(root)
