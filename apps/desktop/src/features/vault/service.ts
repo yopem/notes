@@ -1233,45 +1233,50 @@ export class Vault {
     })
   }
   setPinned(id: string, pinned: boolean) {
-    const note = this.readNoteSync(id)
-    const next = this.nextState()
-    next.notes[id] = {
-      ...next.notes[id],
-      createdAt: note.createdAt,
-      pinned: decodeBoolean(pinned),
-    }
-    this.transaction(next, [])
+    return this.noteIO(() => {
+      const note = this.readNoteSync(id)
+      const next = this.nextState()
+      next.notes[id] = {
+        ...next.notes[id],
+        createdAt: note.createdAt,
+        pinned: decodeBoolean(pinned),
+      }
+      this.transaction(next, [])
 
-    return this.readNoteSync(id)
+      return this.readNoteSync(id)
+    })
   }
+
   checkExternalChange(
     id: string,
     expected: ExpectedContent,
     pendingContent?: string,
   ) {
-    this.assertOpen()
-    this.notePath(id)
-    let disk: NoteRecord | null = null
+    return this.noteIO(() => {
+      this.assertOpen()
+      this.notePath(id)
+      let disk: NoteRecord | null = null
 
-    try {
-      disk = this.readNoteSync(id)
-    } catch (error) {
-      if (!missing(Option.getOrUndefined(decodeError(error)))) throw error
-    }
+      try {
+        disk = this.readNoteSync(id)
+      } catch (error) {
+        if (!missing(Option.getOrUndefined(decodeError(error)))) throw error
+      }
 
-    const parsed = decodeGuard(expected)
+      const parsed = decodeGuard(expected)
 
-    const expectedHash =
-      "expectedHash" in parsed
-        ? parsed.expectedHash
-        : digest(parsed.expectedContent)
+      const expectedHash =
+        "expectedHash" in parsed
+          ? parsed.expectedHash
+          : digest(parsed.expectedContent)
 
-    return {
-      changed: disk?.hash !== expectedHash,
-      deleted: disk === null,
-      disk,
-      pendingContent,
-    }
+      return {
+        changed: disk?.hash !== expectedHash,
+        deleted: disk === null,
+        disk,
+        pendingContent,
+      }
+    })
   }
 
   private relocateNote(
@@ -1311,31 +1316,40 @@ export class Vault {
     return this.readNoteSync(target)
   }
   renameNote(id: string, title: string) {
-    decodeName(title)
+    return this.noteIO(() => {
+      decodeName(title)
 
-    return this.relocateNote(id, posix.join(posix.dirname(id), `${title}.md`))
+      return this.relocateNote(id, posix.join(posix.dirname(id), `${title}.md`))
+    })
   }
+
   moveNote(id: string, folder: NoteFolder, subpath = "") {
-    this.readNoteSync(id)
-    const target = posix.join(this.folderPath(folder, subpath), basename(id))
+    return this.noteIO(() => {
+      this.readNoteSync(id)
+      const target = posix.join(this.folderPath(folder, subpath), basename(id))
 
-    return this.relocateNote(id, target === id ? id : this.unique(target))
+      return this.relocateNote(id, target === id ? id : this.unique(target))
+    })
   }
+
   duplicateNote(id: string) {
-    const note = this.readNoteSync(id)
+    return this.noteIO(() => {
+      const note = this.readNoteSync(id)
 
-    const target = this.unique(
-      posix.join(posix.dirname(id), `${note.title} copy.md`),
-    )
+      const target = this.unique(
+        posix.join(posix.dirname(id), `${note.title} copy.md`),
+      )
 
-    const next = this.nextState()
-    next.notes[target] = { createdAt: Date.now(), pinned: false }
-    this.transaction(next, [
-      { path: target, bytes: note.body, expectedHash: null },
-    ])
+      const next = this.nextState()
+      next.notes[target] = { createdAt: Date.now(), pinned: false }
+      this.transaction(next, [
+        { path: target, bytes: note.body, expectedHash: null },
+      ])
 
-    return this.readNoteSync(target)
+      return this.readNoteSync(target)
+    })
   }
+
   private mirror(id: string, folder: NoteFolder) {
     const current = this.folderOf(id)
     const root = this.areaRoot(current)
@@ -1346,74 +1360,91 @@ export class Vault {
     return this.unique(posix.join(this.areaRoot(folder), relative))
   }
   archiveNote(id: string) {
-    if (["archive", "trash"].includes(this.readNoteSync(id).folder))
-      throw new Error("Only active notes can be archived")
+    return this.noteIO(() => {
+      if (["archive", "trash"].includes(this.readNoteSync(id).folder))
+        throw new Error("Only active notes can be archived")
 
-    return this.relocateNote(id, this.mirror(id, "archive"), "archive")
+      return this.relocateNote(id, this.mirror(id, "archive"), "archive")
+    })
   }
+
   unarchiveNote(id: string) {
-    if (this.readNoteSync(id).folder !== "archive")
-      throw new Error("Note is not archived")
+    return this.noteIO(() => {
+      if (this.readNoteSync(id).folder !== "archive")
+        throw new Error("Note is not archived")
 
-    return this.relocateNote(
-      id,
-      this.unique(
-        this.state.notes[id]?.archiveFrom ??
-          posix.join(this.areaRoot("inbox"), id.slice("archive/".length)),
-      ),
-      "unarchive",
-    )
+      return this.relocateNote(
+        id,
+        this.unique(
+          this.state.notes[id]?.archiveFrom ??
+            posix.join(this.areaRoot("inbox"), id.slice("archive/".length)),
+        ),
+        "unarchive",
+      )
+    })
   }
+
   moveToTrash(id: string) {
-    if (this.readNoteSync(id).folder === "trash")
-      throw new Error("Note is already in trash")
+    return this.noteIO(() => {
+      if (this.readNoteSync(id).folder === "trash")
+        throw new Error("Note is already in trash")
 
-    return this.relocateNote(id, this.mirror(id, "trash"), "trash")
+      return this.relocateNote(id, this.mirror(id, "trash"), "trash")
+    })
   }
+
   restoreFromTrash(id: string) {
-    if (this.readNoteSync(id).folder !== "trash")
-      throw new Error("Note is not in trash")
+    return this.noteIO(() => {
+      if (this.readNoteSync(id).folder !== "trash")
+        throw new Error("Note is not in trash")
 
-    return this.relocateNote(
-      id,
-      this.unique(
-        this.state.notes[id]?.trashFrom ??
-          posix.join(this.areaRoot("inbox"), id.slice("trash/".length)),
-      ),
-      "restore",
-    )
+      return this.relocateNote(
+        id,
+        this.unique(
+          this.state.notes[id]?.trashFrom ??
+            posix.join(this.areaRoot("inbox"), id.slice("trash/".length)),
+        ),
+        "restore",
+      )
+    })
   }
+
   deleteNote(id: string, confirmation: DeleteConfirmation) {
-    decodeConfirmation(confirmation)
+    return this.noteIO(() => {
+      decodeConfirmation(confirmation)
 
-    if (this.readNoteSync(id).folder !== "trash")
-      throw new Error("Permanent deletion requires a note in trash")
-    const next = this.nextState()
-    delete next.notes[id]
-    this.transaction(next, [{ path: id, bytes: null }])
+      if (this.readNoteSync(id).folder !== "trash")
+        throw new Error("Permanent deletion requires a note in trash")
+      const next = this.nextState()
+      delete next.notes[id]
+      this.transaction(next, [{ path: id, bytes: null }])
+    })
   }
+
   emptyTrash(confirmation: DeleteConfirmation) {
-    decodeConfirmation(confirmation)
+    return this.noteIO(() => {
+      decodeConfirmation(confirmation)
 
-    const deleted = this.listNotesSync()
-      .filter(function inTrash(note) {
-        return note.folder === "trash"
-      })
-      .map(function id(note) {
-        return note.path
-      })
+      const deleted = this.listNotesSync()
+        .filter(function inTrash(note) {
+          return note.folder === "trash"
+        })
+        .map(function id(note) {
+          return note.path
+        })
 
-    const next = this.nextState()
+      const next = this.nextState()
 
-    for (const id of deleted) delete next.notes[id]
-    this.transaction(
-      next,
-      deleted.map(function removal(path) {
-        return { path, bytes: null }
-      }),
-    )
+      for (const id of deleted) delete next.notes[id]
+      this.transaction(
+        next,
+        deleted.map(function removal(path) {
+          return { path, bytes: null }
+        }),
+      )
 
-    return { deleted }
+      return { deleted }
+    })
   }
 
   createFolder(folder: NoteFolder, subpath: string): FolderRecord {

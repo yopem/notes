@@ -216,7 +216,7 @@ describe("native Markdown vault", () => {
     expect(note.frontmatter.title).toBe("Not filename")
     expect(note.tags).toEqual(["Alpha", "beta", "日本語"])
     expect(note.pinned).toBe(false)
-    vault.setPinned(note.path, true)
+    Effect.runSync(vault.setPinned(note.path, true))
 
     const written = Effect.runSync(
       vault.writeNote(note.path, body + "tail", {
@@ -244,10 +244,8 @@ describe("native Markdown vault", () => {
       ),
     ).toThrow(/conflict/i)
 
-    const change = vault.checkExternalChange(
-      note.path,
-      { expectedHash: note.hash },
-      draft,
+    const change = Effect.runSync(
+      vault.checkExternalChange(note.path, { expectedHash: note.hash }, draft),
     )
 
     expect(change.changed).toBe(true)
@@ -255,7 +253,9 @@ describe("native Markdown vault", () => {
     expect(change.disk?.body).toBe("external")
     rmSync(join(vault.root, note.path))
     expect(
-      vault.checkExternalChange(note.path, { expectedHash: note.hash }).deleted,
+      Effect.runSync(
+        vault.checkExternalChange(note.path, { expectedHash: note.hash }),
+      ).deleted,
     ).toBe(true)
     expect(() =>
       Effect.runSync(
@@ -284,6 +284,44 @@ describe("native Markdown vault", () => {
       ).body,
     ).toBe(note.body)
   })
+  test("note lifecycle effects defer changes and report tagged failures", () => {
+    const vault = open()
+
+    const note = Effect.runSync(
+      vault.createNote("inbox", "Deferred", "", "body"),
+    )
+
+    const pin = vault.setPinned(note.path, true)
+    const rename = vault.renameNote(note.path, "Later")
+    const trash = vault.moveToTrash(note.path)
+    const empty = vault.emptyTrash({ confirm: true })
+    expect(Effect.runSync(vault.readNote(note.path)).pinned).toBe(false)
+    expect(existsSync(join(vault.root, "inbox/Later.md"))).toBe(false)
+    expect(existsSync(join(vault.root, note.path))).toBe(true)
+    expect(Effect.runSync(empty).deleted).toEqual([])
+    expect(Effect.runSync(pin).pinned).toBe(true)
+    expect(Effect.runSync(rename).path).toBe("inbox/Later.md")
+
+    const failures: readonly Effect.Effect<unknown, VaultNoteError>[] = [
+      trash,
+      vault.setPinned("missing.md", true),
+      vault.checkExternalChange("missing.md", { expectedHash: "invalid" }),
+      vault.renameNote("missing.md", "Name"),
+      vault.moveNote("missing.md", "quick"),
+      vault.duplicateNote("missing.md"),
+      vault.archiveNote("missing.md"),
+      vault.unarchiveNote("missing.md"),
+      vault.moveToTrash("missing.md"),
+      vault.restoreFromTrash("missing.md"),
+      vault.deleteNote("missing.md", { confirm: true }),
+      vault.emptyTrash({ confirm: false }),
+    ]
+
+    for (const failure of failures)
+      expect(Effect.runSync(Effect.flip(failure))).toBeInstanceOf(
+        VaultNoteError,
+      )
+  })
   test("note lifecycle preserves exact origin through archive, trash, restart and collision", () => {
     const directory = root()
     let vault = open(directory)
@@ -293,31 +331,33 @@ describe("native Markdown vault", () => {
     )
 
     const created = note.createdAt
-    note = vault.renameNote(note.path, "Renamed")
-    note = vault.archiveNote(note.path)
+    note = Effect.runSync(vault.renameNote(note.path, "Renamed"))
+    note = Effect.runSync(vault.archiveNote(note.path))
     expect(note.path).toBe("archive/nested/Renamed.md")
-    note = vault.moveToTrash(note.path)
+    note = Effect.runSync(vault.moveToTrash(note.path))
     expect(note.path).toBe("trash/nested/Renamed.md")
     vault.close()
     vault = open(directory)
-    note = vault.restoreFromTrash(note.path)
+    note = Effect.runSync(vault.restoreFromTrash(note.path))
     expect(note.path).toBe("archive/nested/Renamed.md")
-    note = vault.unarchiveNote(note.path)
+    note = Effect.runSync(vault.unarchiveNote(note.path))
     expect(note.path).toBe("quick/nested/Renamed.md")
     expect(note.createdAt).toBe(created)
     expect(note.body).toBe("payload")
-    const copy = vault.duplicateNote(note.path)
+    const copy = Effect.runSync(vault.duplicateNote(note.path))
     expect(copy.path).toBe("quick/nested/Renamed copy.md")
     expect(copy.pinned).toBe(false)
     Effect.runSync(vault.createNote("inbox", "Renamed", "target"))
-    note = vault.moveNote(note.path, "inbox", "target")
+    note = Effect.runSync(vault.moveNote(note.path, "inbox", "target"))
     expect(note.path).toBe("inbox/target/Renamed 2.md")
-    expect(() => vault.deleteNote(note.path, { confirm: true })).toThrow(
-      /trash/i,
-    )
-    note = vault.moveToTrash(note.path)
-    expect(() => vault.deleteNote(note.path, { confirm: false })).toThrow()
-    vault.deleteNote(note.path, { confirm: true })
+    expect(() =>
+      Effect.runSync(vault.deleteNote(note.path, { confirm: true })),
+    ).toThrow(/trash/i)
+    note = Effect.runSync(vault.moveToTrash(note.path))
+    expect(() =>
+      Effect.runSync(vault.deleteNote(note.path, { confirm: false })),
+    ).toThrow()
+    Effect.runSync(vault.deleteNote(note.path, { confirm: true }))
     expect(existsSync(join(directory, note.path))).toBe(false)
   })
   test("folder rename and duplicate preserve nested Markdown and hidden data; delete refuses unknown data", () => {
@@ -347,14 +387,18 @@ describe("native Markdown vault", () => {
   })
   test("empty trash deletes Markdown only, preserves unknown files and hidden folders", () => {
     const vault = open()
-    vault.moveToTrash(
-      Effect.runSync(vault.createNote("inbox", "Gone", "sub")).path,
+    Effect.runSync(
+      vault.moveToTrash(
+        Effect.runSync(vault.createNote("inbox", "Gone", "sub")).path,
+      ),
     )
     writeFileSync(join(vault.root, "trash/unknown.bin"), "keep")
     mkdirSync(join(vault.root, "trash/.ignored"))
     writeFileSync(join(vault.root, "trash/.ignored/private.md"), "keep")
-    expect(() => vault.emptyTrash({ confirm: false })).toThrow()
-    expect(vault.emptyTrash({ confirm: true }).deleted).toHaveLength(1)
+    expect(() => Effect.runSync(vault.emptyTrash({ confirm: false }))).toThrow()
+    expect(
+      Effect.runSync(vault.emptyTrash({ confirm: true })).deleted,
+    ).toHaveLength(1)
     expect(readFileSync(join(vault.root, "trash/unknown.bin"), "utf8")).toBe(
       "keep",
     )
@@ -401,7 +445,9 @@ describe("native Markdown vault", () => {
     const a = Effect.runSync(vault.createNote("inbox", "Same", "", "one"))
     const b = Effect.runSync(vault.createNote("inbox", "Same", "", "two"))
     expect(b.path).toBe("inbox/Same 2.md")
-    expect(() => vault.renameNote(b.path, "Same")).toThrow(/exist|collision/i)
+    expect(() => Effect.runSync(vault.renameNote(b.path, "Same"))).toThrow(
+      /exist|collision/i,
+    )
     symlinkSync(join(root(), "missing"), join(vault.root, "inbox/Dangling.md"))
     expect(Effect.runSync(vault.createNote("inbox", "Dangling")).path).toBe(
       "inbox/Dangling 2.md",
@@ -684,7 +730,7 @@ describe("native Markdown vault", () => {
     chmodSync(directory, 0o500)
 
     try {
-      expect(() => vault.moveNote(note.path, "quick")).toThrow()
+      expect(() => Effect.runSync(vault.moveNote(note.path, "quick"))).toThrow()
       expect(readFileSync(join(vault.root, note.path), "utf8")).toBe("original")
       expect(existsSync(join(vault.root, "quick/Protected.md"))).toBe(false)
       expect(
@@ -694,7 +740,9 @@ describe("native Markdown vault", () => {
       chmodSync(directory, 0o700)
     }
 
-    expect(vault.moveNote(note.path, "quick").body).toBe("original")
+    expect(Effect.runSync(vault.moveNote(note.path, "quick")).body).toBe(
+      "original",
+    )
   })
   test("crashed child lock recovers on restart without losing committed Markdown", () => {
     const directory = root()
