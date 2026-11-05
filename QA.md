@@ -361,7 +361,9 @@ desktop warnings and zero errors. The other workspaces have no findings.
     Inspect counts and observable outcomes, not only command exit codes.
   - **Cleanup:** Close only owned native sessions. Remove isolated QA data after
     its evidence is inspected. Keep reports ignored and local.
-  - **Status:** Pending. User explicitly includes all existing findings.
+  - **Status:** Pending. Native workspace lint passed with zero warnings and
+    errors; typecheck and format passed. Native regression evidence remains
+    blocked by the client-only screenshot failure recorded in QA-015.
 
 ## Effect migration
 
