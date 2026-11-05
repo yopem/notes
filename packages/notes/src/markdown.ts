@@ -1,5 +1,6 @@
 import type { Nodes, Root } from "mdast"
 
+import { Schema } from "effect"
 import { toString } from "mdast-util-to-string"
 import remarkFrontmatter from "remark-frontmatter"
 import remarkGfm from "remark-gfm"
@@ -9,7 +10,6 @@ import { unified } from "unified"
 import { visit } from "unist-util-visit"
 import { visitParents } from "unist-util-visit-parents"
 import { parseDocument } from "yaml"
-import { z } from "zod"
 
 export interface MarkdownHeading {
   id: string
@@ -51,35 +51,43 @@ export interface MarkdownDocument {
   headings: MarkdownHeading[]
   links: MarkdownReference[]
   tasks: MarkdownTask[]
-  frontmatter: z.infer<typeof metadataSchema>
+  frontmatter: typeof metadataSchema.Type
 }
 
 const maxPreviewBytes = 2 * 1024 * 1024
 
 const utf8 = new TextEncoder()
 
-const previewTextSchema = z
-  .string()
-  .refine(
-    (source) =>
+const previewTextSchema = Schema.String.check(
+  Schema.makeFilter(
+    (source: string) =>
       source.length <= maxPreviewBytes &&
       utf8.encode(source).byteLength <= maxPreviewBytes,
-    { error: "Markdown exceeds the 2 MB preview limit" },
-  )
+    { expected: "Markdown within the 2 MB preview limit" },
+  ),
+)
 
-const metadataSchema = z.record(z.string(), z.json())
+const metadataSchema = Schema.Record(Schema.String, Schema.Json)
 
-const editSchema = z.strictObject({
+const editSchema = Schema.Struct({
   source: previewTextSchema,
-  start: z.number().int().min(0),
-  end: z.number().int().min(0),
+  start: Schema.Natural,
+  end: Schema.Natural,
   replacement: previewTextSchema,
 })
 
-const targetSchema = z
-  .string()
-  .max(8192)
-  .refine((value) => !/\p{Cc}/u.test(value))
+const targetSchema = Schema.String.check(
+  Schema.isMaxLength(8192),
+  Schema.isPattern(/^[^\p{Cc}]*$/u),
+)
+
+const decodeMarkdownSource = Schema.decodeUnknownSync(previewTextSchema)
+
+const decodeMetadata = Schema.decodeUnknownSync(metadataSchema)
+
+const decodeEdit = Schema.decodeUnknownSync(editSchema, {
+  onExcessProperty: "error",
+})
 
 const parser = unified()
   .use(remarkParse)
@@ -127,18 +135,16 @@ function frontmatter(tree: Root) {
     })
   const raw: unknown = document.toJS({ maxAliasCount: 100 })
 
-  const metadataText = previewTextSchema.safeParse(
-    JSON.stringify(raw === null ? {} : raw),
-  )
+  const metadataText = JSON.stringify(raw === null ? {} : raw)
 
-  if (!metadataText.success)
+  if (!Schema.is(previewTextSchema)(metadataText))
     throw new Error("Frontmatter expansion exceeds the limit")
 
-  return metadataSchema.parse(JSON.parse(metadataText.data))
+  return decodeMetadata(JSON.parse(metadataText))
 }
 
 export function analyzeMarkdown(input: string): MarkdownDocument {
-  const source = previewTextSchema.parse(input)
+  const source = decodeMarkdownSource(input)
   const tree = parser.parse(source)
   const headings: MarkdownHeading[] = []
   const links: MarkdownReference[] = []
@@ -290,7 +296,7 @@ function assertUnicodeBoundary(source: string, position: number) {
 }
 
 export function applyMarkdownEdit(source: string, input: MarkdownEdit) {
-  const edit = editSchema.parse(input)
+  const edit = decodeEdit(input)
 
   if (source !== edit.source)
     throw new Error("Document changed before this edit. Try again.")
@@ -329,11 +335,9 @@ export function classifyLink(
   | { kind: "external"; url: string }
   | { kind: "internal"; target: string }
   | { kind: "blocked"; reason: string } {
-  const parsed = targetSchema.safeParse(input)
-
-  if (!parsed.success || input.startsWith("\\\\"))
+  if (!Schema.is(targetSchema)(input) || input.startsWith("\\\\"))
     return { kind: "blocked", reason: "Unsafe link target" }
-  const target = parsed.data.trim()
+  const target = input.trim()
   const scheme = /^([a-z][a-z\d+.-]*):/i.exec(target)?.[1]?.toLowerCase()
 
   if (!scheme && !target.startsWith("//")) return { kind: "internal", target }
