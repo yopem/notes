@@ -117,8 +117,8 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
     await app.getByTestId("task-row").getByText("Call Ω").textContent(),
     /Call Ω/,
   )
-  await app.getByText("Open").waitFor()
-  await app.getByText("Done").waitFor()
+  await app.getByTestId("task-row").getByText("Open").waitFor()
+  await app.getByTestId("task-row").getByText("Done").waitFor()
   assert.equal(await app.getByText("Fenced task").count(), 0)
   assert.equal(await app.getByText("Trashed task").count(), 0)
   await app.getByTestId("task-errors").waitFor()
