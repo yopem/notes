@@ -451,7 +451,7 @@ synchronous calculations in ordinary TypeScript.
     existing user app was not stopped or captured. Resolve client-only capture
     before rerunning the native cases.
 
-- [x] **QA-017 — P0 — MCP stdio cancellation and ordering**
+- [ ] **QA-017 — P0 — MCP stdio cancellation and ordering**
   - **Purpose:** Preserve the JSON-RPC protocol and release in-flight work when
     stdio execution moves to Effect.
   - **Prerequisites:** Shared setup and pinned Bun. Use only the in-memory
@@ -621,3 +621,33 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** Blocked. GPUix 0.11.0 exposes no documented system appearance
     query or change event. A native bridge and isolated screenshot setup need
     verification before this case can run.
+
+- [ ] **QA-023 — P0 — MCP cancellation and resource bounds**
+  - **Purpose:** Prevent a canceled write from overlapping a retry and bound
+    outstanding work and output during a stalled client.
+  - **Prerequisites:** Shared setup, pinned Bun, and only isolated in-memory
+    streams and disposable child-process data from the existing MCP tests.
+  - **Inputs:** A `write_note` request with ID 7 whose adapter ignores abort
+    until released; a cancellation notification for ID 7; a second request with
+    ID 7; and more requests than the implemented active-request limit while
+    output is blocked. Use no real vault or client configuration.
+  - **Steps:**
+    1. From `apps/desktop`, run
+       `../../node_modules/.bin/bun test tests/mcp.test.ts` after the
+       cancellation fix and cases are complete.
+    2. Inspect the new cases and their assertions for delayed adapter
+       completion, request-ID reuse, blocked output, bounded work, and shutdown
+       cleanup.
+    3. Inspect the existing protocol, invalid-frame and cancellation results.
+  - **Expected results:** A canceled started mutation cannot be mistaken for a
+    completed operation while it still runs, and its ID cannot be reused until
+    it settles. Excess work is handled with the documented bounded response;
+    cancellation and shutdown still work under backpressure. Existing framing,
+    protocol and security cases pass without dropped assertions.
+  - **Evidence:** Save the revision, local Bun version, command, full test
+    output and sanitized failure details to
+    `docs/artifacts/effect-migration/QA-023-mcp-bounds.txt`.
+  - **Cleanup:** Close only test-owned streams and child processes; remove only
+    isolated test data after inspecting evidence.
+  - **Status:** Pending. A source review found that canceled adapter Promises
+    can outlive their response and that outstanding work is unbounded.
