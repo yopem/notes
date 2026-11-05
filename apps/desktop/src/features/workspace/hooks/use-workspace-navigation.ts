@@ -6,6 +6,7 @@ import type { EditorMode } from "@/features/editor/components/editor"
 import type { Note, NotesStore, Workspace } from "@/features/notes/store"
 import type { View } from "@/features/workspace/components/sidebar"
 
+import { useDesktopEffect } from "@/components/effect-boundary"
 import { attempt } from "@/features/workspace/attempt"
 import { getWorkspaceSelection } from "@/features/workspace/selection"
 
@@ -20,6 +21,7 @@ export function useWorkspaceNavigation({
   defaultMode: EditorMode
   onError: (message: string) => void
 }) {
+  const run = useDesktopEffect()
   const [view, setView] = useState<View>({ kind: "all" })
   const [query, setQuery] = useState("")
   const [mode, setMode] = useState(defaultMode)
@@ -37,13 +39,13 @@ export function useWorkspaceNavigation({
     activeNoteId,
   })
 
-  const current = useRef({ store, onError })
+  const current = useRef({ store, onError, run })
 
   useLayoutEffect(
     function updateNavigationTarget() {
-      current.current = { store, onError }
+      current.current = { store, onError, run }
     },
-    [store, onError],
+    [store, onError, run],
   )
 
   const [handlers] = useState(function createNavigationHandlers() {
@@ -65,10 +67,10 @@ export function useWorkspaceNavigation({
     }
 
     function selectNote(id: string) {
-      const { store, onError } = current.current
+      const { store, onError, run } = current.current
       setActiveNoteId(id)
       setMobileEditor(true)
-      onError(attempt(() => store.selectNote(id)))
+      onError(attempt(() => run(store.selectNote(id))))
     }
 
     // Use the list from before the write, even if a store update commits at once.

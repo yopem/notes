@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react"
 
 import type { Note, NotesStore } from "@/features/notes/store"
 
+import { useDesktopEffect } from "@/components/effect-boundary"
 import { attempt } from "@/features/workspace/attempt"
 
 interface Draft {
@@ -40,15 +41,16 @@ export function useNoteDrafts({
   onActiveNote: (id: string) => void
   onError: (message: string) => void
 }) {
+  const run = useDesktopEffect()
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const pending = useRef(drafts)
-  const current = useRef({ store, note, onActiveNote, onError })
+  const current = useRef({ store, note, onActiveNote, onError, run })
 
   useLayoutEffect(
     function updateDraftTarget() {
-      current.current = { store, note, onActiveNote, onError }
+      current.current = { store, note, onActiveNote, onError, run }
     },
-    [store, note, onActiveNote, onError],
+    [store, note, onActiveNote, onError, run],
   )
 
   const [handlers] = useState(function createDraftHandlers() {
@@ -60,7 +62,7 @@ export function useNoteDrafts({
     }
 
     function changeNote(patch: Draft) {
-      const { store, note, onActiveNote, onError } = current.current
+      const { store, note, onActiveNote, onError, run } = current.current
 
       if (!note || note.trashedAt) return
       const id = note.id
@@ -70,18 +72,18 @@ export function useNoteDrafts({
       setDrafts(pending.current)
       onError(
         attempt(() => {
-          store.updateNote(id, draft)
+          run(store.updateNote(id, draft))
           discardDraft(id)
         }),
       )
     }
 
     function retry() {
-      const { store, onError } = current.current
+      const { store, onError, run } = current.current
       onError(
         attempt(() => {
           for (const [id, draft] of Object.entries(pending.current))
-            store.updateNote(id, draft)
+            run(store.updateNote(id, draft))
           pending.current = {}
           setDrafts(pending.current)
         }),

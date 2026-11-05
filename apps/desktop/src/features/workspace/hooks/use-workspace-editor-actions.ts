@@ -4,6 +4,7 @@ import type { Note, NotesStore } from "@/features/notes/store"
 import type { DialogState } from "@/features/workspace/components/app-dialog"
 import type { useWorkspaceNavigation } from "@/features/workspace/hooks/use-workspace-navigation"
 
+import { useDesktopEffect } from "@/components/effect-boundary"
 import { attempt } from "@/features/workspace/attempt"
 import { openNoteLink } from "@/features/workspace/open-note-link"
 
@@ -20,42 +21,43 @@ export function useWorkspaceEditorActions({
   onDialog: (dialog: DialogState) => void
   onError: (message: string) => void
 }) {
-  const current = useRef({ store, note, navigation, onDialog, onError })
+  const run = useDesktopEffect()
+  const current = useRef({ store, note, navigation, onDialog, onError, run })
 
   useLayoutEffect(
     function updateEditorTarget() {
-      current.current = { store, note, navigation, onDialog, onError }
+      current.current = { store, note, navigation, onDialog, onError, run }
     },
-    [store, note, navigation, onDialog, onError],
+    [store, note, navigation, onDialog, onError, run],
   )
 
   const [handlers] = useState(function createEditorHandlers() {
     function pinNote() {
-      const { store, note, onError } = current.current
+      const { store, note, onError, run } = current.current
 
       if (!note) return
-      onError(attempt(() => store.togglePin(note.id)))
+      onError(attempt(() => run(store.togglePin(note.id))))
     }
 
     function trashNote() {
-      const { store, note, navigation, onError } = current.current
+      const { store, note, navigation, onError, run } = current.current
 
       if (!note) return
       onError(
         attempt(() => {
-          store.trashNote(note.id)
+          run(store.trashNote(note.id))
           navigation.selectNextNote(note.id, navigation.notes)
         }),
       )
     }
 
     function restoreNote() {
-      const { store, note, navigation, onError } = current.current
+      const { store, note, navigation, onError, run } = current.current
 
       if (!note) return
       onError(
         attempt(() => {
-          store.restoreNote(note.id)
+          run(store.restoreNote(note.id))
           navigation.setActiveNoteId(note.id)
           navigation.setView({ kind: "all" })
         }),
