@@ -934,9 +934,11 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save the sanitized native app tree and client-only screenshots
     under `docs/artifacts/sorting/QA-035/` with the tested revision.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
-  - **Status:** Pending. Source review found the fallback selection is not
-    anchored before the list order changes. Screenshot capture is blocked by
-    QA-015.
+  - **Status:** Blocked. The source fix is committed, but the isolated native
+    diagnostic could not reach this scenario: two handshakes timed out, and a
+    third connection failed its bounds query. Evidence:
+    `docs/artifacts/sorting/native-tree-regression.log`. Screenshot capture is
+    also blocked by QA-015.
 
 - [ ] **QA-036 — P1 — Re-sort when leaving an edited note**
   - **Purpose:** Keep the list stable during an edit, then apply the chosen
@@ -953,8 +955,10 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save the sanitized app tree and client-only screenshots in
     `docs/artifacts/sorting/QA-036/`, with the tested revision.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
-  - **Status:** Pending. Source review found the cached order can remain stale
-    after selection changes. Screenshot capture is blocked by QA-015.
+  - **Status:** Blocked. The source fix is committed, but the isolated native
+    diagnostic failed before this scenario. Evidence:
+    `docs/artifacts/sorting/native-tree-regression.log`. Screenshot capture is
+    also blocked by QA-015.
 
 - [ ] **QA-037 — P1 — Expose selected sort choices accessibly**
   - **Purpose:** Let keyboard and assistive-technology users identify and change
