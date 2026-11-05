@@ -1,7 +1,7 @@
 import { methods, PROTOCOL_VERSION } from "@gpuix/native/automation"
 import { createRendererState } from "@gpuix/native/host"
 import { describe, expect, test } from "bun:test"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 import {
   createNativeCloseGuard,
@@ -11,6 +11,10 @@ import {
   readNativeEditorEvent,
   readNativeEditorKeyEvent,
 } from "@/features/editor/native/editor"
+import {
+  type InputPairCommand,
+  inputPairCommand,
+} from "@/features/editor/native/input-fence"
 import { registerFonts } from "@/native/fonts"
 
 test("installed automation schema preserves exact optional editor text", function treeTextContract() {
@@ -959,5 +963,248 @@ describe("native close owner v2", function closeOwnerV2() {
     })
     expect(() => controller.dispose()).toThrow()
     binding.detach()
+  })
+})
+
+describe("optional native input pair protocol", function inputPairProtocol() {
+  const capture = {
+    protocol: 1,
+    op: "capture",
+    owner: 2,
+    titleId: 3,
+    bodyId: 4,
+    context: "notes:Ω",
+  } satisfies InputPairCommand
+
+  const held = {
+    owner: 2,
+    generation: 5,
+    phase: "held",
+    context: capture.context,
+    titleId: 3,
+    bodyId: 4,
+    title: state,
+    body: state,
+  } as const
+
+  const reply = { protocol: 1, currentOwner: 2, capture: held } as const
+
+  const inspect = {
+    protocol: 1,
+    op: "inspect",
+    owner: 2,
+  } satisfies InputPairCommand
+
+  const cancel = {
+    protocol: 1,
+    op: "finish",
+    owner: 2,
+    generation: 5,
+    disposition: "cancel",
+  } satisfies InputPairCommand
+
+  const seal = { ...cancel, disposition: "seal" } satisfies InputPairCommand
+
+  const adopt = {
+    protocol: 1,
+    op: "adopt",
+    owner: 2,
+    expectedOwner: 1,
+    generation: 5,
+  } satisfies InputPairCommand
+
+  function host(value: string) {
+    return {
+      inputPairCommandV1: function respond(_command: string) {
+        return Promise.resolve(value)
+      },
+    }
+  }
+
+  function failure(raw: ReturnType<typeof host>, command: InputPairCommand) {
+    return Effect.runPromise(Effect.flip(inputPairCommand(raw, command)))
+  }
+
+  test("defers host calls and retains the receiver", async function deferred() {
+    let calls = 0
+
+    const native = {
+      inputPairCommandV1(command: string) {
+        expect(this).toBe(native)
+        expect(JSON.parse(command)).toEqual(capture)
+        calls += 1
+
+        return Promise.resolve(JSON.stringify(reply))
+      },
+    }
+
+    const effect = inputPairCommand(native, capture)
+    expect(calls).toBe(0)
+    expect(await Effect.runPromise(effect)).toEqual(reply)
+    expect(calls).toBe(1)
+    expect(
+      (await Effect.runPromise(Effect.flip(inputPairCommand({}, inspect))))
+        ._tag,
+    ).toBe("InputPairUnsupported")
+  })
+
+  test("accepts each success shape and older inspect captures", async function success() {
+    for (const [command, response] of [
+      [capture, reply],
+      [inspect, reply],
+      [inspect, { ...reply, capture: null }],
+      [inspect, { ...reply, capture: { ...held, owner: 1 } }],
+      [cancel, { ...reply, capture: null }],
+      [
+        seal,
+        { ...reply, capture: { ...held, generation: 6, phase: "sealed" } },
+      ],
+      [adopt, { ...reply, capture: { ...held, generation: 6 } }],
+      [
+        adopt,
+        { ...reply, capture: { ...held, generation: 6, phase: "sealed" } },
+      ],
+    ] as const) {
+      expect(
+        await Effect.runPromise(
+          inputPairCommand(host(JSON.stringify(response)), command),
+        ),
+      ).toEqual(response)
+    }
+  })
+
+  test("rejects invalid requests before invoking the host", async function requests() {
+    let calls = 0
+
+    const native = {
+      inputPairCommandV1(_command: string) {
+        calls += 1
+
+        return Promise.resolve("")
+      },
+    }
+
+    const invalid = [
+      { ...capture, owner: 0 },
+      { ...capture, owner: Number.MAX_SAFE_INTEGER + 1 },
+      { ...capture, bodyId: 3 },
+      { ...capture, context: "" },
+      { ...capture, context: " a" },
+      { ...capture, context: "a\n" },
+      { ...capture, context: "a\u0085b" },
+      { ...capture, context: "Ω".repeat(513) },
+      { ...capture, extra: "x".repeat(4096) },
+      { ...adopt, owner: 1 },
+      { ...seal, generation: 0 },
+    ]
+
+    for (const command of invalid) {
+      expect((await failure(native, command))._tag).toBe(
+        "InputPairInvalidRequest",
+      )
+    }
+
+    expect(calls).toBe(0)
+
+    const boundary = {
+      ...capture,
+      owner: Number.MAX_SAFE_INTEGER,
+      context: "Ω".repeat(512),
+    }
+
+    const validReply = {
+      ...reply,
+      currentOwner: boundary.owner,
+      capture: { ...held, owner: boundary.owner, context: boundary.context },
+    }
+
+    expect(
+      await Effect.runPromise(
+        inputPairCommand(host(JSON.stringify(validReply)), boundary),
+      ),
+    ).toEqual(validReply)
+
+    const escaped = { ...capture, context: "\\".repeat(1024) }
+
+    const escapedReply = {
+      ...reply,
+      capture: { ...held, context: escaped.context },
+    }
+
+    expect(
+      new TextEncoder().encode(JSON.stringify(escaped)).length,
+    ).toBeLessThanOrEqual(4096)
+    expect(
+      await Effect.runPromise(
+        inputPairCommand(host(JSON.stringify(escapedReply)), escaped),
+      ),
+    ).toEqual(escapedReply)
+  })
+
+  test("rejects malformed, extra, duplicate and inconsistent replies", async function responses() {
+    const invalid = [
+      "not json",
+      JSON.stringify({ ...reply, extra: 1 }),
+      JSON.stringify({ ...reply, capture: { ...held, extra: 1 } }),
+      JSON.stringify({
+        ...reply,
+        capture: { ...held, title: { ...state, extra: 1 } },
+      }),
+      JSON.stringify({ ...reply, currentOwner: 1 }),
+      JSON.stringify({ ...reply, capture: { ...held, owner: 1 } }),
+      JSON.stringify({ ...reply, capture: { ...held, context: "other" } }),
+      JSON.stringify({ ...reply, capture: { ...held, titleId: 4 } }),
+      JSON.stringify({ ...reply, capture: { ...held, phase: "sealed" } }),
+      JSON.stringify({ ...reply, capture: { ...held, generation: 0 } }),
+      JSON.stringify({ ...reply, capture: { ...held, context: " bad" } }),
+      JSON.stringify(reply).replace(
+        '"protocol":1',
+        '"protocol":1,"protocol":1',
+      ),
+    ]
+
+    for (const value of invalid)
+      expect((await failure(host(value), capture))._tag).toBe(
+        "InputPairInvalidResponse",
+      )
+
+    for (const [command, response] of [
+      [cancel, reply],
+      [seal, reply],
+      [seal, { ...reply, capture: { ...held, phase: "sealed" } }],
+      [
+        adopt,
+        { ...reply, capture: { ...held, generation: 6, phase: "uncertain" } },
+      ],
+      [adopt, reply],
+    ] as const)
+      expect(
+        (await failure(host(JSON.stringify(response)), command))._tag,
+      ).toBe("InputPairInvalidResponse")
+  })
+
+  test("reports redacted failures and rejects a non-Promise host", async function redaction() {
+    const native = host("")
+    Reflect.set(native, "inputPairCommandV1", function invalid() {
+      return "secret body"
+    })
+    const nonPromise = await failure(native, inspect)
+    expect(nonPromise._tag).toBe("InputPairNativeFailure")
+
+    const rejected = await failure(
+      {
+        inputPairCommandV1: function reject() {
+          return Promise.reject(new Error("secret body and context"))
+        },
+      },
+      inspect,
+    )
+
+    expect(rejected._tag).toBe("InputPairNativeFailure")
+    const invalid = await failure(host("secret body and context"), inspect)
+    expect(invalid._tag).toBe("InputPairInvalidResponse")
+
+    for (const error of [nonPromise, rejected, invalid])
+      expect(JSON.stringify(error)).not.toContain("secret")
   })
 })

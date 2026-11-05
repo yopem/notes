@@ -51,7 +51,7 @@ const EditorSnapshotSchema = Schema.Struct({
   scrollLeft: PixelSchema,
 })
 
-const EditorStateSchema = Schema.Struct({
+export const EditorStateSchema = Schema.Struct({
   text: Schema.String,
   revision: OffsetSchema,
   selection: SelectionSchema,
