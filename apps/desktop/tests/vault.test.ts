@@ -187,6 +187,33 @@ describe("native Markdown vault", () => {
     ])
       expect(existsSync(join(directory, name))).toBe(true)
   })
+  test("ignores unsupported unrelated files without hiding unsafe Markdown or assets", () => {
+    if (process.platform !== "linux") return
+    const directory = root()
+    mkdirSync(join(directory, "Books"))
+    writeFileSync(join(directory, "Books", "A.md"), "note")
+    writeFileSync(join(directory, "unrelated:backup.txt"), "keep")
+    const vault = open(directory)
+
+    expect(Effect.runSync(vault.listNotes()).map((note) => note.path)).toContain(
+      "Books/A.md",
+    )
+    expect(
+      Effect.runSync(vault.listFolders()).map((folder) => folder.path),
+    ).toContain("Books")
+    expect(readFileSync(join(directory, "unrelated:backup.txt"), "utf8")).toBe(
+      "keep",
+    )
+
+    writeFileSync(join(directory, "unsafe:note.md"), "note")
+    expect(() => Effect.runSync(vault.listNotes())).toThrow()
+    rmSync(join(directory, "unsafe:note.md"))
+    writeFileSync(join(directory, "assets", "unsafe:asset.txt"), "asset")
+    expect(() => Effect.runSync(vault.listAssets())).toThrow()
+    expect(
+      readFileSync(join(directory, "assets", "unsafe:asset.txt"), "utf8"),
+    ).toBe("asset")
+  })
   test("root primary and nested folder IDs remain vault-relative POSIX", () => {
     const vault = open(root(), "root")
     const creation = vault.createFolder("inbox", "Work/研究")
