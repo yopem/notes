@@ -1,4 +1,14 @@
-import { Option, Predicate, Schema, SchemaTransformation, Struct } from "effect"
+import {
+  Context,
+  DateTime,
+  Effect,
+  Layer,
+  Option,
+  Predicate,
+  Schema,
+  SchemaTransformation,
+  Struct,
+} from "effect"
 import { randomUUID } from "node:crypto"
 import {
   chmodSync,
@@ -16,6 +26,7 @@ import {
 } from "node:fs"
 import { basename, extname, join, resolve } from "node:path"
 
+import { NotesError } from "@/features/notes/errors"
 import { atomicWrite, syncDirectory } from "@/platform/files"
 
 export type Notebook = typeof notebookSchema.Type
@@ -356,11 +367,10 @@ function acquireLock(path: string, directory: string, owner: ProcessLock) {
 
 function makeNote(
   notebookId: string,
+  now: string,
   title = "Untitled note",
   body = "",
 ): Note {
-  const now = new Date().toISOString()
-
   return {
     id: randomUUID(),
     notebookId,
@@ -378,6 +388,7 @@ function freshWorkspace(): Workspace {
 
   const welcome = makeNote(
     notebook.id,
+    DateTime.formatIso(DateTime.nowUnsafe()),
     "Welcome to Still Notes",
     "# Welcome to Still Notes\n\nThis note is an example, not your personal data. You can edit or delete it.\n\nCreate a note, choose a notebook, and write in Markdown. Pin notes to keep them close. Use Trash to restore a note before you delete it permanently.\n\nYour notes stay in this local workspace. Export Markdown files to keep an extra copy.\n",
   )
@@ -498,251 +509,339 @@ export class NotesStore {
     }
   }
 
-  createNotebook(name: string): Notebook {
-    this.ensureOpen()
+  createNotebook(name: string): Effect.Effect<Notebook, NotesError> {
+    return Effect.try({
+      try: () => {
+        this.ensureOpen()
 
-    const notebook = {
-      id: randomUUID(),
-      name: nonempty(name, "Notebook name").trim(),
-    }
+        const notebook = {
+          id: randomUUID(),
+          name: nonempty(name, "Notebook name").trim(),
+        }
 
-    this.commit({
-      ...this.snapshot,
-      notebooks: [...this.snapshot.notebooks, notebook],
-    })
+        this.commit({
+          ...this.snapshot,
+          notebooks: [...this.snapshot.notebooks, notebook],
+        })
 
-    return Object.freeze(notebook)
-  }
-
-  renameNotebook(id: string, name: string): void {
-    this.ensureOpen()
-    const notebook = this.notebook(id)
-    const nextName = nonempty(name, "Notebook name").trim()
-
-    if (notebook.name === nextName) return
-    this.commit({
-      ...this.snapshot,
-      notebooks: this.snapshot.notebooks.map((entry) =>
-        entry.id === id ? { ...entry, name: nextName } : entry,
-      ),
+        return Object.freeze(notebook)
+      },
+      catch: (cause) => NotesError.fromCause("createNotebook", cause),
     })
   }
 
-  createNote(notebookId?: string): Note {
-    this.ensureOpen()
+  renameNotebook(id: string, name: string): Effect.Effect<void, NotesError> {
+    return Effect.try({
+      try: () => {
+        this.ensureOpen()
+        const notebook = this.notebook(id)
+        const nextName = nonempty(name, "Notebook name").trim()
 
-    const note = makeNote(
-      this.notebook(notebookId ?? this.snapshot.notebooks[0]?.id).id,
-    )
-
-    this.commit({
-      ...this.snapshot,
-      notes: [...this.snapshot.notes, note],
-      selectedNoteId: note.id,
-    })
-
-    return Object.freeze(note)
-  }
-
-  updateNote(id: string, patch: NotePatch): void {
-    this.ensureOpen()
-    const note = this.note(id)
-
-    const parsed = Schema.decodeUnknownSync(notePatchSchema, {
-      onExcessProperty: "error",
-      errors: "all",
-    })(patch)
-
-    const title = parsed.title ?? note.title
-    const body = parsed.body ?? note.body
-
-    const notebookId =
-      parsed.notebookId === undefined
-        ? note.notebookId
-        : this.notebook(parsed.notebookId).id
-
-    if (
-      title === note.title &&
-      body === note.body &&
-      notebookId === note.notebookId
-    )
-      return
-    this.replaceNote({
-      ...note,
-      title,
-      body,
-      notebookId,
-      updatedAt: new Date().toISOString(),
+        if (notebook.name === nextName) return
+        this.commit({
+          ...this.snapshot,
+          notebooks: this.snapshot.notebooks.map((entry) =>
+            entry.id === id ? { ...entry, name: nextName } : entry,
+          ),
+        })
+      },
+      catch: (cause) => NotesError.fromCause("renameNotebook", cause),
     })
   }
 
-  togglePin(id: string): void {
-    this.ensureOpen()
-    const note = this.note(id)
-    this.replaceNote({
-      ...note,
-      pinned: !note.pinned,
-      updatedAt: new Date().toISOString(),
-    })
-  }
+  createNote(notebookId?: string): Effect.Effect<Note, NotesError> {
+    return Effect.flatMap(DateTime.now, (now) =>
+      Effect.try({
+        try: () => {
+          this.ensureOpen()
 
-  trashNote(id: string): void {
-    this.ensureOpen()
-    const note = this.note(id)
-
-    if (note.trashedAt !== null) return
-    const now = new Date().toISOString()
-    this.replaceNote(
-      { ...note, trashedAt: now, updatedAt: now },
-      this.snapshot.selectedNoteId === id ? null : this.snapshot.selectedNoteId,
-    )
-  }
-
-  restoreNote(id: string): void {
-    this.ensureOpen()
-    const note = this.note(id)
-
-    if (note.trashedAt === null) return
-    this.replaceNote({
-      ...note,
-      trashedAt: null,
-      updatedAt: new Date().toISOString(),
-    })
-  }
-
-  deleteNote(id: string): void {
-    this.ensureOpen()
-
-    if (this.note(id).trashedAt === null)
-      throw new Error("Move the note to Trash before you delete it permanently")
-    this.commit({
-      ...this.snapshot,
-      notes: this.snapshot.notes.filter((note) => note.id !== id),
-      selectedNoteId:
-        this.snapshot.selectedNoteId === id
-          ? null
-          : this.snapshot.selectedNoteId,
-    })
-  }
-
-  selectNote(id: string | null): void {
-    this.ensureOpen()
-
-    if (id !== null) this.note(id)
-
-    if (this.snapshot.selectedNoteId === id) return
-    this.commit({ ...this.snapshot, selectedNoteId: id })
-  }
-
-  setTheme(theme: "light" | "dark"): void {
-    this.ensureOpen()
-    Schema.decodeUnknownSync(themeSchema)(theme)
-
-    if (this.snapshot.theme === theme) return
-    this.commit({ ...this.snapshot, theme })
-  }
-
-  importMarkdown(paths: string[], notebookId?: string): Note[] {
-    this.ensureOpen()
-    const parsedPaths = Schema.decodeUnknownSync(importPathsSchema)(paths)
-    const notebook = this.notebook(notebookId ?? this.snapshot.notebooks[0]?.id)
-
-    const notes = parsedPaths.map((path) => {
-      const extension = extname(path).toLowerCase()
-
-      if (extension !== ".md" && extension !== ".markdown")
-        throw new Error(`${path} is not a .md or .markdown file`)
-      const body = readText(path, bodyLimit)
-
-      if (body === null)
-        throw new Error(`Markdown file does not exist: ${path}`)
-
-      for (let index = 0; index < body.length; index += 1) {
-        const code = body.charCodeAt(index)
-
-        if (
-          (code < 32 && code !== 9 && code !== 10 && code !== 13) ||
-          code === 127
-        )
-          throw new Error(
-            `${path} contains binary data or an unsafe encoding; use UTF-8 Markdown`,
+          const note = makeNote(
+            this.notebook(notebookId ?? this.snapshot.notebooks[0]?.id).id,
+            DateTime.formatIso(now),
           )
-      }
 
-      return makeNote(
-        notebook.id,
-        basename(path, extname(path)),
-        Schema.decodeUnknownSync(bodySchema)(body),
-      )
+          this.commit({
+            ...this.snapshot,
+            notes: [...this.snapshot.notes, note],
+            selectedNoteId: note.id,
+          })
+
+          return Object.freeze(note)
+        },
+        catch: (cause) => NotesError.fromCause("createNote", cause),
+      }),
+    )
+  }
+
+  updateNote(id: string, patch: NotePatch): Effect.Effect<void, NotesError> {
+    return Effect.flatMap(DateTime.now, (now) =>
+      Effect.try({
+        try: () => {
+          this.ensureOpen()
+          const note = this.note(id)
+
+          const parsed = Schema.decodeUnknownSync(notePatchSchema, {
+            onExcessProperty: "error",
+            errors: "all",
+          })(patch)
+
+          const title = parsed.title ?? note.title
+          const body = parsed.body ?? note.body
+
+          const notebookId =
+            parsed.notebookId === undefined
+              ? note.notebookId
+              : this.notebook(parsed.notebookId).id
+
+          if (
+            title === note.title &&
+            body === note.body &&
+            notebookId === note.notebookId
+          )
+            return
+          this.replaceNote({
+            ...note,
+            title,
+            body,
+            notebookId,
+            updatedAt: DateTime.formatIso(now),
+          })
+        },
+        catch: (cause) => NotesError.fromCause("updateNote", cause),
+      }),
+    )
+  }
+
+  togglePin(id: string): Effect.Effect<void, NotesError> {
+    return Effect.flatMap(DateTime.now, (now) =>
+      Effect.try({
+        try: () => {
+          this.ensureOpen()
+          const note = this.note(id)
+          this.replaceNote({
+            ...note,
+            pinned: !note.pinned,
+            updatedAt: DateTime.formatIso(now),
+          })
+        },
+        catch: (cause) => NotesError.fromCause("togglePin", cause),
+      }),
+    )
+  }
+
+  trashNote(id: string): Effect.Effect<void, NotesError> {
+    return Effect.flatMap(DateTime.now, (now) =>
+      Effect.try({
+        try: () => {
+          this.ensureOpen()
+          const note = this.note(id)
+
+          if (note.trashedAt !== null) return
+          const timestamp = DateTime.formatIso(now)
+          this.replaceNote(
+            { ...note, trashedAt: timestamp, updatedAt: timestamp },
+            this.snapshot.selectedNoteId === id
+              ? null
+              : this.snapshot.selectedNoteId,
+          )
+        },
+        catch: (cause) => NotesError.fromCause("trashNote", cause),
+      }),
+    )
+  }
+
+  restoreNote(id: string): Effect.Effect<void, NotesError> {
+    return Effect.flatMap(DateTime.now, (now) =>
+      Effect.try({
+        try: () => {
+          this.ensureOpen()
+          const note = this.note(id)
+
+          if (note.trashedAt === null) return
+          this.replaceNote({
+            ...note,
+            trashedAt: null,
+            updatedAt: DateTime.formatIso(now),
+          })
+        },
+        catch: (cause) => NotesError.fromCause("restoreNote", cause),
+      }),
+    )
+  }
+
+  deleteNote(id: string): Effect.Effect<void, NotesError> {
+    return Effect.try({
+      try: () => {
+        this.ensureOpen()
+
+        if (this.note(id).trashedAt === null)
+          throw new Error(
+            "Move the note to Trash before you delete it permanently",
+          )
+        this.commit({
+          ...this.snapshot,
+          notes: this.snapshot.notes.filter((note) => note.id !== id),
+          selectedNoteId:
+            this.snapshot.selectedNoteId === id
+              ? null
+              : this.snapshot.selectedNoteId,
+        })
+      },
+      catch: (cause) => NotesError.fromCause("deleteNote", cause),
     })
+  }
 
-    if (notes.length === 0) return []
-    this.commit({
-      ...this.snapshot,
-      notes: [...this.snapshot.notes, ...notes],
-      selectedNoteId: notes[0]?.id ?? this.snapshot.selectedNoteId,
+  selectNote(id: string | null): Effect.Effect<void, NotesError> {
+    return Effect.try({
+      try: () => {
+        this.ensureOpen()
+
+        if (id !== null) this.note(id)
+
+        if (this.snapshot.selectedNoteId === id) return
+        this.commit({ ...this.snapshot, selectedNoteId: id })
+      },
+      catch: (cause) => NotesError.fromCause("selectNote", cause),
     })
+  }
 
-    return notes.map((note) => Object.freeze(note))
+  setTheme(theme: "light" | "dark"): Effect.Effect<void, NotesError> {
+    return Effect.try({
+      try: () => {
+        this.ensureOpen()
+        Schema.decodeUnknownSync(themeSchema)(theme)
+
+        if (this.snapshot.theme === theme) return
+        this.commit({ ...this.snapshot, theme })
+      },
+      catch: (cause) => NotesError.fromCause("setTheme", cause),
+    })
+  }
+
+  importMarkdown(
+    paths: string[],
+    notebookId?: string,
+  ): Effect.Effect<Note[], NotesError> {
+    return Effect.flatMap(DateTime.now, (now) =>
+      Effect.try({
+        try: () => {
+          this.ensureOpen()
+          const parsedPaths = Schema.decodeUnknownSync(importPathsSchema)(paths)
+
+          const notebook = this.notebook(
+            notebookId ?? this.snapshot.notebooks[0]?.id,
+          )
+
+          const notes = parsedPaths.map((path) => {
+            const extension = extname(path).toLowerCase()
+
+            if (extension !== ".md" && extension !== ".markdown")
+              throw new Error(`${path} is not a .md or .markdown file`)
+            const body = readText(path, bodyLimit)
+
+            if (body === null)
+              throw new Error(`Markdown file does not exist: ${path}`)
+
+            for (let index = 0; index < body.length; index += 1) {
+              const code = body.charCodeAt(index)
+
+              if (
+                (code < 32 && code !== 9 && code !== 10 && code !== 13) ||
+                code === 127
+              )
+                throw new Error(
+                  `${path} contains binary data or an unsafe encoding; use UTF-8 Markdown`,
+                )
+            }
+
+            return makeNote(
+              notebook.id,
+              DateTime.formatIso(now),
+              basename(path, extname(path)),
+              Schema.decodeUnknownSync(bodySchema)(body),
+            )
+          })
+
+          if (notes.length === 0) return []
+          this.commit({
+            ...this.snapshot,
+            notes: [...this.snapshot.notes, ...notes],
+            selectedNoteId: notes[0]?.id ?? this.snapshot.selectedNoteId,
+          })
+
+          return notes.map((note) => Object.freeze(note))
+        },
+        catch: (cause) => NotesError.fromCause("importMarkdown", cause),
+      }),
+    )
   }
 
   exportMarkdown(
     id: string,
     directory: string,
     draft: Pick<NotePatch, "title" | "body"> = {},
-  ): string {
-    this.ensureOpen()
+  ): Effect.Effect<string, NotesError> {
+    return Effect.try({
+      try: () => {
+        this.ensureOpen()
 
-    const note = {
-      ...this.note(id),
-      ...Schema.decodeUnknownSync(exportDraftSchema, {
-        onExcessProperty: "error",
-        errors: "all",
-      })(draft),
-    }
-
-    const output = resolve(nonempty(directory, "Export directory"))
-    mkdirSync(output, { recursive: true, mode: 0o700 })
-    const name = exportName(note.title)
-
-    for (let index = 1; ; index += 1) {
-      const path = join(output, `${name}${index === 1 ? "" : ` (${index})`}.md`)
-      let fd: number
-
-      try {
-        fd = openSync(path, "wx", 0o600)
-      } catch (error) {
-        if (
-          Option.getOrUndefined(
-            Schema.decodeUnknownOption(errorCodeSchema)(error),
-          )?.code === "EEXIST"
-        )
-          continue
-        throw new Error(
-          `Cannot export Markdown to ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}`,
-          { cause: error },
-        )
-      }
-
-      try {
-        try {
-          writeFileSync(fd, note.body, "utf8")
-          fsyncSync(fd)
-        } finally {
-          closeSync(fd)
+        const note = {
+          ...this.note(id),
+          ...Schema.decodeUnknownSync(exportDraftSchema, {
+            onExcessProperty: "error",
+            errors: "all",
+          })(draft),
         }
 
-        syncDirectory(output)
+        const output = resolve(nonempty(directory, "Export directory"))
+        mkdirSync(output, { recursive: true, mode: 0o700 })
+        const name = exportName(note.title)
 
-        return path
-      } catch (error) {
-        rmSync(path, { force: true })
-        throw new Error(
-          `Cannot export Markdown to ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}`,
-          { cause: error },
-        )
-      }
-    }
+        for (let index = 1; ; index += 1) {
+          const path = join(
+            output,
+            `${name}${index === 1 ? "" : ` (${index})`}.md`,
+          )
+
+          let fd: number
+
+          try {
+            fd = openSync(path, "wx", 0o600)
+          } catch (error) {
+            if (
+              Option.getOrUndefined(
+                Schema.decodeUnknownOption(errorCodeSchema)(error),
+              )?.code === "EEXIST"
+            )
+              continue
+            throw new Error(
+              `Cannot export Markdown to ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}`,
+              { cause: error },
+            )
+          }
+
+          try {
+            try {
+              writeFileSync(fd, note.body, "utf8")
+              fsyncSync(fd)
+            } finally {
+              closeSync(fd)
+            }
+
+            syncDirectory(output)
+
+            return path
+          } catch (error) {
+            rmSync(path, { force: true })
+            throw new Error(
+              `Cannot export Markdown to ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}`,
+              { cause: error },
+            )
+          }
+        }
+      },
+      catch: (cause) => NotesError.fromCause("exportMarkdown", cause),
+    })
   }
 
   close(): void {
@@ -856,5 +955,26 @@ export class NotesStore {
       unlinkSync(this.lockPath)
       syncDirectory(this.directory)
     }
+  }
+}
+
+export class Notes extends Context.Service<Notes, NotesStore>()(
+  "still-notes/notes/Notes",
+) {
+  static layer(directory: string) {
+    return Layer.effect(
+      Notes,
+      Effect.acquireRelease(
+        Effect.try({
+          try: () => new NotesStore(directory),
+          catch: (cause) => NotesError.fromCause("open", cause),
+        }),
+        (store) =>
+          Effect.try({
+            try: () => store.close(),
+            catch: (cause) => NotesError.fromCause("close", cause),
+          }).pipe(Effect.orDie),
+      ),
+    )
   }
 }

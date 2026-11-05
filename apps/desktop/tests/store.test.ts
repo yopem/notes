@@ -1,5 +1,6 @@
 import { defaultDataDirectory } from "@still-notes/env/server"
 import { afterEach, describe, expect, test } from "bun:test"
+import { Cause, Effect, Exit } from "effect"
 import {
   chmodSync,
   existsSync,
@@ -15,7 +16,8 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { NotesStore } from "@/features/notes/store"
+import { NotesError } from "@/features/notes/errors"
+import { Notes, NotesStore } from "@/features/notes/store"
 
 import { readDataDirectory, writeDataDirectory } from "./env"
 
@@ -98,7 +100,7 @@ function runChild(code: string) {
     cmd: [
       process.execPath,
       "--eval",
-      `import { NotesStore } from "@/features/notes/store"; ${code}`,
+      `import { Effect } from "effect"; import { NotesStore } from "@/features/notes/store"; ${code}`,
     ],
     cwd: resolve(import.meta.dir, ".."),
   })
@@ -114,6 +116,117 @@ afterEach(() => {
 })
 
 describe("NotesStore real disk integration", () => {
+  test("operations defer validation, memory changes, and file access until execution", () => {
+    const root = directory()
+    const store = open(root)
+    const note = Effect.runSync(store.createNote())
+    const before = store.getSnapshot()
+    const bytes = readFileSync(primary(root))
+    const output = join(root, "not-created")
+    let notifications = 0
+    store.subscribe(() => {
+      notifications += 1
+    })
+
+    const operations = [
+      store.createNotebook("Deferred"),
+      store.renameNotebook(note.notebookId, "Renamed"),
+      store.createNote(),
+      store.updateNote(note.id, { body: "Deferred" }),
+      store.togglePin(note.id),
+      store.trashNote(note.id),
+      store.restoreNote(note.id),
+      store.deleteNote(note.id),
+      store.selectNote(null),
+      store.setTheme("dark"),
+      store.importMarkdown([join(root, "missing.md")]),
+      store.exportMarkdown(note.id, output),
+    ]
+
+    expect(operations.every(Effect.isEffect)).toBe(true)
+    expect(store.getSnapshot()).toBe(before)
+    expect(readFileSync(primary(root))).toEqual(bytes)
+    expect(existsSync(output)).toBe(false)
+    expect(notifications).toBe(0)
+
+    store.close()
+
+    for (const operation of operations) {
+      const error = Effect.runSync(Effect.flip(operation))
+      expect(error).toBeInstanceOf(NotesError)
+      expect(error._tag).toBe("NotesError")
+      expect(error.message).toMatch(/closed/i)
+      expect(error.cause).toBeInstanceOf(Error)
+    }
+  })
+
+  test("the Notes layer defers acquisition and releases its lock on success", () => {
+    const root = directory()
+    const layer = Notes.layer(root)
+    expect(existsSync(primary(root))).toBe(false)
+
+    const snapshot = Effect.runSync(
+      Effect.gen(function* () {
+        const store = yield* Notes
+        expect(existsSync(join(root, ".store.lock"))).toBe(true)
+        yield* store.createNotebook("Scoped")
+
+        return store.getSnapshot()
+      }).pipe(Effect.provide(layer)),
+    )
+
+    expect(existsSync(join(root, ".store.lock"))).toBe(false)
+    expect(open(root).getSnapshot()).toEqual(snapshot)
+  })
+
+  test("the Notes layer releases its lock on failure and types acquisition errors", () => {
+    const root = directory()
+
+    const error = Effect.runSync(
+      Effect.gen(function* () {
+        const store = yield* Notes
+        yield* store.createNote("missing")
+      }).pipe(Effect.provide(Notes.layer(root)), Effect.flip),
+    )
+
+    expect(error).toBeInstanceOf(NotesError)
+    expect(error.operation).toBe("createNote")
+    expect(existsSync(join(root, ".store.lock"))).toBe(false)
+    const store = open(root)
+
+    const acquisitionError = Effect.runSync(
+      Effect.flip(Effect.provide(Notes, Notes.layer(root))),
+    )
+
+    expect(acquisitionError).toBeInstanceOf(NotesError)
+    expect(acquisitionError.operation).toBe("open")
+    expect(acquisitionError.message).toMatch(/lock/i)
+    expect(() => Effect.runSync(store.createNote())).not.toThrow()
+  })
+
+  test("the Notes layer reports lock cleanup failures instead of hiding them", () => {
+    const root = directory()
+    const lock = join(root, ".store.lock")
+
+    const exit = Effect.runSyncExit(
+      Effect.gen(function* () {
+        yield* Notes
+        rmSync(lock)
+        mkdirSync(lock)
+      }).pipe(Effect.provide(Notes.layer(root))),
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+
+    if (Exit.isFailure(exit)) {
+      const defects = exit.cause.reasons.filter(Cause.isDieReason)
+      expect(defects).toHaveLength(1)
+      expect(defects[0]?.defect).toBeInstanceOf(NotesError)
+    }
+
+    expect(lstatSync(lock).isDirectory()).toBe(true)
+  })
+
   test("fresh workspace contains a selected example and restrictive permissions", () => {
     const root = directory()
     const store = open(root)
@@ -140,18 +253,20 @@ describe("NotesStore real disk integration", () => {
   test("CRUD, notebook moves, selection, and theme survive restart", () => {
     const root = directory()
     const store = open(root)
-    const notebook = store.createNotebook(" Work ")
+    const notebook = Effect.runSync(store.createNotebook(" Work "))
     expect(notebook.name).toBe("Work")
-    store.renameNotebook(notebook.id, "Projects")
-    const note = store.createNote()
+    Effect.runSync(store.renameNotebook(notebook.id, "Projects"))
+    const note = Effect.runSync(store.createNote())
     const createdAt = note.createdAt
-    store.updateNote(note.id, {
-      title: "Plan",
-      body: "Keep my edits",
-      notebookId: notebook.id,
-    })
-    store.selectNote(note.id)
-    store.setTheme("dark")
+    Effect.runSync(
+      store.updateNote(note.id, {
+        title: "Plan",
+        body: "Keep my edits",
+        notebookId: notebook.id,
+      }),
+    )
+    Effect.runSync(store.selectNote(note.id))
+    Effect.runSync(store.setTheme("dark"))
     const saved = store.getSnapshot()
     expect(saved.notes.find((item) => item.id === note.id)).toMatchObject({
       title: "Plan",
@@ -171,13 +286,13 @@ describe("NotesStore real disk integration", () => {
   test("snapshots and returned records cannot mutate persisted state", () => {
     const store = open()
     const snapshot = store.getSnapshot()
-    const note = store.createNote()
+    const note = Effect.runSync(store.createNote())
     expect(Object.isFrozen(snapshot)).toBe(true)
     expect(Object.isFrozen(snapshot.notes)).toBe(true)
     expect(Object.isFrozen(snapshot.notebooks[0])).toBe(true)
     expect(Object.isFrozen(note)).toBe(true)
     expect(() => {
-      note.body = "lost edit"
+      Object.assign(note, { body: "lost edit" })
     }).toThrow()
     expect(() => {
       snapshot.notes.pop()
@@ -198,37 +313,38 @@ describe("NotesStore real disk integration", () => {
       observed.push(readFileSync(primary(root), "utf8"))
     })
 
-    store.createNote()
+    Effect.runSync(store.createNote())
     expect(notifications).toBe(1)
     expect(observed[0]).toBe(
       `${JSON.stringify(store.getSnapshot(), null, 2)}\n`,
     )
     unsubscribe()
     unsubscribe()
-    store.createNotebook("More")
+    Effect.runSync(store.createNotebook("More"))
     expect(notifications).toBe(1)
     const current = store.getSnapshot()
-    store.setTheme(current.theme)
-    store.selectNote(current.selectedNoteId)
+    Effect.runSync(store.setTheme(current.theme))
+    Effect.runSync(store.selectNote(current.selectedNoteId))
     expect(store.getSnapshot()).toBe(current)
   })
 
   test("notebook references and unknown IDs are rejected without a commit", () => {
     const store = open()
-    const note = store.createNote()
+    const note = Effect.runSync(store.createNote())
     const snapshot = store.getSnapshot()
 
     const actions = [
-      () => store.createNotebook("  "),
-      () => store.renameNotebook("missing", "Name"),
-      () => store.createNote("missing"),
-      () => store.updateNote(note.id, { notebookId: "missing" }),
-      () => store.updateNote("missing", { body: "text" }),
-      () => store.togglePin("missing"),
-      () => store.trashNote("missing"),
-      () => store.restoreNote("missing"),
-      () => store.deleteNote("missing"),
-      () => store.selectNote("missing"),
+      () => Effect.runSync(store.createNotebook("  ")),
+      () => Effect.runSync(store.renameNotebook("missing", "Name")),
+      () => Effect.runSync(store.createNote("missing")),
+      () =>
+        Effect.runSync(store.updateNote(note.id, { notebookId: "missing" })),
+      () => Effect.runSync(store.updateNote("missing", { body: "text" })),
+      () => Effect.runSync(store.togglePin("missing")),
+      () => Effect.runSync(store.trashNote("missing")),
+      () => Effect.runSync(store.restoreNote("missing")),
+      () => Effect.runSync(store.deleteNote("missing")),
+      () => Effect.runSync(store.selectNote("missing")),
     ]
 
     for (const action of actions) {
@@ -240,28 +356,28 @@ describe("NotesStore real disk integration", () => {
   test("pin, trash, restore, and permanent deletion guard persist", () => {
     const root = directory()
     const store = open(root)
-    const note = store.createNote()
-    expect(() => store.deleteNote(note.id)).toThrow(/trash/i)
-    store.togglePin(note.id)
+    const note = Effect.runSync(store.createNote())
+    expect(() => Effect.runSync(store.deleteNote(note.id))).toThrow(/trash/i)
+    Effect.runSync(store.togglePin(note.id))
     expect(
       store.getSnapshot().notes.find((item) => item.id === note.id)?.pinned,
     ).toBe(true)
-    store.trashNote(note.id)
+    Effect.runSync(store.trashNote(note.id))
     expect(
       store.getSnapshot().notes.find((item) => item.id === note.id)?.trashedAt,
     ).toBeString()
     expect(store.getSnapshot().selectedNoteId).toBeNull()
     const trashed = store.getSnapshot()
-    store.trashNote(note.id)
+    Effect.runSync(store.trashNote(note.id))
     expect(store.getSnapshot()).toBe(trashed)
-    store.restoreNote(note.id)
+    Effect.runSync(store.restoreNote(note.id))
     expect(
       store.getSnapshot().notes.find((item) => item.id === note.id)?.trashedAt,
     ).toBeNull()
-    store.selectNote(note.id)
-    store.trashNote(note.id)
-    store.selectNote(note.id)
-    store.deleteNote(note.id)
+    Effect.runSync(store.selectNote(note.id))
+    Effect.runSync(store.trashNote(note.id))
+    Effect.runSync(store.selectNote(note.id))
+    Effect.runSync(store.deleteNote(note.id))
     expect(store.getSnapshot().selectedNoteId).toBeNull()
     store.close()
     expect(
@@ -273,9 +389,9 @@ describe("NotesStore real disk integration", () => {
 
   test("empty edits and explicit null selection are valid", () => {
     const store = open()
-    const note = store.createNote()
-    store.updateNote(note.id, { title: "", body: "" })
-    store.selectNote(null)
+    const note = Effect.runSync(store.createNote())
+    Effect.runSync(store.updateNote(note.id, { title: "", body: "" }))
+    Effect.runSync(store.selectNote(null))
     expect(store.getSnapshot().selectedNoteId).toBeNull()
     expect(
       store.getSnapshot().notes.find((item) => item.id === note.id)?.title,
@@ -296,7 +412,11 @@ describe("NotesStore real disk integration", () => {
     const notebook = store.getSnapshot().notebooks[0]
 
     if (!notebook) throw new Error("Missing notebook")
-    const imported = store.importMarkdown([path, path], notebook.id)
+
+    const imported = Effect.runSync(
+      store.importMarkdown([path, path], notebook.id),
+    )
+
     expect(imported).toHaveLength(2)
     expect(notifications).toBe(1)
     expect(imported[0]?.title).toBe("日記")
@@ -304,7 +424,7 @@ describe("NotesStore real disk integration", () => {
 
     if (!note) throw new Error("Missing imported note")
     expect(note.body).toBe(body)
-    const output = store.exportMarkdown(note.id, directory())
+    const output = Effect.runSync(store.exportMarkdown(note.id, directory()))
     expect(readFileSync(output, "utf8")).toBe(body)
     store.close()
     expect(
@@ -316,12 +436,17 @@ describe("NotesStore real disk integration", () => {
 
   test("export uses safe, unique filenames and never overwrites", () => {
     const store = open()
-    const note = store.createNote()
+    const note = Effect.runSync(store.createNote())
     const output = directory()
-    store.updateNote(note.id, { title: "../../CON:<bad>?/\\", body: "first" })
-    const first = store.exportMarkdown(note.id, output)
-    store.updateNote(note.id, { body: "second" })
-    const second = store.exportMarkdown(note.id, output)
+    Effect.runSync(
+      store.updateNote(note.id, {
+        title: "../../CON:<bad>?/\\",
+        body: "first",
+      }),
+    )
+    const first = Effect.runSync(store.exportMarkdown(note.id, output))
+    Effect.runSync(store.updateNote(note.id, { body: "second" }))
+    const second = Effect.runSync(store.exportMarkdown(note.id, output))
     expect(first).not.toBe(second)
     expect(first.startsWith(output + "/")).toBe(true)
     expect(readdirSync(output)).toHaveLength(2)
@@ -330,26 +455,32 @@ describe("NotesStore real disk integration", () => {
 
     if (process.platform !== "win32")
       expect(lstatSync(first).mode & 0o777).toBe(0o600)
-    store.updateNote(note.id, { title: "🌱".repeat(200) })
-    expect(existsSync(store.exportMarkdown(note.id, output))).toBe(true)
-    store.updateNote(note.id, { title: "CON" })
-    expect(store.exportMarkdown(note.id, output)).not.toEndWith("/CON.md")
+    Effect.runSync(store.updateNote(note.id, { title: "🌱".repeat(200) }))
+    expect(
+      existsSync(Effect.runSync(store.exportMarkdown(note.id, output))),
+    ).toBe(true)
+    Effect.runSync(store.updateNote(note.id, { title: "CON" }))
+    expect(Effect.runSync(store.exportMarkdown(note.id, output))).not.toEndWith(
+      "/CON.md",
+    )
   })
 
   test("exports an unsaved draft without committing a blocked workspace", () => {
     const root = directory()
     const store = open(root)
-    const note = store.createNote()
+    const note = Effect.runSync(store.createNote())
     const snapshot = store.getSnapshot()
     const changedBytes = readFileSync(primary(root), "utf8") + " "
     writeFileSync(primary(root), changedBytes)
     const draft = { title: "Recovery copy", body: "Unsaved café 日本語\n" }
 
-    expect(() => store.updateNote(note.id, draft)).toThrow(Error)
+    expect(() => Effect.runSync(store.updateNote(note.id, draft))).toThrow(
+      Error,
+    )
 
     const output = directory()
-    const first = store.exportMarkdown(note.id, output, draft)
-    const second = store.exportMarkdown(note.id, output, draft)
+    const first = Effect.runSync(store.exportMarkdown(note.id, output, draft))
+    const second = Effect.runSync(store.exportMarkdown(note.id, output, draft))
 
     expect(readFileSync(first, "utf8")).toBe(draft.body)
     expect(second).not.toBe(first)
@@ -360,13 +491,15 @@ describe("NotesStore real disk integration", () => {
 
   test("rejects an oversized recovery draft before creating export files", () => {
     const store = open()
-    const note = store.createNote()
+    const note = Effect.runSync(store.createNote())
     const output = directory()
 
     expect(() =>
-      store.exportMarkdown(note.id, output, {
-        body: "x".repeat(bodyLimit + 1),
-      }),
+      Effect.runSync(
+        store.exportMarkdown(note.id, output, {
+          body: "x".repeat(bodyLimit + 1),
+        }),
+      ),
     ).toThrow(Error)
     expect(readdirSync(output)).toEqual([])
   })
@@ -384,13 +517,15 @@ describe("NotesStore real disk integration", () => {
       notifications += 1
     })
     expect(() =>
-      store.importMarkdown([valid, join(input, "missing.md")]),
+      Effect.runSync(store.importMarkdown([valid, join(input, "missing.md")])),
     ).toThrow(Error)
-    expect(() => store.importMarkdown([valid], "missing")).toThrow(Error)
+    expect(() =>
+      Effect.runSync(store.importMarkdown([valid], "missing")),
+    ).toThrow(Error)
     expect(store.getSnapshot()).toBe(before)
     expect(readFileSync(primary(root))).toEqual(bytes)
     expect(notifications).toBe(0)
-    expect(store.importMarkdown([])).toEqual([])
+    expect(Effect.runSync(store.importMarkdown([]))).toEqual([])
     expect(store.getSnapshot()).toBe(before)
   })
 
@@ -408,7 +543,7 @@ describe("NotesStore real disk integration", () => {
       const input = join(directory(), name)
       writeFileSync(input, bytes)
       const before = store.getSnapshot()
-      expect(() => store.importMarkdown([input])).toThrow(Error)
+      expect(() => Effect.runSync(store.importMarkdown([input]))).toThrow(Error)
       expect(store.getSnapshot()).toBe(before)
     })
   }
@@ -417,19 +552,21 @@ describe("NotesStore real disk integration", () => {
     const store = open()
     const input = join(directory(), "folder.md")
     mkdirSync(input)
-    expect(() => store.importMarkdown([input])).toThrow(Error)
+    expect(() => Effect.runSync(store.importMarkdown([input]))).toThrow(Error)
     const bom = join(directory(), "bom.MD")
     writeFileSync(bom, Buffer.from([0xef, 0xbb, 0xbf, 0x23, 0x20, 0x41]))
-    expect(store.importMarkdown([bom])[0]?.body).toBe("# A")
+    expect(Effect.runSync(store.importMarkdown([bom]))[0]?.body).toBe("# A")
   })
 
   test("body byte limit includes multibyte UTF-8 and allows exact boundary", () => {
     const store = open()
-    const note = store.createNote()
-    store.updateNote(note.id, { body: "a".repeat(bodyLimit) })
+    const note = Effect.runSync(store.createNote())
+    Effect.runSync(store.updateNote(note.id, { body: "a".repeat(bodyLimit) }))
     const before = store.getSnapshot()
     expect(() =>
-      store.updateNote(note.id, { body: "é".repeat(bodyLimit / 2 + 1) }),
+      Effect.runSync(
+        store.updateNote(note.id, { body: "é".repeat(bodyLimit / 2 + 1) }),
+      ),
     ).toThrow(/2.*MB|body.*limit/i)
     expect(store.getSnapshot()).toBe(before)
   })
@@ -437,11 +574,13 @@ describe("NotesStore real disk integration", () => {
   test("total JSON byte limit rejects a commit without changing state", () => {
     const root = directory()
     const store = open(root)
-    const note = store.createNote()
+    const note = Effect.runSync(store.createNote())
     const before = store.getSnapshot()
     const bytes = readFileSync(primary(root))
     expect(() =>
-      store.updateNote(note.id, { title: "a".repeat(fileLimit) }),
+      Effect.runSync(
+        store.updateNote(note.id, { title: "a".repeat(fileLimit) }),
+      ),
     ).toThrow(/32.*MB|file.*limit/i)
     expect(store.getSnapshot()).toBe(before)
     expect(readFileSync(primary(root))).toEqual(bytes)
@@ -619,7 +758,7 @@ describe("NotesStore real disk integration", () => {
     const root = directory()
     const store = open(root)
     const previous = readFileSync(primary(root))
-    store.createNotebook("Work")
+    Effect.runSync(store.createNotebook("Work"))
     expect(readFileSync(backup(root))).toEqual(previous)
 
     if (process.platform !== "win32")
@@ -640,14 +779,14 @@ describe("NotesStore real disk integration", () => {
     store.subscribe(() => {
       notifications += 1
     })
-    expect(() => store.createNote()).toThrow(Error)
+    expect(() => Effect.runSync(store.createNote())).toThrow(Error)
     expect(store.getSnapshot()).toBe(before)
-    expect(() => store.importMarkdown([input])).toThrow(Error)
+    expect(() => Effect.runSync(store.importMarkdown([input]))).toThrow(Error)
     expect(store.getSnapshot()).toBe(before)
     expect(readFileSync(primary(root))).toEqual(bytes)
     expect(notifications).toBe(0)
     rmSync(backup(root), { recursive: true })
-    store.createNote()
+    Effect.runSync(store.createNote())
     expect(notifications).toBe(1)
   })
 
@@ -656,7 +795,9 @@ describe("NotesStore real disk integration", () => {
     const store = open(root)
     const before = store.getSnapshot()
     writeFileSync(primary(root), "external data")
-    expect(() => store.createNote()).toThrow(/changed|corrupt|recover/i)
+    expect(() => Effect.runSync(store.createNote())).toThrow(
+      /changed|corrupt|recover/i,
+    )
     expect(store.getSnapshot()).toBe(before)
     expect(readFileSync(primary(root), "utf8")).toBe("external data")
   })
@@ -679,7 +820,7 @@ describe("NotesStore real disk integration", () => {
 
     expect(child.exitCode).toBe(1)
     expect(child.stderr.toString()).toMatch(/lock|running|open/i)
-    store.createNote()
+    Effect.runSync(store.createNote())
     store.close()
     expect(() => open(root)).not.toThrow()
   })
@@ -688,7 +829,7 @@ describe("NotesStore real disk integration", () => {
     const root = directory()
 
     const child = runChild(
-      `const store = new NotesStore(${JSON.stringify(root)}); store.createNotebook("Recovered"); process.exit(0);`,
+      `const store = new NotesStore(${JSON.stringify(root)}); Effect.runSync(store.createNotebook("Recovered")); process.exit(0);`,
     )
 
     expect(child.exitCode).toBe(0)
@@ -715,14 +856,16 @@ describe("NotesStore real disk integration", () => {
     writeFileSync(primary(root), JSON.stringify(fixture()))
     const store = open(root)
     const before = store.getSnapshot()
-    store.updateNote("welcome", {})
-    store.updateNote("welcome", {
-      title: undefined,
-      body: undefined,
-      notebookId: undefined,
-    })
+    Effect.runSync(store.updateNote("welcome", {}))
+    Effect.runSync(
+      store.updateNote("welcome", {
+        title: undefined,
+        body: undefined,
+        notebookId: undefined,
+      }),
+    )
     expect(store.getSnapshot()).toBe(before)
-    store.updateNote("welcome", { title: "" })
+    Effect.runSync(store.updateNote("welcome", { title: "" }))
     expect(store.getSnapshot().notes[0]?.title).toBe("")
   })
 
@@ -752,21 +895,21 @@ describe("NotesStore real disk integration", () => {
       import { strict as assert } from "node:assert";
       import { readFileSync } from "node:fs";
       const store = new NotesStore(${JSON.stringify(root)});
-      const note = store.createNote();
+      const note = Effect.runSync(store.createNote());
       const before = store.getSnapshot();
       const bytes = readFileSync(${JSON.stringify(primary(root))});
       const actions = [
-        () => store.setTheme("system"),
-        () => store.createNotebook(42),
-        () => store.updateNote(note.id, { body: null }),
-        () => store.updateNote(note.id, { pinned: true }),
-        () => store.importMarkdown([42]),
-        () => store.selectNote(undefined),
-        () => store.updateNote(note.id, null),
-        () => store.updateNote(note.id, []),
-        () => store.updateNote(note.id, { title: 42 }),
-        () => store.updateNote(note.id, { notebookId: null }),
-        () => store.importMarkdown(null),
+        () => Effect.runSync(store.setTheme("system")),
+        () => Effect.runSync(store.createNotebook(42)),
+        () => Effect.runSync(store.updateNote(note.id, { body: null })),
+        () => Effect.runSync(store.updateNote(note.id, { pinned: true })),
+        () => Effect.runSync(store.importMarkdown([42])),
+        () => Effect.runSync(store.selectNote(undefined)),
+        () => Effect.runSync(store.updateNote(note.id, null)),
+        () => Effect.runSync(store.updateNote(note.id, [])),
+        () => Effect.runSync(store.updateNote(note.id, { title: 42 })),
+        () => Effect.runSync(store.updateNote(note.id, { notebookId: null })),
+        () => Effect.runSync(store.importMarkdown(null)),
         () => store.subscribe(null),
       ];
       for (const action of actions) {
@@ -809,7 +952,7 @@ describe("NotesStore real disk integration", () => {
     const before = store.getSnapshot()
     store.close()
     store.close()
-    expect(() => store.createNote()).toThrow(/closed/i)
+    expect(() => Effect.runSync(store.createNote())).toThrow(/closed/i)
     expect(store.getSnapshot()).toBe(before)
     expect(existsSync(join(root, ".store.lock"))).toBe(false)
     expect(() => open(root)).not.toThrow()
