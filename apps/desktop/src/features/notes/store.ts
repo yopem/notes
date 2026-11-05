@@ -1,3 +1,4 @@
+import { Option, Predicate, Schema, SchemaTransformation, Struct } from "effect"
 import { randomUUID } from "node:crypto"
 import {
   chmodSync,
@@ -14,101 +15,77 @@ import {
   writeFileSync,
 } from "node:fs"
 import { basename, extname, join, resolve } from "node:path"
-import { z } from "zod"
 
 import { atomicWrite, syncDirectory } from "@/platform/files"
 
-export interface Notebook {
-  id: string
-  name: string
-}
+export type Notebook = typeof notebookSchema.Type
 
-export interface Note {
-  id: string
-  notebookId: string
-  title: string
-  body: string
-  pinned: boolean
-  trashedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
+export type Note = typeof noteSchema.Type
 
-export interface Workspace {
-  version: 1
-  notebooks: Notebook[]
-  notes: Note[]
-  theme: "light" | "dark"
-  selectedNoteId: string | null
-}
+export type Workspace = typeof workspaceSchema.Type
 
-interface NotePatch {
-  title?: string
-  body?: string
-  notebookId?: string
-}
+type NotePatch = typeof notePatchSchema.Type
 
-interface ProcessLock {
-  pid: number
-  token: string
-}
+type ProcessLock = typeof lockSchema.Type
 
 const bodyLimit = 2 * 1024 * 1024
 
 const fileLimit = 32 * 1024 * 1024
 
-const nonemptySchema = z.string().refine((value) => value.trim() !== "")
+const nonemptySchema = Schema.String.check(
+  Schema.makeFilter((value) => value.trim() !== ""),
+)
 
-const bodySchema = z
-  .string()
-  .refine((value) => Buffer.byteLength(value, "utf8") <= bodyLimit, {
-    error: "Note body exceeds the 2 MB limit",
-  })
-
-const timestampSchema = z
-  .string()
-  .refine(
+const bodySchema = Schema.String.check(
+  Schema.makeFilter(
     (value) =>
-      Number.isFinite(Date.parse(value)) &&
-      new Date(value).toISOString() === value,
-    { error: "Invalid workspace timestamp" },
-  )
+      Buffer.byteLength(value, "utf8") <= bodyLimit ||
+      "Note body exceeds the 2 MB limit",
+  ),
+)
 
-const notebookSchema = z.strictObject({
+const timestampSchema = Schema.String.check(
+  Schema.makeFilter(
+    (value) =>
+      (Number.isFinite(Date.parse(value)) &&
+        new Date(value).toISOString() === value) ||
+      "Invalid workspace timestamp",
+  ),
+)
+
+const notebookSchema = Schema.Struct({
   id: nonemptySchema,
   name: nonemptySchema,
 })
 
-const noteSchema = z.strictObject({
+const noteSchema = Schema.Struct({
   id: nonemptySchema,
   notebookId: nonemptySchema,
-  title: z.string(),
+  title: Schema.String,
   body: bodySchema,
-  pinned: z.boolean(),
-  trashedAt: timestampSchema.nullable(),
+  pinned: Schema.Boolean,
+  trashedAt: Schema.NullOr(timestampSchema),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
 })
 
-const themeSchema = z.enum(["light", "dark"])
+const themeSchema = Schema.Literals(["light", "dark"])
 
-const workspaceSchema = z
-  .strictObject({
-    version: z.literal(1),
-    notebooks: z.array(notebookSchema).min(1),
-    notes: z.array(noteSchema),
-    theme: themeSchema,
-    selectedNoteId: z.string().nullable(),
-  })
-  .superRefine((workspace, context) => {
+const workspaceSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  notebooks: Schema.mutable(Schema.Array(notebookSchema)).check(
+    Schema.isMinLength(1),
+  ),
+  notes: Schema.mutable(Schema.Array(noteSchema)),
+  theme: themeSchema,
+  selectedNoteId: Schema.NullOr(Schema.String),
+}).check(
+  Schema.makeFilter((workspace) => {
+    const issues: Schema.FilterIssue[] = []
     const ids = new Set<string>()
 
     for (const entry of [...workspace.notebooks, ...workspace.notes]) {
-      if (ids.has(entry.id))
-        context.addIssue({
-          code: "custom",
-          message: `Duplicate workspace ID: ${entry.id}`,
-        })
+      if (ids.has(entry.id)) issues.push(`Duplicate workspace ID: ${entry.id}`)
       ids.add(entry.id)
     }
 
@@ -118,57 +95,66 @@ const workspaceSchema = z
 
     for (const note of workspace.notes) {
       if (!notebookIds.has(note.notebookId))
-        context.addIssue({
-          code: "custom",
-          message: `Invalid notebook reference for note ${note.id}`,
-        })
+        issues.push(`Invalid notebook reference for note ${note.id}`)
     }
 
     if (
       workspace.selectedNoteId !== null &&
       !workspace.notes.some((note) => note.id === workspace.selectedNoteId)
     ) {
-      context.addIssue({
-        code: "custom",
-        message: "Invalid selected note reference",
-      })
+      issues.push("Invalid selected note reference")
     }
-  })
 
-const notePatchSchema = z.strictObject({
-  title: z.string().optional(),
-  body: bodySchema.optional(),
-  notebookId: z.string().optional(),
+    return issues
+  }),
+)
+
+const notePatchSchema = Schema.Struct({
+  title: Schema.optional(Schema.String),
+  body: Schema.optional(bodySchema),
+  notebookId: Schema.optional(Schema.String),
 })
 
-const exportDraftSchema = notePatchSchema.pick({ title: true, body: true })
+const exportDraftSchema = Schema.Struct(
+  Struct.pick(notePatchSchema.fields, ["title", "body"]),
+)
 
-const importPathsSchema = z.array(z.string().min(1))
+const importPathsSchema = Schema.Array(Schema.NonEmptyString)
 
-const subscriberSchema = z.function()
+const subscriberSchema = Schema.declare((input): input is () => void =>
+  Predicate.isFunction(input),
+)
 
-const lockSchema = z.object({
-  pid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  token: z.string().regex(/^[a-f0-9-]{36}$/),
+const lockSchema = Schema.Struct({
+  pid: Schema.Int.check(
+    Schema.isGreaterThan(0),
+    Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
+  ),
+  token: Schema.String.check(Schema.isPattern(/^[a-f0-9-]{36}$/)),
 })
 
-const errorCodeFieldsSchema = z.object({ code: z.string() })
+const errorCodeFieldsSchema = Schema.Struct({ code: Schema.String })
 
-const errorCodeSchema = z
-  .instanceof(Error)
-  .transform((error) => errorCodeFieldsSchema.safeParse(error).data)
+const errorCodeSchema = Schema.instanceOf(Error).pipe(
+  Schema.decodeTo(errorCodeFieldsSchema),
+)
 
-const errorTextSchema = z
-  .instanceof(Error)
-  .transform((error) => error.message)
-  .catch((context) => String(context.input))
+const errorTextSchema = Schema.Unknown.pipe(
+  Schema.decodeTo(
+    Schema.String,
+    SchemaTransformation.transform<string, unknown>({
+      decode: (error) =>
+        error instanceof Error ? error.message : String(error),
+      encode: (message) => message,
+    }),
+  ),
+)
 
 function nonempty(value: string, label: string) {
-  const parsed = nonemptySchema.safeParse(value)
+  if (!Schema.is(nonemptySchema)(value))
+    throw new Error(`${label} must not be empty`)
 
-  if (!parsed.success) throw new Error(`${label} must not be empty`)
-
-  return parsed.data
+  return value
 }
 
 function freezeWorkspace(workspace: Workspace) {
@@ -193,10 +179,17 @@ function readBytes(path: string, limit: number): Buffer | null {
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     )
   } catch (error) {
-    if (errorCodeSchema.safeParse(error).data?.code === "ENOENT") return null
-    throw new Error(`Cannot read ${path}: ${errorTextSchema.parse(error)}`, {
-      cause: error,
-    })
+    if (
+      Option.getOrUndefined(Schema.decodeUnknownOption(errorCodeSchema)(error))
+        ?.code === "ENOENT"
+    )
+      return null
+    throw new Error(
+      `Cannot read ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}`,
+      {
+        cause: error,
+      },
+    )
   }
 
   try {
@@ -237,10 +230,13 @@ function readText(path: string, limit: number) {
 
 function decodeWorkspace(bytes: string, path: string, backup: string) {
   try {
-    return workspaceSchema.parse(JSON.parse(bytes))
+    return Schema.decodeUnknownSync(workspaceSchema, {
+      onExcessProperty: "error",
+      errors: "all",
+    })(JSON.parse(bytes))
   } catch (error) {
     throw new Error(
-      `Cannot load ${path}: ${errorTextSchema.parse(error)}. Keep this file. Inspect backup ${backup}; copy a valid backup to workspace.json only after you preserve the damaged file.`,
+      `Cannot load ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}. Keep this file. Inspect backup ${backup}; copy a valid backup to workspace.json only after you preserve the damaged file.`,
       { cause: error },
     )
   }
@@ -252,7 +248,7 @@ function readLock(path: string): ProcessLock | null {
 
     if (bytes === null) return null
 
-    return lockSchema.parse(JSON.parse(bytes))
+    return Schema.decodeUnknownSync(lockSchema)(JSON.parse(bytes))
   } catch (error) {
     throw new Error(
       `Invalid lock ${path}. Inspect it and remove it only when no Still Notes process uses this directory.`,
@@ -267,9 +263,17 @@ function processIsAlive(pid: number) {
 
     return true
   } catch (error) {
-    if (errorCodeSchema.safeParse(error).data?.code === "ESRCH") return false
+    if (
+      Option.getOrUndefined(Schema.decodeUnknownOption(errorCodeSchema)(error))
+        ?.code === "ESRCH"
+    )
+      return false
 
-    if (errorCodeSchema.safeParse(error).data?.code === "EPERM") return true
+    if (
+      Option.getOrUndefined(Schema.decodeUnknownOption(errorCodeSchema)(error))
+        ?.code === "EPERM"
+    )
+      return true
     throw error
   }
 }
@@ -280,7 +284,11 @@ function createLock(path: string, directory: string, owner: ProcessLock) {
   try {
     fd = openSync(path, "wx", 0o600)
   } catch (error) {
-    if (errorCodeSchema.safeParse(error).data?.code === "EEXIST") return false
+    if (
+      Option.getOrUndefined(Schema.decodeUnknownOption(errorCodeSchema)(error))
+        ?.code === "EEXIST"
+    )
+      return false
     throw error
   }
 
@@ -465,7 +473,7 @@ export class NotesStore {
       } catch (cleanupError) {
         throw new AggregateError(
           [error, cleanupError],
-          `${errorTextSchema.parse(error)}. Lock cleanup failed: ${errorTextSchema.parse(cleanupError)}`,
+          `${Schema.decodeUnknownSync(errorTextSchema)(error)}. Lock cleanup failed: ${Schema.decodeUnknownSync(errorTextSchema)(cleanupError)}`,
         )
       }
 
@@ -482,7 +490,7 @@ export class NotesStore {
 
   subscribe(listener: () => void): () => void {
     this.ensureOpen()
-    subscriberSchema.parse(listener)
+    Schema.decodeUnknownSync(subscriberSchema)(listener)
     this.listeners.add(listener)
 
     return () => {
@@ -539,7 +547,12 @@ export class NotesStore {
   updateNote(id: string, patch: NotePatch): void {
     this.ensureOpen()
     const note = this.note(id)
-    const parsed = notePatchSchema.parse(patch)
+
+    const parsed = Schema.decodeUnknownSync(notePatchSchema, {
+      onExcessProperty: "error",
+      errors: "all",
+    })(patch)
+
     const title = parsed.title ?? note.title
     const body = parsed.body ?? note.body
 
@@ -623,7 +636,7 @@ export class NotesStore {
 
   setTheme(theme: "light" | "dark"): void {
     this.ensureOpen()
-    themeSchema.parse(theme)
+    Schema.decodeUnknownSync(themeSchema)(theme)
 
     if (this.snapshot.theme === theme) return
     this.commit({ ...this.snapshot, theme })
@@ -631,7 +644,7 @@ export class NotesStore {
 
   importMarkdown(paths: string[], notebookId?: string): Note[] {
     this.ensureOpen()
-    const parsedPaths = importPathsSchema.parse(paths)
+    const parsedPaths = Schema.decodeUnknownSync(importPathsSchema)(paths)
     const notebook = this.notebook(notebookId ?? this.snapshot.notebooks[0]?.id)
 
     const notes = parsedPaths.map((path) => {
@@ -659,7 +672,7 @@ export class NotesStore {
       return makeNote(
         notebook.id,
         basename(path, extname(path)),
-        bodySchema.parse(body),
+        Schema.decodeUnknownSync(bodySchema)(body),
       )
     })
 
@@ -679,7 +692,15 @@ export class NotesStore {
     draft: Pick<NotePatch, "title" | "body"> = {},
   ): string {
     this.ensureOpen()
-    const note = { ...this.note(id), ...exportDraftSchema.parse(draft) }
+
+    const note = {
+      ...this.note(id),
+      ...Schema.decodeUnknownSync(exportDraftSchema, {
+        onExcessProperty: "error",
+        errors: "all",
+      })(draft),
+    }
+
     const output = resolve(nonempty(directory, "Export directory"))
     mkdirSync(output, { recursive: true, mode: 0o700 })
     const name = exportName(note.title)
@@ -691,9 +712,14 @@ export class NotesStore {
       try {
         fd = openSync(path, "wx", 0o600)
       } catch (error) {
-        if (errorCodeSchema.safeParse(error).data?.code === "EEXIST") continue
+        if (
+          Option.getOrUndefined(
+            Schema.decodeUnknownOption(errorCodeSchema)(error),
+          )?.code === "EEXIST"
+        )
+          continue
         throw new Error(
-          `Cannot export Markdown to ${path}: ${errorTextSchema.parse(error)}`,
+          `Cannot export Markdown to ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}`,
           { cause: error },
         )
       }
@@ -712,7 +738,7 @@ export class NotesStore {
       } catch (error) {
         rmSync(path, { force: true })
         throw new Error(
-          `Cannot export Markdown to ${path}: ${errorTextSchema.parse(error)}`,
+          `Cannot export Markdown to ${path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}`,
           { cause: error },
         )
       }
@@ -763,7 +789,13 @@ export class NotesStore {
   }
 
   private commit(workspace: Workspace) {
-    const validated = freezeWorkspace(workspaceSchema.parse(workspace))
+    const validated = freezeWorkspace(
+      Schema.decodeUnknownSync(workspaceSchema, {
+        onExcessProperty: "error",
+        errors: "all",
+      })(workspace),
+    )
+
     this.persist(validated)
     this.snapshot = validated
     const listenersAtCommit = [...this.listeners]
@@ -811,7 +843,7 @@ export class NotesStore {
       this.diskBytes = bytes
     } catch (error) {
       throw new Error(
-        `Cannot save ${this.path}: ${errorTextSchema.parse(error)}. Your in-memory notes are unchanged. Inspect ${this.path} and backup ${this.backupPath} before recovery.`,
+        `Cannot save ${this.path}: ${Schema.decodeUnknownSync(errorTextSchema)(error)}. Your in-memory notes are unchanged. Inspect ${this.path} and backup ${this.backupPath} before recovery.`,
         { cause: error },
       )
     }
