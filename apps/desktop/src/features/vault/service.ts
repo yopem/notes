@@ -53,6 +53,7 @@ const areaSchema = Schema.Literals(["inbox", "quick", "archive", "trash"])
 const primarySchema = Schema.Literals(["inbox", "root"])
 
 const optionsSchema = Schema.Struct({
+  readOnlyPreview: Schema.optional(Schema.Boolean),
   primaryNotesLocation: Schema.optional(primarySchema),
 }).mapFields(Struct.map(Schema.mutableKey))
 
@@ -515,6 +516,7 @@ function assetKind(path: string): AssetRecord["kind"] {
 export class Vault {
   readonly root: string
   private readonly identity: { dev: number; ino: number }
+  private readonly readOnlyPreview: boolean
   private readonly owner = { pid: process.pid, token: randomUUID() }
   private readonly watchers = new Set<FSWatcher>()
   private closed = false
@@ -525,6 +527,7 @@ export class Vault {
   constructor(root: string, options: VaultOptions = {}) {
     decodeNonEmptyString(root)
     const parsed = decodeOptions(options)
+    this.readOnlyPreview = parsed.readOnlyPreview ?? false
     this.root = resolve(root)
     this.assertAbsoluteParents(this.root)
     mkdirSync(this.root, { recursive: true })
@@ -540,7 +543,15 @@ export class Vault {
     try {
       this.makeDirectory(internal)
       this.acquireLock()
-      this.recover()
+
+      if (this.readOnlyPreview) {
+        if (fileStat(this.safe(journalPath)))
+          throw new Error(
+            "Pending recovery journal; reopen without preview to recover",
+          )
+      } else {
+        this.recover()
+      }
 
       if (fileStat(this.safe(statePath))) {
         this.stateBytes = text(readBytes(this.safe(statePath), metadataLimit))
@@ -704,6 +715,8 @@ export class Vault {
 
   private assertWritable() {
     this.assertOpen()
+
+    if (this.readOnlyPreview) throw new Error("Vault preview is read-only")
     const owner = this.readLock()
 
     if (owner.token !== this.owner.token || owner.pid !== this.owner.pid)
@@ -1080,6 +1093,13 @@ export class Vault {
     return { files, directories }
   }
 
+  private noteMutation<A>(operation: () => A) {
+    return this.noteIO(() => {
+      if (this.readOnlyPreview) this.assertWritable()
+
+      return operation()
+    })
+  }
   private noteIO<A>(operation: () => A) {
     return Effect.try({
       try: operation,
@@ -1101,6 +1121,13 @@ export class Vault {
         return /\.md$/i.test(path) && !path.startsWith("assets/")
       })
       .map((id) => this.readNoteSync(id))
+  }
+  private folderMutation<A>(operation: () => A) {
+    return this.folderIO(() => {
+      if (this.readOnlyPreview) this.assertWritable()
+
+      return operation()
+    })
   }
   private folderIO<A>(operation: () => A) {
     return Effect.try({
@@ -1168,7 +1195,9 @@ export class Vault {
     subpath = "",
     body?: string,
   ) {
-    return this.noteIO(() => this.createNoteSync(folder, title, subpath, body))
+    return this.noteMutation(() =>
+      this.createNoteSync(folder, title, subpath, body),
+    )
   }
   private createNoteSync(
     folder: NoteFolder,
@@ -1194,7 +1223,7 @@ export class Vault {
     return this.readNoteSync(id)
   }
   importNote(source: string, folder: NoteFolder = "inbox", subpath = "") {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       this.assertOpen()
       decodeNonEmptyString(source)
       this.assertAbsoluteParents(resolve(source))
@@ -1208,7 +1237,7 @@ export class Vault {
     })
   }
   writeNote(id: string, body: string, expected: ExpectedContent) {
-    return this.noteIO(() => this.writeNoteSync(id, body, expected))
+    return this.noteMutation(() => this.writeNoteSync(id, body, expected))
   }
   private writeNoteSync(id: string, body: string, expected: ExpectedContent) {
     const previous = this.readNoteSync(id)
@@ -1227,7 +1256,7 @@ export class Vault {
     position: "start" | "end",
     expected: ExpectedContent,
   ) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       const previous = this.readNoteSync(id)
       this.guard(Buffer.from(previous.body), expected)
       decodePosition(position)
@@ -1245,7 +1274,7 @@ export class Vault {
     })
   }
   setPinned(id: string, pinned: boolean) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       const note = this.readNoteSync(id)
       const next = this.nextState()
       next.notes[id] = {
@@ -1328,7 +1357,7 @@ export class Vault {
     return this.readNoteSync(target)
   }
   renameNote(id: string, title: string) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       decodeName(title)
 
       return this.relocateNote(id, posix.join(posix.dirname(id), `${title}.md`))
@@ -1336,7 +1365,7 @@ export class Vault {
   }
 
   moveNote(id: string, folder: NoteFolder, subpath = "") {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       this.readNoteSync(id)
       const target = posix.join(this.folderPath(folder, subpath), basename(id))
 
@@ -1345,7 +1374,7 @@ export class Vault {
   }
 
   duplicateNote(id: string) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       const note = this.readNoteSync(id)
 
       const target = this.unique(
@@ -1372,7 +1401,7 @@ export class Vault {
     return this.unique(posix.join(this.areaRoot(folder), relative))
   }
   archiveNote(id: string) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       if (["archive", "trash"].includes(this.readNoteSync(id).folder))
         throw new Error("Only active notes can be archived")
 
@@ -1381,7 +1410,7 @@ export class Vault {
   }
 
   unarchiveNote(id: string) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       if (this.readNoteSync(id).folder !== "archive")
         throw new Error("Note is not archived")
 
@@ -1397,7 +1426,7 @@ export class Vault {
   }
 
   moveToTrash(id: string) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       if (this.readNoteSync(id).folder === "trash")
         throw new Error("Note is already in trash")
 
@@ -1406,7 +1435,7 @@ export class Vault {
   }
 
   restoreFromTrash(id: string) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       if (this.readNoteSync(id).folder !== "trash")
         throw new Error("Note is not in trash")
 
@@ -1422,7 +1451,7 @@ export class Vault {
   }
 
   deleteNote(id: string, confirmation: DeleteConfirmation) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       decodeConfirmation(confirmation)
 
       if (this.readNoteSync(id).folder !== "trash")
@@ -1434,7 +1463,7 @@ export class Vault {
   }
 
   emptyTrash(confirmation: DeleteConfirmation) {
-    return this.noteIO(() => {
+    return this.noteMutation(() => {
       decodeConfirmation(confirmation)
 
       const deleted = this.listNotesSync()
@@ -1460,7 +1489,7 @@ export class Vault {
   }
 
   createFolder(folder: NoteFolder, subpath: string) {
-    return this.folderIO(() => {
+    return this.folderMutation(() => {
       this.assertWritable()
 
       if (!subpath) throw new Error("Folder name is required")
@@ -1564,12 +1593,12 @@ export class Vault {
     return { path: target, folder, subpath: destination }
   }
   renameFolder(folder: NoteFolder, subpath: string, destination: string) {
-    return this.folderIO(() =>
+    return this.folderMutation(() =>
       this.relocateFolder(folder, subpath, destination, false),
     )
   }
   duplicateFolder(folder: NoteFolder, subpath: string) {
-    return this.folderIO(() => {
+    return this.folderMutation(() => {
       const tree = this.folderTree(folder, subpath)
       let target = `${tree.id} copy`
 
@@ -1590,7 +1619,7 @@ export class Vault {
     subpath: string,
     confirmation: DeleteConfirmation,
   ) {
-    return this.folderIO(() => {
+    return this.folderMutation(() => {
       decodeConfirmation(confirmation)
       const tree = this.folderTree(folder, subpath)
 
@@ -1624,6 +1653,13 @@ export class Vault {
     })
   }
 
+  private assetMutation<A>(operation: () => A) {
+    return this.assetIO(() => {
+      if (this.readOnlyPreview) this.assertWritable()
+
+      return operation()
+    })
+  }
   private assetIO<A>(operation: () => A) {
     return Effect.try({
       try: operation,
@@ -1677,7 +1713,9 @@ export class Vault {
     })
   }
   createAsset(name: string, bytes: Uint8Array, targetDir = "assets") {
-    return this.assetIO(() => this.createAssetSync(name, bytes, targetDir))
+    return this.assetMutation(() =>
+      this.createAssetSync(name, bytes, targetDir),
+    )
   }
   private createAssetSync(name: string, bytes: Uint8Array, targetDir: string) {
     this.assertWritable()
@@ -1695,7 +1733,7 @@ export class Vault {
     return this.assetRecord(target)
   }
   importAsset(source: string, targetDir = "assets") {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       decodeNonEmptyString(source)
       this.assertAbsoluteParents(resolve(source))
 
@@ -1707,7 +1745,7 @@ export class Vault {
     })
   }
   writeAsset(id: string, bytes: Uint8Array, expected: ExpectedContent) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       const previous = this.readAssetSync(id)
       this.guard(previous, expected)
       decodeBytes(bytes)
@@ -1737,14 +1775,14 @@ export class Vault {
     return this.assetRecord(target)
   }
   renameAsset(id: string, name: string) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       decodeName(name)
 
       return this.relocateAsset(id, posix.join(posix.dirname(id), name))
     })
   }
   moveAsset(id: string, targetDir: string) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       this.assetPath(id)
       const target = `${targetDir}/${basename(id)}`
 
@@ -1752,7 +1790,7 @@ export class Vault {
     })
   }
   duplicateAsset(id: string) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       const bytes = this.readAssetSync(id)
 
       return this.createAssetSync(
@@ -1763,7 +1801,7 @@ export class Vault {
     })
   }
   deleteAsset(id: string) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       const bytes = this.readAssetSync(id)
 
       const record = decodeDeletedAsset({
@@ -1807,7 +1845,7 @@ export class Vault {
       })
   }
   restoreDeletedAsset(token: string) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       this.assertOpen()
       decodeUuid(token)
       const stored = this.state.deletedAssets[token]
@@ -1827,7 +1865,7 @@ export class Vault {
     })
   }
   purgeDeletedAsset(token: string, confirmation: DeleteConfirmation) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       decodeConfirmation(confirmation)
       decodeUuid(token)
 
@@ -1841,7 +1879,7 @@ export class Vault {
     })
   }
   emptyDeletedAssets(confirmation: DeleteConfirmation) {
-    return this.assetIO(() => {
+    return this.assetMutation(() => {
       decodeConfirmation(confirmation)
 
       const deleted = this.listDeletedAssetsSync().map(function token(entry) {
