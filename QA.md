@@ -1034,13 +1034,15 @@ mark those cases passed until capture works and the evidence is inspected.
 - [ ] **QA-040 — P0 — Recover an uncertain atomic write**
   - **Purpose:** Prevent duplicate writes or lost drafts if a file replacement
     succeeds but directory synchronization reports failure.
-  - **Prerequisites:** A disposable fault-injection filesystem and a verified
-    method to fail directory synchronization after a successful rename. Do not
-    use a user workspace. The setup method and command are not yet known.
+  - **Prerequisites:** Linux x86-64, Python 3, writable isolated `/dev/shm`,
+    readable `/proc`, and permission for parent-child ptrace. The local
+    `docs/artifacts/storage/QA-040/run.py` harness injects one directory-fsync
+    error in its own child after replacement. Never use a user workspace.
   - **Inputs:** An isolated JSON workspace with note `Uncertain` and draft
     `Unsaved Ω`. Inject the failure only for the test-owned workspace write.
   - **Steps:**
-    1. Identify and document a reproducible isolated filesystem fault method.
+    1. From the repository root, inspect and run the isolated harness with
+       `python3 docs/artifacts/storage/QA-040/run.py`.
     2. Save the draft while the fault is active; inspect the visible error,
        workspace bytes, backup and draft state.
     3. Remove the fault, retry or use the provided recovery path, and restart.
@@ -1052,9 +1054,12 @@ mark those cases passed until capture works and the evidence is inspected.
     app state and file hashes under `docs/artifacts/storage/QA-040/`.
   - **Cleanup:** Stop only test-owned processes and remove only isolated fault
     resources and data after evidence review.
-  - **Status:** Blocked. The existing writer can throw after rename, and the
-    required isolated fault mechanism and reconciliation behavior are
-    unverified.
+  - **Status:** Failed. A verified child-only syscall probe reproduced the
+    post-replacement error in both NotesStore and SettingsStore: disk held the
+    new value, memory held the old value, and retry failed the external-change
+    guard. Reopening read the new value. Evidence and replay prerequisites are
+    in `docs/artifacts/storage/QA-040/README.md`. Explicit reconciliation and
+    native draft-recovery checks remain incomplete.
 
 - [ ] **QA-041 — P0 — Duplicate a pending draft without clearing it**
   - **Purpose:** Copy the displayed draft while preserving the original draft as
