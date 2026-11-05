@@ -744,6 +744,40 @@ describe("native Markdown vault", () => {
     ).toThrow(/metadata|external/i)
     expect(readFileSync(join(vault.root, note.path), "utf8")).toBe("old")
   })
+  test("preview initializes metadata without changing existing notes or assets", () => {
+    const directory = root()
+    mkdirSync(join(directory, "inbox"))
+    mkdirSync(join(directory, "assets"))
+    const notePath = join(directory, "inbox/Café.md")
+    const assetPath = join(directory, "assets/image.bin")
+    const bytes = Buffer.from([0, 255, 42])
+    writeFileSync(notePath, "UTF-8 café\n")
+    writeFileSync(assetPath, bytes)
+
+    Effect.runSync(
+      Effect.gen(function* () {
+        const vault = yield* VaultResource
+        const notes = yield* vault.listNotes()
+        const asset = yield* vault.readAsset("assets/image.bin")
+        expect(notes.map((note) => note.body)).toEqual(["UTF-8 café\n"])
+        expect(asset).toEqual(bytes)
+        expect(existsSync(join(directory, ".still-notes/vault.lock"))).toBe(
+          true,
+        )
+      }).pipe(
+        Effect.provide(
+          VaultResource.layer(directory, { readOnlyPreview: true }),
+        ),
+      ),
+    )
+    expect(readFileSync(notePath, "utf8")).toBe("UTF-8 café\n")
+    expect(readFileSync(assetPath)).toEqual(bytes)
+    expect(existsSync(join(directory, ".still-notes/state.json"))).toBe(true)
+    expect(existsSync(join(directory, ".still-notes/vault.lock"))).toBe(false)
+    expect(existsSync(join(directory, "quick"))).toBe(true)
+    expect(existsSync(join(directory, "archive"))).toBe(true)
+    expect(existsSync(join(directory, "trash"))).toBe(true)
+  })
   test("preview refuses pending and malformed journals without recovery or a retained lock", () => {
     const directory = root()
     open(directory).close()
@@ -765,7 +799,7 @@ describe("native Markdown vault", () => {
       const failure = Effect.runSync(
         Effect.provide(
           VaultResource,
-          VaultResource.layer(directory, { preview: true }),
+          VaultResource.layer(directory, { readOnlyPreview: true }),
         ).pipe(
           Effect.match({
             onFailure: (error) => error,
@@ -807,7 +841,7 @@ describe("native Markdown vault", () => {
     writable.close()
     const metadataPath = join(directory, ".still-notes/state.json")
     const metadata = readFileSync(metadataPath)
-    const preview = new Vault(directory, { preview: true })
+    const preview = new Vault(directory, { readOnlyPreview: true })
     vaults.push(preview)
     expect(
       Effect.runSync(preview.listNotes()).map((item) => item.path),
