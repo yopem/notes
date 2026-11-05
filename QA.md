@@ -810,7 +810,7 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Prerequisites:** Shared isolated desktop setup, implemented sorting and no
     second process using the test data. Keep the original settings bytes.
   - **Inputs:** Append one newline to the isolated `settings.json` after the app
-    loads, then choose `name-asc` with the sort control.
+    loads, then choose `name-asc` in Settings.
   - **Steps:**
     1. Record the current sort selection and settings bytes in the test folder.
     2. Append the newline and change the sort preference in the running app.
