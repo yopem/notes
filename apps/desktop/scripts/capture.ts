@@ -30,7 +30,7 @@ function run(command: string, args: string[]) {
 
   if (result.error || result.status !== 0) {
     throw new Error(
-      `${command} failed: ${result.error?.message ?? (result.stderr.trim() || result.stdout.trim())}`,
+      `${command} failed (exit ${result.status ?? "none"}, signal ${result.signal ?? "none"}): ${result.error?.message ?? (result.stderr.trim() || result.stdout.trim() || "no diagnostic")}`,
     )
   }
 
@@ -194,7 +194,7 @@ export async function captureScreenshot(
 
     throw new Error(
       process.platform === "linux"
-        ? "Native screenshot failed. Use Hyprland and grim with foreign-toplevel capture support. Keep only the test Still Notes window open and still. Older compositors need the test window active and visible. No focus change or full-desktop capture was attempted."
+        ? "Native screenshot failed. Use Hyprland and grim with foreign-toplevel capture support. Keep the test window still. Older compositors need the test window active and visible. No focus change or full-desktop capture was attempted."
         : "Native screenshot failed. GPUix requires a test-support build on macOS or Windows.",
       { cause },
     )
