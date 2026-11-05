@@ -1,4 +1,3 @@
-[fmt]
 bracketSpacing = true
 jsxSingleQuote = false
 printWidth = 80
@@ -91,7 +90,6 @@ ignorePatterns = [
 "correctness" = "error"
 
 [lint.rules]
-"bun:test/*" = "off"
 "effect/no-manual-effect-error-tag" = "error"
 "effect/no-manual-tag-comparison" = "error"
 "effect/no-manual-tagged-construction" = "error"
@@ -136,10 +134,7 @@ ignorePatterns = [
 "no-unused-expressions" = "error"
 "no-unused-labels" = "error"
 "no-unused-private-class-members" = "error"
-"no-unused-vars" = [
-  "error",
-  { "argsIgnorePattern" = "^_", "varsIgnorePattern" = "^_" },
-]
+"no-unused-vars" = ["error", { "argsIgnorePattern" = "^_", "varsIgnorePattern" = "^_" }]
 "no-useless-backreference" = "error"
 "no-useless-catch" = "error"
 "no-useless-escape" = "error"
@@ -756,7 +751,6 @@ ignorePatterns = [
 "react-policy/prefer-named-imports" = "error"
 "react-policy/require-export-function" = "error"
 "react-policy/require-lucide-icon-suffix" = "error"
-"react/*" = "error"
 "react/unsupported-syntax" = "error"
 "react/jsx-uses-react" = "off"
 "require-await" = "error"
@@ -807,10 +801,7 @@ ignorePatterns = [
 "typescript/no-inferrable-types" = "error"
 "typescript/no-misused-new" = "error"
 "typescript/no-misused-spread" = "error"
-"typescript/no-misused-promises" = [
-  "error",
-  { "checksVoidReturn" = { "attributes" = false } },
-]
+"typescript/no-misused-promises" = ["error", { "checksVoidReturn" = { "attributes" = false } }]
 "typescript/no-namespace" = "error"
 "typescript/no-non-null-asserted-optional-chain" = "error"
 "typescript/no-redundant-type-constituents" = "error"
