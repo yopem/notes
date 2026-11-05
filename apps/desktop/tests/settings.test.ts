@@ -90,6 +90,24 @@ describe("SettingsStore real file integration", () => {
     expect(calls).toBe(1)
   })
 
+  test("preserves BOM bytes when detecting external settings changes", () => {
+    const root = directory()
+    const store = new SettingsStore(root)
+    const path = join(root, "settings.json")
+    const before = store.getSnapshot()
+    const external = "\uFEFF" + readFileSync(path, "utf8")
+    writeFileSync(path, external)
+    expect(() => Effect.runSync(store.update({ editorFontSize: 22 }))).toThrow(
+      "changed outside this instance",
+    )
+    expect(store.getSnapshot()).toBe(before)
+    expect(readFileSync(path, "utf8")).toBe(external)
+    const reopened = new SettingsStore(root)
+    expect(reopened.getSnapshot().editorFontSize).toBe(16)
+    Effect.runSync(reopened.update({ editorFontSize: 19 }))
+    expect(new SettingsStore(root).getSnapshot().editorFontSize).toBe(19)
+  })
+
   test("rejects invalid values without changing state or file", () => {
     const root = directory()
     const store = new SettingsStore(root)
