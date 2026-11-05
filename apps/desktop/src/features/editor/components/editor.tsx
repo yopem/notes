@@ -5,6 +5,7 @@ import type { Preferences } from "@/features/settings/store"
 import { Button, Label } from "@/components/ui/controls"
 import { Icon } from "@/components/ui/icons"
 import { nativeTheme } from "@/components/ui/theme"
+import { EditorToolbar } from "@/features/editor/components/editor-toolbar"
 
 export type EditorMode = "edit" | "preview" | "split"
 
@@ -66,81 +67,16 @@ export function Editor({
         minHeight: 0,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: 14,
-          borderBottomWidth: 1,
-          borderColor: color.border,
-          gap: 8,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            minWidth: 0,
-          }}
-        >
-          {narrow && (
-            <Button
-              color={color}
-              icon="chevron"
-              label="Back to notes"
-              onClick={onBack}
-            />
-          )}
-          <Icon name="book" color={color.mutedForeground} size={15} />
-          <text
-            style={{
-              color: color.mutedForeground,
-              fontFamily: "Inter",
-              fontSize: 12,
-              lineClamp: 1,
-            }}
-          >
-            {notebookName}
-          </text>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <Button
-            color={color}
-            icon={mode === "preview" ? "edit" : "eye"}
-            testId="preview-toggle"
-            label={mode === "preview" ? "Edit note" : "Preview Markdown"}
-            onClick={() => onMode(mode === "preview" ? "edit" : "preview")}
-          >
-            {narrow ? undefined : mode === "preview" ? "Edit" : "Preview"}
-          </Button>
-          {!narrow && (
-            <Button
-              color={color}
-              label="Split editor and preview"
-              onClick={() => onMode(split ? "edit" : "split")}
-            >
-              {split ? "Single" : "Split"}
-            </Button>
-          )}
-          <Button
-            color={color}
-            icon="menu"
-            label={focusMode ? "Leave focus mode" : "Focus mode"}
-            onClick={onFocusMode}
-          />
-        </div>
-      </div>
+      <EditorToolbar
+        color={color}
+        notebookName={notebookName}
+        mode={mode}
+        onMode={onMode}
+        narrow={narrow}
+        focusMode={focusMode}
+        onFocusMode={onFocusMode}
+        onBack={onBack}
+      />
       {note.trashedAt && (
         <div
           style={{
