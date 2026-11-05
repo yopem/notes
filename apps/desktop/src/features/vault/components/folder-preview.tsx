@@ -51,7 +51,7 @@ export function FolderDisclosure({
   const palette = getFolderStyles(color)
 
   return (
-    <Dialog.Root open onOpenChange={preview.openChange}>
+    <Dialog.Root open={preview.disclosure} onOpenChange={preview.openChange}>
       <Dialog.Portal>
         <Dialog.Backdrop style={styles.backdrop} />
         <Dialog.Popup
@@ -205,8 +205,11 @@ function createFolderStyles(color: Palette) {
   return {
     popup: {
       ...styles.frame,
+      flexGrow: 0,
       width: 560,
       maxWidth: "95%",
+      maxHeight: "90%",
+      overflow: "scroll",
       backgroundColor: color.background,
       borderRadius: 12,
     },
