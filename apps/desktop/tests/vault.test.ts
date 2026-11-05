@@ -526,7 +526,7 @@ describe("native Markdown vault", () => {
       process.execPath,
       [
         "-e",
-        `import { Vault } from ${JSON.stringify(resolve("src/services/vault.ts"))}; new Vault(${JSON.stringify(directory)});`,
+        `import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; new Vault(${JSON.stringify(directory)});`,
       ],
       { cwd: resolve(".") },
     )
@@ -565,7 +565,7 @@ describe("native Markdown vault", () => {
       process.execPath,
       [
         "-e",
-        `import { Vault } from ${JSON.stringify(resolve("src/services/vault.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); vault.createNote("quick", "Crash", "", "committed"); process.kill(process.pid, "SIGKILL");`,
+        `import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); vault.createNote("quick", "Crash", "", "committed"); process.kill(process.pid, "SIGKILL");`,
       ],
       { cwd: resolve(".") },
     )
@@ -585,7 +585,7 @@ describe("native Markdown vault", () => {
       process.execPath,
       [
         "-e",
-        `import { Vault } from ${JSON.stringify(resolve("src/services/vault.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); let note = vault.createNote("inbox", "Interrupted", "", "stable"); process.stdout.write("ready"); for (let revision = 0; revision < 200; revision++) note = vault.writeNote(note.path, "revision:" + revision + "\\n" + "x".repeat(1024 * 1024), { expectedHash: note.hash }); vault.close();`,
+        `import { Vault } from ${JSON.stringify(resolve("src/features/vault/service.ts"))}; const vault = new Vault(${JSON.stringify(directory)}); let note = vault.createNote("inbox", "Interrupted", "", "stable"); process.stdout.write("ready"); for (let revision = 0; revision < 200; revision++) note = vault.writeNote(note.path, "revision:" + revision + "\\n" + "x".repeat(1024 * 1024), { expectedHash: note.hash }); vault.close();`,
       ],
       { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] },
     )

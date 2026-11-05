@@ -257,7 +257,7 @@ describe("durable assistant edit review", () => {
     const entry = join(root, "interrupted.ts")
     writeFileSync(
       entry,
-      `import { AssistantReview } from ${JSON.stringify(resolve("src/services/assistant-review.ts"))};\nimport { writeFileSync } from 'node:fs';\nawait new AssistantReview(${JSON.stringify(root)}).record('note.md', ${JSON.stringify(evidence)}, () => { writeFileSync(${JSON.stringify(path)}, 'interrupted edit'); process.exit(7); });`,
+      `import { AssistantReview } from ${JSON.stringify(resolve("src/features/assistant/review.ts"))};\nimport { writeFileSync } from 'node:fs';\nawait new AssistantReview(${JSON.stringify(root)}).record('note.md', ${JSON.stringify(evidence)}, () => { writeFileSync(${JSON.stringify(path)}, 'interrupted edit'); process.exit(7); });`,
     )
 
     const child = Bun.spawn([process.execPath, entry], {
