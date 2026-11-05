@@ -521,73 +521,71 @@ export class AssistantReview {
     evidence: typeof evidenceSchema.Encoded,
     mutate: Effect.Effect<T, E, R>,
   ) {
-    return Effect.uninterruptible(
-      Effect.gen({ self: this }, function* () {
-        const validated = yield* reviewAttempt("record", () =>
-          decodeEvidence(evidence),
-        )
+    return Effect.gen({ self: this }, function* () {
+      const validated = yield* reviewAttempt("record", () =>
+        decodeEvidence(evidence),
+      )
 
-        return yield* Effect.acquireUseRelease(
-          reviewAttempt("record", () => this.lock(path)),
-          () =>
-            Effect.gen({ self: this }, function* () {
-              const record = yield* reviewAttempt("record", () => {
-                let record = this.load(path)
+      return yield* Effect.acquireUseRelease(
+        reviewAttempt("record", () => this.lock(path)),
+        () =>
+          Effect.gen({ self: this }, function* () {
+            const record = yield* reviewAttempt("record", () => {
+              let record = this.load(path)
 
-                if (record) record = this.recover(record)
-                const before = this.text(path)
+              if (record) record = this.recover(record)
+              const before = this.text(path)
 
-                if (record) {
-                  if (before !== record.expected)
-                    throw new Error(
-                      "Outside change conflicts with assistant edit",
-                    )
-                  record.baseline = content(record, true)
-                  record.proposed = before
-                  record.decisions = {}
-                  Object.assign(record, validated)
-                  record.at = Date.now()
-                  record.revision = randomUUID()
-                } else
-                  record = {
-                    version: 1,
-                    path,
-                    baseline: before,
-                    proposed: before,
-                    expected: before,
-                    revision: randomUUID(),
-                    ...validated,
-                    at: Date.now(),
-                    decisions: {},
-                    versions: [],
-                    capturing: false,
-                    transaction: null,
-                  }
-                keepVersion(record, before)
-                record.capturing = true
-                this.save(record)
+              if (record) {
+                if (before !== record.expected)
+                  throw new Error(
+                    "Outside change conflicts with assistant edit",
+                  )
+                record.baseline = content(record, true)
+                record.proposed = before
+                record.decisions = {}
+                Object.assign(record, validated)
+                record.at = Date.now()
+                record.revision = randomUUID()
+              } else
+                record = {
+                  version: 1,
+                  path,
+                  baseline: before,
+                  proposed: before,
+                  expected: before,
+                  revision: randomUUID(),
+                  ...validated,
+                  at: Date.now(),
+                  decisions: {},
+                  versions: [],
+                  capturing: false,
+                  transaction: null,
+                }
+              keepVersion(record, before)
+              record.capturing = true
+              this.save(record)
 
-                return record
-              })
+              return record
+            })
 
-              return yield* Effect.acquireUseRelease(
-                Effect.succeed(record),
-                () => mutate,
-                (current) =>
-                  reviewAttempt("record", () => {
-                    const after = this.text(path)
-                    keepVersion(current, after)
-                    current.proposed = after
-                    current.expected = after
-                    current.capturing = false
-                    this.save(current)
-                  }),
-              )
-            }),
-          (release) => reviewAttempt("record", release),
-        )
-      }),
-    )
+            return yield* Effect.acquireUseRelease(
+              Effect.succeed(record),
+              () => mutate,
+              (current) =>
+                reviewAttempt("record", () => {
+                  const after = this.text(path)
+                  keepVersion(current, after)
+                  current.proposed = after
+                  current.expected = after
+                  current.capturing = false
+                  this.save(current)
+                }),
+            )
+          }),
+        (release) => reviewAttempt("record", release),
+      )
+    })
   }
   decide(
     path: string,
