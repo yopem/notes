@@ -939,10 +939,12 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
     emptyBounds.y - panelBounds.y <= 180,
     "Empty feedback follows the header",
   )
+
   const steps = [
     "Compact final trash deletion returns to the empty note list",
     "Compact note list fills its pane with empty feedback below the header",
   ]
+
   saveReport("native-regressions-compact.json", dataDirectory, steps)
 
   return steps

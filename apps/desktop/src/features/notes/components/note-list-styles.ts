@@ -86,6 +86,7 @@ export function getNoteListStyles(color: Palette) {
     borderRightWidth: 1,
     borderColor: color.border,
   }
+
   const styles: PaletteStyles = {
     frame,
     compactFrame: {
