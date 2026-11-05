@@ -70,6 +70,7 @@ data.
 | Painted native note selection after wheel navigation         | QA-063                                                                                 |
 | Guard normal menu/keyboard quit                              | QA-064                                                                                 |
 | Fence each asynchronous close attempt                        | QA-065                                                                                 |
+| Atomically freeze native title/body input                    | QA-066                                                                                 |
 
 ## Storage and configuration
 
@@ -1935,3 +1936,45 @@ mark those cases passed until capture works and the evidence is inspected.
     `QA-065-baseline.txt`, `QA-065-repaired-native-tests.txt` and
     `QA-065-accepted-protocol.json` in the evidence directory above. Native live
     close, input, platform and UI acceptance remain pending in QA-061/064.
+
+- [ ] **QA-066 — P0 — Capture and freeze both native note fields**
+  - **Purpose:** Read the native title and body as one current input lease
+    before a destructive handoff. Do not use a painted tree, separate snapshots
+    or a JavaScript draft as proof that native input is complete.
+  - **Prerequisites:** Private native QA setup; an implemented optional owned
+    input command in a rebuilt test host; existing editor bridge tests. Keep the
+    production host/verifier unchanged until consumer integration is ready.
+  - **Inputs:** Title `Capture Ω`; body `A🙂B`; native title/body IDs from
+    `note-title` and `note-body`; current owner, field revisions and one capture
+    token. Include a live marked IME range in either field and stale tokens.
+  - **Steps:**
+    1. Use the existing native builder with a separate owned output. Run the
+       focused native policy/command cases and existing
+       `apps/desktop/tests/native-editor.test.ts` with the project-local Bun.
+    2. Extend the existing private driver to call the real implemented command,
+       then capture both fields in one UI operation. Exact command names and
+       payloads are blocked on implementation and must be recorded before use.
+    3. Attempt keyboard, paste, undo/redo, range and controlled-value mutations
+       while the lease is held. Cancel it and inspect text, selection and undo.
+    4. Repeat with one composing field. Attempt capture, stale finish/retarget
+       and counter exhaustion; inspect both fields before and after refusal.
+    5. Seal a current capture for close and inspect that text stays frozen. Do
+       not call ordinary-close acceptance passed from a lease or queued reply.
+  - **Expected results:** Capture checks both fields before changing either.
+    Composition, missing/wrong fields and stale ownership fail without partial
+    changes. A held lease blocks every mutation path, including changed value
+    props; blocked values must not replay on cancel. Cancel preserves native
+    text, history and selection. Only the current one-shot token can finish;
+    sealed input stays frozen. Owner/capture identities never repeat and errors
+    fail closed. Root replacement, queued event filtering, persistence and close
+    decisions need separate integration; no complete handoff claim is made.
+  - **Evidence:** Save exact API/compiled-host/source hashes, native snapshots,
+    mutation/refusal results, scoped test reports and private screenshots under
+    `docs/artifacts/native-input-fence/`. Real IME/platform checks remain unrun
+    unless observable evidence is available.
+  - **Cleanup:** Cancel only the current owned test lease before normal cleanup.
+    Reap only test-owned children and inspect lock/runtime removal. Keep the
+    user's host, files and processes unchanged.
+  - **Status:** Pending implementation. Native quiescence, pair capture and
+    revision-aware event handling do not exist yet. Current delivered-draft
+    remount and close-owner tests do not establish this guarantee.
