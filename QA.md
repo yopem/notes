@@ -649,3 +649,29 @@ mark those cases passed until capture works and the evidence is inspected.
     isolated test data after inspecting evidence.
   - **Status:** Pending. A source review found that canceled adapter Promises
     can outlive their response and that outstanding work is unbounded.
+
+- [ ] **QA-024 — P0 — Refuse recovery during read-only folder open**
+  - **Purpose:** Ensure a read-only folder preview never replays or rolls back a
+    pending journal and never alters Markdown content.
+  - **Prerequisites:** Shared isolated folder setup; the planned service-owned
+    read-only open mode and folder preview are implemented. The path must not be
+    a user folder or have another active owner.
+  - **Inputs:** From the repository root, use the recorded `VAULT` and run
+    `mkdir -p "$VAULT/.still-notes" "$VAULT/inbox"`, then
+    `printf 'new' > "$VAULT/inbox/A.md"`. Write the following exact JSON to
+    `"$VAULT/.still-notes/transaction.json"`:
+    `{"version":1,"files":[{"path":"inbox/A.md","before":"b2xk","after":"bmV3"}],"directories":[]}`.
+  - **Steps:**
+    1. Record hashes of `A.md` and the pending journal.
+    2. In the test app choose **Open folder**, select `VAULT`, and confirm.
+    3. Inspect the error, both file hashes, and any test-owned lock file.
+  - **Expected results:** Read-only open is refused with recovery guidance.
+    `A.md` remains exactly `new`; the journal bytes remain identical. No lock
+    remains. The existing JSON workspace stays open and unchanged.
+  - **Evidence:** Save sanitized hashes, the error and client-only screenshot in
+    `docs/artifacts/vault-workspace/QA-024/`; inspect the files and screenshot.
+  - **Cleanup:** Close only the test app. Remove only the recorded isolated
+    folder and app data after evidence review.
+  - **Status:** Blocked. Normal vault construction replays pending journals; a
+    service-owned mode must refuse recovery before a read-only preview opens.
+    Client-only screenshot capture is blocked by QA-015.
