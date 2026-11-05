@@ -1620,8 +1620,9 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Prerequisites:** QA-056 private setup and the existing failed-save fixture
     from `apps/desktop/scripts/native-regressions.ts`. Keep Notes and Settings
     resources in the same application runtime. No user app or data may be used.
-  - **Inputs:** Note title `Remount draft Ω`; body `Unsaved before remount 🌿`.
-    Preserve the original saved bytes and current pending draft independently.
+  - **Inputs:** The existing scenario uses title `Remount delivered draft` and
+    body `Delivered draft body Ω`. Preserve the original saved bytes and the
+    failed draft independently.
   - **Steps:**
     1. Create the note and force the existing isolated save failure. Check the
        native field, draft notice and unchanged saved bytes.
@@ -1643,19 +1644,22 @@ mark those cases passed until capture works and the evidence is inspected.
     `docs/artifacts/native-isolation/QA-059/`.
   - **Cleanup:** Restore only fixture permissions/paths and stop owned groups.
     Check the store lock is released. Keep evidence and remove isolated data.
-  - **Status:** Pending native acceptance. Commits c05e6d9 and 6452ab7 retain
-    delivered drafts in a NotesStore-owned external state across root remounts
-    and module evaluation. Scoped zero-warning lint, formatting and desktop
-    typecheck passed; 82 existing store tests passed. The committed native
-    scenario checks original bytes, exact rescue exports before and after a real
-    root replacement, retained fields, and successful retry. Native input not
-    yet delivered to JavaScript, legacy hook-held drafts, incompatible runtime
-    handling and ordinary-close protection remain separate open risks. The
-    private run `app-run-20261105T163000Z-3692557` at 7f0eca1 stopped before the
-    remount scenario: the second real bundled-font registration timed out after
-    two seconds. Fixture typecheck passed 84 files; the error boundary prevented
-    editor mounting, and owned cleanup released the store lock and private
-    runtime. This is startup evidence, not a draft-remount result.
+  - **Status:** Partial native acceptance; the overall P0 case stays pending. At
+    eb6283a, two isolated same-host source runs passed the delivered-draft
+    scenario, including actual React root replacement, one native initialization
+    and one completed two-font batch. The latest inspected run is
+    `app-run-20261105T182710Z-946586`. Native fields and pending status
+    survived; rescue files before and after were exactly 23 UTF-8 bytes with
+    SHA-256 `8143a007e4ae0c603e5563a345d13527a62f43ce68e8d07f8147010ab052e82b`.
+    Retry saved the exact draft and cleared pending state. The private
+    screenshot was inspected through its scaled derivative; the original remains
+    saved. `QA-059/accepted-source-remount.json` records scoped acceptance and
+    the retained export artifacts. Fixture typecheck passed, app and compositor
+    exited successfully, the store lock was released and private runtime was
+    removed. This does not cover native input not yet delivered to JavaScript,
+    legacy hook-held drafts, incompatible live runtime handling, ordinary-close
+    protection, IME, other platforms or screen-reader output. Those checks and
+    expected results remain open; no wider remount safety is claimed.
 
 - [ ] **QA-060 — P1 — Open a read-only folder with an explicit path**
   - **Purpose:** Support keyboard-only folder entry and systems without a usable
@@ -1815,8 +1819,11 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Cleanup:** Stop only owned app/compositor groups, remove their isolated
     data/runtime, and verify the workspace lock is gone. Keep sanitized
     evidence.
-  - **Status:** Pending implementation. The private wide run
-    `app-run-20261105T182727Z-946586` passed settings and reached the original
-    source selection after duplicate recovery, then failed because its retained
-    row had no painted bounds. The fixture must scroll; no application data-loss
-    failure is established by that result.
+  - **Status:** Implementation complete; native acceptance pending. Commit
+    0687819 adds the stable panel ID and a bounded wheel/painted-bounds
+    selection helper. Native scoped zero-warning lint, format and desktop
+    typecheck passed. The prior private wide run
+    `app-run-20261105T182727Z-946586` passed settings and reached source
+    selection after duplicate recovery, then failed because the retained row had
+    no painted bounds. The revised fixture keeps all existing assertions; no
+    application data-loss failure is established by that earlier result.
