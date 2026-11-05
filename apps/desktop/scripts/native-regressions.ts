@@ -14,8 +14,11 @@ const regressionWorkspaceSchema = Schema.Struct({
       id: Schema.String,
       title: Schema.String,
       body: Schema.String,
+      notebookId: Schema.String,
+      pinned: Schema.Boolean,
     }),
   ),
+  selectedNoteId: Schema.NullOr(Schema.String),
 })
 
 async function textIs(app: App, testId: string, expected: string) {
@@ -94,6 +97,42 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   assert((await app.getByTestId("app").bounds()).width >= 1120)
   const steps: string[] = []
   const workspacePath = join(dataDirectory, "workspace.json")
+
+  await app.getByTestId("nav-all").click()
+  await app.getByTestId("new-notebook").click()
+  await app.getByTestId("dialog-input").waitFor()
+  await app.getByTestId("dialog-input").fill("Regression duplicates")
+  await app.getByTestId("dialog-confirm").click()
+  await createNote(app, dataDirectory, "Plan copy", "Existing copy")
+  await createNote(app, dataDirectory, "Plan", "First line Ω")
+  await app.getByTestId("pin-note").click()
+  await app.getByTestId("nav-pinned").click()
+  await app.getByTestId("duplicate-note").press("enter")
+  const duplicated = await savedNoteIs(
+    dataDirectory,
+    "Plan copy 2",
+    "First line Ω",
+  )
+  const source = duplicated.notes.find((note) => note.title === "Plan")
+  const copy = duplicated.notes.find((note) => note.title === "Plan copy 2")
+  assert(source && copy)
+  assert.notEqual(copy.id, source.id)
+  assert.equal(copy.notebookId, source.notebookId)
+  assert.equal(source.pinned, true)
+  assert.equal(copy.pinned, false)
+  assert.equal(duplicated.selectedNoteId, copy.id)
+  await app.getByTestId("note-row").getByText("Plan copy 2").waitFor()
+  await app.getByTestId("note-body").fill("Copy only")
+  const editedCopy = await savedNoteIs(
+    dataDirectory,
+    "Plan copy 2",
+    "Copy only",
+  )
+  assert.equal(
+    editedCopy.notes.find((note) => note.id === source.id)?.body,
+    "First line Ω",
+  )
+  steps.push("Duplicate a pinned note with a title collision in its notebook")
 
   await app.getByTestId("nav-all").click()
   await app.getByTestId("new-notebook").click()
@@ -243,6 +282,20 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
       "Successful selection clears command error, not draft warning",
     )
     assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    const beforeDuplicate = await app.getByTestId("note-body").element()
+    await app.getByTestId("duplicate-note").click()
+    await app
+      .getByText(
+        "Could not duplicate note. Your unsaved edits remain in this window.",
+      )
+      .waitFor()
+    assert.equal(
+      (await app.getByTestId("note-body").element()).id,
+      beforeDuplicate.id,
+    )
+    assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    await app.getByTestId("pending-drafts").waitFor()
+    await textIs(app, "save-status", "Not saved · Retry before closing")
     await app.getByTestId("export").click()
     await app.getByTestId("dialog-input").waitFor()
     await app.getByTestId("dialog-input").fill(exportDirectory)
@@ -283,6 +336,32 @@ export async function verifyRegressions(app: App, dataDirectory: string) {
   } finally {
     writeFileSync(workspacePath, original)
   }
+
+  await app.getByTestId("duplicate-note").click()
+  const copiedDraft = await savedNoteIs(
+    dataDirectory,
+    `${draftTitle} copy`,
+    draftBody,
+  )
+  const originalNote = copiedDraft.notes.find(
+    (note) => note.title === "Regression rescue",
+  )
+  const draftCopy = copiedDraft.notes.find(
+    (note) => note.title === `${draftTitle} copy`,
+  )
+  assert(originalNote && draftCopy)
+  assert.equal(originalNote.body, "Saved rescue body")
+  assert.notEqual(draftCopy.id, originalNote.id)
+  assert.equal(draftCopy.notebookId, originalNote.notebookId)
+  assert.equal(copiedDraft.selectedNoteId, draftCopy.id)
+  await app.getByTestId("pending-drafts").waitFor()
+  await textIs(app, "save-status", "Not saved · Retry before closing")
+  await app.getByTestId("note-row").getByText("Regression rescue").click()
+  await app.getByTestId("pending-drafts").waitFor()
+  await textIs(app, "save-status", "Not saved · Retry before closing")
+  steps.push(
+    "Failed duplicate preserves the pending draft; recovery copies it without saving the original",
+  )
 
   await app.getByTestId("retry-save").click()
   await absent(app, "pending-drafts")
@@ -462,6 +541,18 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
     "Regression compact delete",
     "Final trash note",
   )
+  await app.getByTestId("duplicate-note").press("enter")
+  const compactCopy = await savedNoteIs(
+    dataDirectory,
+    "Regression compact delete copy",
+    "Final trash note",
+  )
+  assert.equal(
+    compactCopy.selectedNoteId,
+    compactCopy.notes.find(
+      (note) => note.title === "Regression compact delete copy",
+    )?.id,
+  )
   await app.getByTestId("trash-note").click()
   await app.getByTestId("new-note").waitFor()
 
@@ -473,6 +564,7 @@ export async function verifyCompactRegression(app: App, dataDirectory: string) {
   await app.getByTestId("nav-trash").click()
   await textIs(app, "note-count", "1 note")
   await app.getByTestId("note-row").click()
+  await absent(app, "duplicate-note")
   await app.getByText("Delete forever").click()
   await app.getByTestId("dialog-confirm").waitFor()
   await app.getByTestId("dialog-confirm").click()
