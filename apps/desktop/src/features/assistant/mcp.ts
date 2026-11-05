@@ -1308,20 +1308,24 @@ export function runMcpStdio(options: McpStdioOptions) {
           })
 
           const execute = Effect.gen(function* () {
-            const { name, args } = yield* Effect.try({
+            const name = yield* Effect.try({
               try: () => {
                 const name = decodeToolName(call.success.name)
 
                 if (!offered.includes(name))
                   throw new Error("Unknown or unavailable tool")
 
-                const args = Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
-                  onExcessProperty: "error",
-                })(call.success.arguments ?? {})
-
-                return { name, args }
+                return name
               },
-              catch: (error) => error,
+              catch: () => "Unknown or unavailable tool",
+            })
+
+            const args = yield* Effect.try({
+              try: () =>
+                Schema.decodeUnknownSync(MCP_TOOL_SCHEMAS[name], {
+                  onExcessProperty: "error",
+                })(call.success.arguments ?? {}),
+              catch: () => "Invalid tool arguments",
             })
 
             yield* Effect.yieldNow
@@ -1336,7 +1340,7 @@ export function runMcpStdio(options: McpStdioOptions) {
                   access,
                 })
               },
-              catch: (error) => error,
+              catch: () => "Tool failed",
             })
 
             const value = yield* readTools.has(name)
@@ -1358,7 +1362,7 @@ export function runMcpStdio(options: McpStdioOptions) {
 
                 return decodeJson(value)
               },
-              catch: (error) => error,
+              catch: () => "Tool failed",
             })
           })
 
@@ -1379,8 +1383,9 @@ export function runMcpStdio(options: McpStdioOptions) {
                           {
                             type: "text",
                             text:
-                              error instanceof Error
-                                ? error.message
+                              error === "Invalid tool arguments" ||
+                              error === "Unknown or unavailable tool"
+                                ? error
                                 : "Tool failed",
                           },
                         ],
@@ -1484,33 +1489,62 @@ export function runMcpStdio(options: McpStdioOptions) {
             )
 
       const consume = Effect.gen(function* () {
+        let oversized = false
+
         yield* input.pipe(
           Stream.mapEffect((chunk) =>
             Effect.gen(function* () {
-              try {
-                buffer += decoder.decode(chunk, { stream: true })
-              } catch {
-                buffer = ""
-                yield* rpcError(null, -32700, "Invalid UTF-8")
+              for (let offset = 0; offset < chunk.length; offset += 64 * 1024) {
+                let decoded: string
 
-                return false
-              }
+                try {
+                  decoded = decoder.decode(
+                    chunk.subarray(offset, offset + 64 * 1024),
+                    {
+                      stream: true,
+                    },
+                  )
+                } catch {
+                  buffer = ""
+                  yield* rpcError(null, -32700, "Invalid UTF-8")
 
-              if (buffer.length > 4 * 1024 * 1024) {
-                yield* rpcError(null, -32600, "Input frame too large")
-                buffer = ""
+                  return false
+                }
 
-                return true
-              }
+                let start = 0
+                let newline = decoded.indexOf("\n")
 
-              let newline = buffer.indexOf("\n")
+                while (newline >= 0) {
+                  const part = decoded.slice(start, newline)
 
-              while (newline >= 0) {
-                const line = buffer.slice(0, newline).replace(/\r$/, "")
-                buffer = buffer.slice(newline + 1)
+                  if (buffer.length + part.length > 4 * 1024 * 1024) {
+                    oversized = true
+                    buffer = ""
+                    yield* rpcError(null, -32600, "Input frame too large")
 
-                if (line.trim()) yield* startLine(line)
-                newline = buffer.indexOf("\n")
+                    return true
+                  }
+
+                  const line = (buffer + part).replace(/\r$/, "")
+
+                  buffer = ""
+
+                  if (line.trim()) yield* startLine(line)
+                  start = newline + 1
+                  newline = decoded.indexOf("\n", start)
+                }
+
+                const remainder = decoded.slice(start)
+
+                if (buffer.length + remainder.length > 4 * 1024 * 1024) {
+                  oversized = true
+                  buffer = ""
+                  yield* rpcError(null, -32600, "Input frame too large")
+
+                  return true
+                }
+
+                buffer += remainder
               }
 
               return false
@@ -1520,11 +1554,13 @@ export function runMcpStdio(options: McpStdioOptions) {
           Stream.runDrain,
         )
 
-        try {
-          buffer += decoder.decode()
-        } catch {
-          buffer = ""
-          yield* rpcError(null, -32700, "Invalid UTF-8")
+        if (!oversized) {
+          try {
+            buffer += decoder.decode()
+          } catch {
+            buffer = ""
+            yield* rpcError(null, -32700, "Invalid UTF-8")
+          }
         }
 
         if (buffer.trim()) yield* startLine(buffer)

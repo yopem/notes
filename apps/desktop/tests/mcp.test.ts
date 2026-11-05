@@ -518,6 +518,7 @@ describe("MCP real stdio child", () => {
   })
   test("tool failures and invalid arguments do not expose private values", async () => {
     const privateValue = "/home/example/private.md token=secret-test"
+
     const input = [
       ...initializeMessages,
       readNote(2),
@@ -527,6 +528,7 @@ describe("MCP real stdio child", () => {
         params: { name: "read_note", arguments: { path: privateValue } },
       },
     ]
+
     const output: string[] = []
     let calls = 0
 
@@ -572,13 +574,15 @@ describe("MCP real stdio child", () => {
 
   test("enforces frame limits independently of chunks and preserves split UTF-8", async () => {
     const encoder = new TextEncoder()
+
     const handshake = encoder.encode(
       initializeMessages
         .map((message) => JSON.stringify({ jsonrpc: "2.0", ...message }))
         .join("\n") + "\n",
     )
-    const frames = [2, 3].map((id) =>
-      encoder.encode(
+
+    function frame(id: number) {
+      return encoder.encode(
         JSON.stringify({
           jsonrpc: "2.0",
           ...readNote(id),
@@ -587,28 +591,38 @@ describe("MCP real stdio child", () => {
             _meta: { padding: "x".repeat(2_200_000), label: "café" },
           },
         }) + "\n",
-      ),
-    )
-    const together = new Uint8Array(frames[0].length + frames[1].length)
-    together.set(frames[0])
-    together.set(frames[1], frames[0].length)
+      )
+    }
+
+    const first = frame(2)
+    const second = frame(3)
+    const together = new Uint8Array(first.length + second.length)
+
+    together.set(first)
+    together.set(second, first.length)
+
     const unicode = encoder.encode("é")
-    const splitAt = frames[0].findIndex(
-      (byte, index) => byte === unicode[0] && frames[0][index + 1] === unicode[1],
+
+    const splitAt = first.findIndex(
+      (byte, index) => byte === unicode[0] && first[index + 1] === unicode[1],
     )
+
     expect(splitAt).toBeGreaterThan(0)
 
     for (const chunks of [
       [together],
-      frames,
-      [frames[0].slice(0, splitAt + 1), frames[0].slice(splitAt + 1), frames[1]],
+      [first, second],
+      [first.slice(0, splitAt + 1), first.slice(splitAt + 1), second],
     ]) {
       const output: string[] = []
       let calls = 0
+
       const input = new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(handshake)
+
           for (const chunk of chunks) controller.enqueue(chunk)
+
           controller.close()
         },
       })
@@ -634,7 +648,11 @@ describe("MCP real stdio child", () => {
       const replies = output.map((line) =>
         Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
       )
-      expect(replies.map((reply) => reply.id).sort()).toEqual([1, 2, 3])
+
+      expect(replies).toHaveLength(3)
+      expect(replies.map((reply) => reply.id)).toContain(1)
+      expect(replies.map((reply) => reply.id)).toContain(2)
+      expect(replies.map((reply) => reply.id)).toContain(3)
       expect(
         replies.filter((reply) => reply.id === 2 || reply.id === 3),
       ).toHaveLength(2)
@@ -645,6 +663,7 @@ describe("MCP real stdio child", () => {
 
   test("closes on an oversized frame without executing it or later frames", async () => {
     const encoder = new TextEncoder()
+
     const oversized = JSON.stringify({
       jsonrpc: "2.0",
       ...readNote(2),
@@ -660,6 +679,7 @@ describe("MCP real stdio child", () => {
     ]) {
       const output: string[] = []
       let calls = 0
+
       const input = new ReadableStream<Uint8Array>({
         start(controller) {
           sendMessages(controller, initializeMessages)
@@ -689,6 +709,7 @@ describe("MCP real stdio child", () => {
       const replies = output.map((line) =>
         Schema.decodeUnknownSync(replySchema)(JSON.parse(line)),
       )
+
       expect(replies.find((reply) => reply.error)?.error).toEqual({
         code: -32600,
         message: "Input frame too large",
