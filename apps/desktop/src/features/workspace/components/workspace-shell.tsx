@@ -170,14 +170,8 @@ export function App({
   )
 
   return (
-    <FolderWorkspace
-      color={color}
-      preview={preview}
-      registerRoot={native.registerRoot}
-      rootStyle={styles.root}
-    >
+    <FolderWorkspace color={color} preview={preview} rootStyle={styles.root}>
       <div
-        ref={native.registerRoot}
         testId="app"
         role="application"
         aria-label="Still Notes workspace"

@@ -7,8 +7,6 @@ import { useLayoutEffect, useRef, useState } from "react"
 import type { EditorMode } from "@/features/editor/components/editor"
 import type { useWorkspaceNavigation } from "@/features/workspace/hooks/use-workspace-navigation"
 
-import { registerFonts } from "@/native/fonts"
-
 const editorModeShortcuts: Record<"4" | "5" | "6", EditorMode> = {
   "4": "edit",
   "5": "split",
@@ -17,7 +15,6 @@ const editorModeShortcuts: Record<"4" | "5" | "6", EditorMode> = {
 
 interface WorkspaceNativeEvents {
   searchRef: RefObject<PublicInstance | null>
-  registerRoot: (instance: PublicInstance | null) => void
   importDrop: NonNullable<Props["onFileDrop"]>
   onKeyDown: (event: KeyEvent) => void
 }
@@ -84,10 +81,6 @@ export function useWorkspaceNativeEvents({
   )
 
   const [handlers] = useState(function createNativeHandlers() {
-    function registerRoot(instance: PublicInstance | null) {
-      if (instance) registerFonts(current.current.renderer)
-    }
-
     function importDrop(
       event: Parameters<NonNullable<Props["onFileDrop"]>>[0],
     ) {
@@ -143,12 +136,11 @@ export function useWorkspaceNativeEvents({
       }
     }
 
-    return { registerRoot, importDrop, onKeyDown }
+    return { importDrop, onKeyDown }
   })
 
   return {
     searchRef,
-    registerRoot: handlers.registerRoot,
     importDrop: handlers.importDrop,
     onKeyDown: handlers.onKeyDown,
   }

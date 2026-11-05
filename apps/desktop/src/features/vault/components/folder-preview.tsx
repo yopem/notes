@@ -322,13 +322,11 @@ export function FolderNote({
 export function FolderWorkspace({
   color,
   preview,
-  registerRoot,
   rootStyle,
   children,
 }: {
   color: Palette
   preview: FolderPreviewState
-  registerRoot: (instance: PublicInstance | null) => void
   rootStyle: StyleDesc
   children: ReactNode
 }) {
@@ -336,7 +334,6 @@ export function FolderWorkspace({
 
   return (
     <div
-      ref={registerRoot}
       testId="app"
       role="application"
       aria-label="Still Notes folder preview"
