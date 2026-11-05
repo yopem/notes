@@ -945,31 +945,39 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Evidence:** Save the sanitized native app tree and client-only screenshots
     under `docs/artifacts/sorting/QA-035/` with the tested revision.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
-  - **Status:** Blocked. The source fix is committed, but the isolated native
-    diagnostic could not reach this scenario: two handshakes timed out, and a
-    third connection failed its bounds query. Evidence:
-    `docs/artifacts/sorting/native-tree-regression.log`. Screenshot capture is
-    also blocked by QA-015.
+  - **Status:** Pending. The former initialization and capture failures no
+    longer block the private Weston setup. The latest private wide run reaches
+    QA-036, but has not reached this later fallback scenario. The source fix
+    remains unaccepted until the complete fixture and evidence pass.
 
 - [ ] **QA-036 — P1 — Re-sort when leaving an edited note**
   - **Purpose:** Keep the list stable during an edit, then apply the chosen
     ordering once the user selects another note.
   - **Prerequisites:** Shared isolated desktop setup and note sorting enabled.
-  - **Inputs:** Create `Note 2` and `Note 10`; choose `name-asc`.
+  - **Inputs:** Use fixture notes `Sort note 2` and `Sort note 10`, each with
+    body `Sort order regression`; choose `name-asc`.
   - **Steps:**
-    1. Select `Note 2` and rename it `Note 20`.
-    2. Confirm the editor stays on `Note 20` while editing.
-    3. Select `Note 10` without changing view, filter, sort or pin state.
+    1. Select `Sort note 2` and rename it `Sort note 20`.
+    2. Confirm the editor stays on `Sort note 20` while editing.
+    3. Select `Sort note 10` without changing view, filter, sort or pin state.
+    4. Wait up to five seconds for two consecutive positive painted-bounds
+       samples in the exact expected order. Keep the editor-identity and saved
+       content assertions. A native click reply alone is not paint completion.
   - **Expected results:** The edited note remains stable during editing. After
-    selecting `Note 10`, the list orders `Note 10` before `Note 20`, and the
-    editor shows `Note 10`. No note content is lost.
+    selecting `Sort note 10`, the list orders `Sort note 10` before
+    `Sort note 20`, and the editor shows `Sort note 10`. No note content is
+    lost.
   - **Evidence:** Save the sanitized app tree and client-only screenshots in
     `docs/artifacts/sorting/QA-036/`, with the tested revision.
   - **Cleanup:** Stop only the test app; remove its isolated data after review.
-  - **Status:** Blocked. The source fix is committed, but the isolated native
-    diagnostic failed before this scenario. Evidence:
-    `docs/artifacts/sorting/native-tree-regression.log`. Screenshot capture is
-    also blocked by QA-015.
+  - **Status:** Pending. Private run `app-run-20261105T192024Z-1685202` at
+    12c3629 reached this scenario and its immediate ordering assertion failed.
+    The subsequent failure tree showed `Sort note 10` at y=381 and
+    `Sort note 20` at y=497, with the editor and saved selection on
+    `Sort note 10`. This does not establish that the application failed to
+    re-sort; paint may follow the native click reply. A bounded observable-paint
+    wait must replace the immediate geometry read, without removing or weakening
+    the ordering or identity requirements.
 
 - [ ] **QA-037 — P1 — Expose selected sort choices accessibly**
   - **Purpose:** Let keyboard and assistive-technology users identify and change
