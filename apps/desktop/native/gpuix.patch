@@ -2156,7 +2156,7 @@ index c5f4fa1212554676217279fa2a3873c26c58a477..e8aa3bb2ea2c27284982e18beb404999
  // types instead of a copy that silently drifts from them.
  pub mod retained_tree;
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b946ab189 100644
+index 8c104a4..16ef253 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -2176,7 +2176,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
  use crate::theme::Theme;
 +#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 +use crate::window_close_command as close_commands;
- 
+
  /// The Window menu items act on the focused window, and the root element is the
  /// only place in GPUIX that has one. `crate::app_menu` owns everything else.
  #[cfg(target_os = "macos")]
@@ -2187,7 +2187,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +) -> gpui::Div {
      use crate::app_menu::{CloseWindow, MinimizeWindow, ZoomWindow};
      use gpui::prelude::*;
- 
+
      root.on_action(|_: &MinimizeWindow, window, _cx| window.minimize_window())
          .on_action(|_: &ZoomWindow, window, _cx| window.zoom_window())
 -        .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
@@ -2197,7 +2197,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +            }
 +        })
  }
- 
+
  #[cfg(not(target_os = "macos"))]
 -fn with_window_menu_actions(root: gpui::Div) -> gpui::Div {
 +fn with_window_menu_actions(
@@ -2206,7 +2206,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +) -> gpui::Div {
      root
  }
- 
+
 +type CloseRequestHandler = std::rc::Rc<dyn Fn() -> bool>;
 +
  /// Parse a CSS font-weight value (string or number) into a GPUI FontWeight.
@@ -2255,7 +2255,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
      GetAutomationBounds {
          response: SyncSender<HashMap<u64, crate::automation::ElementBounds>>,
      },
-@@ -567,6 +601,29 @@ async fn run_ui_commands(
+@@ -567,6 +601,34 @@ async fn run_ui_commands(
              UiCommand::MinimizeWindow => {
                  window.update(cx, |_view, window, _cx| window.minimize_window())
              }
@@ -2267,11 +2267,16 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +                token,
 +                response,
 +            } => {
-+                let reply = match window.update(cx, |_view, window, _cx| {
-+                    execute_owned_close_approval(&owner, token, || {
-+                        window.remove_window();
-+                        Ok(())
-+                    })
++                let reply = match window.update(cx, |view, window, _cx| {
++                    execute_scoped_owned_close_approval(
++                        view.close_owner_scope.as_ref(),
++                        &owner,
++                        token,
++                        || {
++                            window.remove_window();
++                            Ok(())
++                        },
++                    )
 +                }) {
 +                    Ok(reply) => reply,
 +                    Err(_) => {
@@ -2285,7 +2290,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
              UiCommand::ZoomWindow => window.update(cx, |_view, window, _cx| window.zoom_window()),
              UiCommand::ToggleFullscreen => {
                  window.update(cx, |_view, window, _cx| window.toggle_fullscreen())
-@@ -678,11 +735,31 @@ async fn run_ui_commands(
+@@ -678,11 +740,31 @@ async fn run_ui_commands(
                      .send(view.set_encoded_image(id, bytes, window, cx))
                      .ok();
              }),
@@ -2317,7 +2322,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
              UiCommand::GetScrollOffset { id, response } => {
                  let offset = VIRTUAL_LIST_STATES
                      .with(|cell| {
-@@ -733,6 +810,18 @@ async fn run_ui_commands(
+@@ -733,6 +815,18 @@ async fn run_ui_commands(
                          .ok();
                  })
              }
@@ -2336,7 +2341,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
              UiCommand::GetAutomationBounds { response } => {
                  window.update(cx, move |_view, window, cx| {
                      cx.notify();
-@@ -962,6 +1051,9 @@ pub fn is_terminal() -> bool {
+@@ -962,6 +1056,9 @@ pub fn is_terminal() -> bool {
  #[napi]
  pub struct GpuixRenderer {
      event_callback: Mutex<Option<Arc<ThreadsafeFunction<EventPayload>>>>,
@@ -2346,10 +2351,10 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
      tree: Arc<Mutex<RetainedTree>>,
      initialized: Arc<Mutex<bool>>,
      /// Shared with GpuixView so napi methods can read the live selection
-@@ -977,6 +1069,544 @@ pub struct GpuixRenderer {
+@@ -977,6 +1074,620 @@ pub struct GpuixRenderer {
      ui_running: Arc<AtomicBool>,
  }
- 
+
 +#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 +const WINDOW_CLOSE_STARTED: u64 = u64::MAX;
 +
@@ -2383,6 +2388,68 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 +mod close_guard_tests {
 +    use super::*;
++
++    #[test]
++    fn approval_rejects_another_window_with_matching_numeric_ids() {
++        let (owner, token) = queued_owned_request();
++        let (other, other_token) = queued_owned_request();
++        assert_eq!(token.owner, other_token.owner);
++        assert_eq!(token.request_id, other_token.request_id);
++        let other_before = other.lock().unwrap().clone();
++        let removed = AtomicBool::new(false);
++        assert!(
++            execute_scoped_owned_close_approval(Some(&other), &owner, token, || {
++                removed.store(true, Ordering::Release);
++                Ok(())
++            })
++            .is_err()
++        );
++        assert!(!removed.load(Ordering::Acquire));
++        assert_eq!(*other.lock().unwrap(), other_before);
++        let current = owner.lock().unwrap().snapshot().unwrap();
++        assert_eq!(current.phase, crate::window_close::Phase::Armed);
++        assert_eq!(current.pending_request, Some(token.request_id));
++        assert!(owner.lock().unwrap().execute_approval(token).is_err());
++    }
++
++    #[test]
++    fn approval_rejects_a_window_without_its_owner_scope() {
++        let (owner, token) = queued_owned_request();
++        let removed = AtomicBool::new(false);
++        assert!(
++            execute_scoped_owned_close_approval(None, &owner, token, || {
++                removed.store(true, Ordering::Release);
++                Ok(())
++            })
++            .is_err()
++        );
++        assert!(!removed.load(Ordering::Acquire));
++        let current = owner.lock().unwrap().snapshot().unwrap();
++        assert_eq!(current.phase, crate::window_close::Phase::Armed);
++        assert_eq!(current.pending_request, Some(token.request_id));
++    }
++
++    #[test]
++    fn approval_accepts_a_matching_scope_and_keeps_execution_locked() {
++        let (owner, token) = queued_owned_request();
++        let scope = owner.clone();
++        let removed = AtomicBool::new(false);
++        let reply = execute_scoped_owned_close_approval(Some(&scope), &owner, token, || {
++            assert!(owner.try_lock().is_err());
++            removed.store(true, Ordering::Release);
++            Ok(())
++        })
++        .unwrap();
++        assert!(removed.load(Ordering::Acquire));
++        assert_eq!(
++            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["outcome"],
++            "closing"
++        );
++        assert_eq!(
++            owner.lock().unwrap().snapshot().unwrap().phase,
++            crate::window_close::Phase::Closing
++        );
++    }
 +
 +    #[test]
 +    fn old_reply_cannot_cancel_newer_approval() {
@@ -2792,6 +2859,20 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +}
 +
 +#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++fn execute_scoped_owned_close_approval(
++    scope: Option<&Arc<Mutex<crate::window_close::CloseGuardState>>>,
++    owner: &Arc<Mutex<crate::window_close::CloseGuardState>>,
++    token: crate::window_close::ApprovalToken,
++    remove: impl FnOnce() -> std::result::Result<(), String>,
++) -> std::result::Result<String, String> {
++    if !scope.is_some_and(|scope| Arc::ptr_eq(scope, owner)) {
++        revoke_owned_close_approval(owner, token);
++        return Err("The close approval does not belong to this window".into());
++    }
++    execute_owned_close_approval(owner, token, remove)
++}
++
++#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 +fn execute_owned_close_approval(
 +    owner: &Mutex<crate::window_close::CloseGuardState>,
 +    token: crate::window_close::ApprovalToken,
@@ -2891,7 +2972,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
  #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
  #[napi]
  impl GpuixRenderer {
-@@ -1174,7 +1804,10 @@ impl GpuixRenderer {
+@@ -1174,7 +1885,10 @@ impl GpuixRenderer {
      pub fn new(event_callback: Option<ThreadsafeFunction<EventPayload>>) -> Self {
          let _ = env_logger::try_init();
          Self {
@@ -2902,16 +2983,16 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
              tree: Arc::new(Mutex::new(RetainedTree::new())),
              initialized: Arc::new(Mutex::new(false)),
              selection: SharedSelection::default(),
-@@ -1245,6 +1878,8 @@ impl GpuixRenderer {
- 
+@@ -1245,6 +1959,8 @@ impl GpuixRenderer {
+
          let tree = self.tree.clone();
          let callback = self.event_callback_for_view();
 +        let close_guard = self.close_guard.clone();
 +        let close_owner = self.close_owner.clone();
- 
+
          let selection = self.selection.clone();
          let opened_window = Rc::new(RefCell::new(None));
-@@ -1264,7 +1899,14 @@ impl GpuixRenderer {
+@@ -1264,7 +1980,14 @@ impl GpuixRenderer {
              if terminal {
                  crate::custom_elements::input::init_terminal(cx);
              } else {
@@ -2927,14 +3008,19 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
              }
              let bounds = gpui::Bounds::centered(
                  None,
-@@ -1274,9 +1916,18 @@ impl GpuixRenderer {
- 
+@@ -1274,9 +1997,24 @@ impl GpuixRenderer {
+
              match cx.open_window(
                  to_gpui_window_options(&window_options, bounds),
 -                |_window, cx| {
 +                |window, cx| {
-+                    let close_request =
-+                        install_close_guard(window, cx, close_guard, close_owner, callback.clone());
++                    let close_request = install_close_guard(
++                        window,
++                        cx,
++                        close_guard,
++                        close_owner.clone(),
++                        callback.clone(),
++                    );
                      cx.new(|_| {
 -                        GpuixView::new(tree.clone(), callback.clone(), title, selection.clone())
 +                        let mut view = GpuixView::new(
@@ -2944,11 +3030,12 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +                            selection.clone(),
 +                        );
 +                        view.close_request = Some(close_request);
++                        view.close_owner_scope = Some(close_owner);
 +                        view
                      })
                  },
              ) {
-@@ -1377,6 +2028,8 @@ impl GpuixRenderer {
+@@ -1377,6 +2115,8 @@ impl GpuixRenderer {
          let tree = self.tree.clone();
          let selection = self.selection.clone();
          let callback = self.event_callback_for_view();
@@ -2957,7 +3044,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
          let (command_sender, command_receiver) = mpsc::unbounded();
          let (startup_sender, startup_receiver) = sync_channel(1);
          let exit_startup_sender = startup_sender.clone();
-@@ -1434,8 +2087,20 @@ impl GpuixRenderer {
+@@ -1434,8 +2174,21 @@ impl GpuixRenderer {
                              };
                              let window = match cx.open_window(
                                  to_gpui_window_options(&window_options, bounds),
@@ -2968,30 +3055,31 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +                                        window,
 +                                        cx,
 +                                        close_guard,
-+                                        close_owner,
++                                        close_owner.clone(),
 +                                        callback.clone(),
 +                                    );
 +                                    cx.new(|_| {
 +                                        let mut view =
 +                                            GpuixView::new(tree, callback, title, selection);
 +                                        view.close_request = Some(close_request);
++                                        view.close_owner_scope = Some(close_owner);
 +                                        view
 +                                    })
                                  },
                              ) {
                                  Ok(window) => window,
-@@ -1573,7 +2238,6 @@ impl GpuixRenderer {
+@@ -1573,7 +2326,6 @@ impl GpuixRenderer {
          *self.initialized.lock().unwrap()
      }
- 
+
 -
      /// Wake JavaScript after the display link queues a frame. Returns true on macOS,
      /// false on other platforms. Call tick() in the callback; it never blocks.
      /// Wakes coalesce while JavaScript is busy and do not keep the process alive.
-@@ -2132,6 +2796,228 @@ impl GpuixRenderer {
+@@ -2132,6 +2884,233 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
- 
+
 +    fn ensure_close_guard_ready(&self) -> Result<()> {
 +        if !*self
 +            .initialized
@@ -3093,11 +3181,16 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +        };
 +        #[cfg(target_os = "macos")]
 +        {
-+            let reply = match update_window_without_view(|window, _cx| {
-+                execute_owned_close_approval(&self.close_owner, token, || {
-+                    window.remove_window();
-+                    Ok(())
-+                })
++            let reply = match update_window(|view, window, _cx| {
++                execute_scoped_owned_close_approval(
++                    view.close_owner_scope.as_ref(),
++                    &self.close_owner,
++                    token,
++                    || {
++                        window.remove_window();
++                        Ok(())
++                    },
++                )
 +            }) {
 +                Ok(reply) => reply.map_err(Error::from_reason)?,
 +                Err(_) => {
@@ -3215,12 +3308,12 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +    }
 +
      // ── Selection API ────────────────────────────────────────────────
- 
+
      /// The current text selection joined in document order, or null.
-@@ -2467,14 +3353,95 @@ impl GpuixRenderer {
+@@ -2467,14 +3446,95 @@ impl GpuixRenderer {
          Err(Error::from_reason("Unsupported operating system"))
      }
- 
+
 +    #[napi(js_name = "registerFontsAsyncV1", ts_return_type = "Promise<number>")]
 +    pub fn register_fonts_async_v1(&self, data: Vec<Buffer>) -> AsyncTask<FontBatchTask> {
 +        let result = (|| {
@@ -3317,9 +3410,9 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +        )))]
 +        Err(Error::from_reason("Unsupported operating system"))
      }
- 
+
      #[napi]
-@@ -3428,11 +4395,7 @@ impl WebGpuixRenderer {
+@@ -3428,11 +4488,7 @@ impl WebGpuixRenderer {
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
      pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
          notify_web();
@@ -3330,20 +3423,22 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 -        })
 +        update_web_window(|view, _, cx| view.automation_tree(cx).to_string())
      }
- 
+
      #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
-@@ -3652,6 +4615,7 @@ pub(crate) struct GpuixView {
+@@ -3652,6 +4708,9 @@ pub(crate) struct GpuixView {
      pub(crate) window_key_event_id: u64,
      pub(crate) window_selection_change: bool,
      pub(crate) window_selection_event_id: u64,
 +    close_request: Option<CloseRequestHandler>,
++    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++    pub(crate) close_owner_scope: Option<Arc<Mutex<crate::window_close::CloseGuardState>>>,
      /// Last identity delivered through `selectionChange`. Only written once an
      /// event is really queued, so adding the listener later still reports.
      reported_selection: Option<u64>,
-@@ -3820,8 +4784,12 @@ pub(crate) fn emit_key_event(
+@@ -3820,8 +4879,12 @@ pub(crate) fn emit_key_event(
      });
  }
- 
+
 -fn next_keystroke_id() {
 -    KEYSTROKE_ID.with(|id| id.set(id.get() + 1));
 +pub(crate) fn next_keystroke_id() -> f64 {
@@ -3353,9 +3448,9 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +        next as f64
 +    })
  }
- 
+
  fn window_key_events(
-@@ -3869,7 +4837,13 @@ fn window_key_events(
+@@ -3869,7 +4932,13 @@ fn window_key_events(
                      return;
                  }
                  if key_up {
@@ -3370,9 +3465,9 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
                  }
              });
          },
-@@ -3957,6 +4931,34 @@ fn resolve_highlight(
+@@ -3957,6 +5026,34 @@ fn resolve_highlight(
  }
- 
+
  impl GpuixView {
 +    pub(crate) fn automation_tree(&self, cx: &gpui::App) -> serde_json::Value {
 +        self.tree
@@ -3405,15 +3500,17 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
      pub(crate) fn new(
          tree: Arc<Mutex<RetainedTree>>,
          event_callback: Option<EventCallback>,
-@@ -3972,6 +4974,7 @@ impl GpuixView {
+@@ -3972,6 +5069,9 @@ impl GpuixView {
              window_key_event_id: 0,
              window_selection_change: false,
              window_selection_event_id: 0,
 +            close_request: None,
++            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++            close_owner_scope: None,
              reported_selection: None,
              focus_handles: HashMap::new(),
              pending_focus_element: None,
-@@ -4041,10 +5044,8 @@ impl GpuixView {
+@@ -4041,10 +5141,8 @@ impl GpuixView {
          window: &mut gpui::Window,
          cx: &mut gpui::Context<Self>,
      ) -> std::result::Result<(), String> {
@@ -3425,11 +3522,11 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
 +            crate::custom_elements::img::render_image_from_encoded(bytes, cx.svg_renderer())?;
          self.set_live_image(id, image, window, cx)
      }
- 
-@@ -4066,6 +5067,24 @@ impl GpuixView {
+
+@@ -4066,6 +5164,24 @@ impl GpuixView {
          Ok(())
      }
- 
+
 +    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 +    fn register_fonts(
 +        &mut self,
@@ -3451,7 +3548,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
      pub(crate) fn scroll_element_into_view(&self, id: u64) -> bool {
          let Some((scroller_id, child_index)) = self.scroll_target(id) else {
              return false;
-@@ -4314,7 +5333,9 @@ impl GpuixView {
+@@ -4314,7 +5430,9 @@ impl GpuixView {
                  break None;
              };
              if let Some(entry) = self.virtual_lists.get(&parent_id) {
@@ -3462,9 +3559,9 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
              }
              current = parent_id;
          };
-@@ -4764,7 +5785,12 @@ impl VirtualListEntry {
+@@ -4764,7 +5882,12 @@ impl VirtualListEntry {
  }
- 
+
  impl GpuixView {
 -    pub(crate) fn request_focus(&mut self, id: u64, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
 +    pub(crate) fn request_focus(
@@ -3476,7 +3573,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
          self.reveal_virtual_list_ancestor(id);
          if let Some(handle) = self.focus_handles.get(&id) {
              self.pending_focus_element = None;
-@@ -5188,7 +6214,7 @@ impl gpui::Render for GpuixView {
+@@ -5188,7 +6311,7 @@ impl gpui::Render for GpuixView {
              let drag_move_view = cx.weak_entity();
              let drag_end_view = drag_move_view.clone();
              let root = gpui::div().size_full();
@@ -3485,7 +3582,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
                  .child(window_key_events(
                      callback.clone(),
                      self.window_key_down,
-@@ -6731,10 +7757,7 @@ fn report_layout(
+@@ -6731,10 +7854,7 @@ fn report_layout(
      callback: &EventCallback,
      cx: &mut gpui::App,
  ) {
@@ -3497,7 +3594,7 @@ index 8c104a4f650d898e7064f189ac36ef4aef791ab5..9da1e583b2e2d3a25e35a9837de6892b
      {
          let mut reports = reports.borrow_mut();
          let unchanged = reports.sizes.get(&id).is_some_and(|last| {
-@@ -8329,3 +9352,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
+@@ -8329,3 +9449,177 @@ fn check_font(bytes: &[u8]) -> std::result::Result<(), String> {
      }
      Ok(())
  }
