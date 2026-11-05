@@ -426,7 +426,10 @@ export async function verifyRegressions(
     await app.getByTestId("note-title").fill(draftTitle)
     await app.getByTestId("note-body").fill(draftBody)
     await app.getByTestId("pending-drafts").waitFor()
-    const draftWarning = await app.getByTestId("pending-drafts").textContent()
+    assert.match(
+      await app.getByTestId("pending-drafts").textContent(),
+      /Workspace changed outside this instance/,
+    )
     await app.getByTestId("open-folder").click()
     await absent(app, "folder-warning")
     await absent(app, "folder-preview")
@@ -438,6 +441,9 @@ export async function verifyRegressions(
     await textIs(app, "note-title", draftTitle)
     await textIs(app, "note-body", draftBody)
     assert.equal(readFileSync(workspacePath, "utf8"), conflict)
+    await app.getByTestId("retry-save").waitFor()
+    await textIs(app, "save-status", "Not saved · Retry before closing")
+    const draftWarning = await app.getByTestId("pending-drafts").textContent()
     steps.push(
       "Folder entry refuses unsaved JSON drafts without hiding recovery",
     )
