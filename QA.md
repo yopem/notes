@@ -484,8 +484,8 @@ will receive `.still-notes`, standard note folders and an `assets` directory.
 Shared setup for QA-016 and QA-018 through QA-021: use an isolated Linux test
 session and a unique directory under `/tmp`. Before each case, from the
 repository root, create an empty directory with
-`mktemp -d /tmp/still-notes-vault-qa-XXXXXX`, record its path as `VAULT`, then
-run `mkdir -p "$VAULT/inbox"` and
+`VAULT=$(mktemp -d /tmp/still-notes-vault-qa-XXXXXX)`, record its path, then run
+`mkdir -p "$VAULT/inbox"` and
 `printf 'First line\n' > "$VAULT/inbox/Example.md"`. Use the test-only app data
 directory from the shared setup. Keep the user-owned application and its data
 untouched. Client-only screenshots are blocked as recorded in QA-015; do not
@@ -551,8 +551,11 @@ mark those cases passed until capture works and the evidence is inspected.
 
 - [ ] **QA-020 — P0 — Cancel folder selection and failed open**
   - **Purpose:** Prevent a canceled or unsafe folder open from altering data.
-  - **Prerequisites:** Shared folder setup. The picker is available. Create a
-    second isolated test folder with malformed `.still-notes/state.json`.
+  - **Prerequisites:** Shared folder setup. The picker is available. From the
+    repository root run `BAD_VAULT=$(mktemp -d /tmp/still-notes-bad-XXXXXX)`,
+    `mkdir -p "$BAD_VAULT/.still-notes"`, and
+    `printf '{broken' > "$BAD_VAULT/.still-notes/state.json"`. Record
+    `BAD_VAULT`.
   - **Inputs:** Cancel the picker; then select the malformed isolated folder.
   - **Steps:**
     1. Record JSON workspace and malformed metadata bytes.
@@ -571,7 +574,8 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Purpose:** Keep folder navigation and editing accessible at a narrow size.
   - **Prerequisites:** Shared folder setup, isolated app at 700 by 760 pixels,
     and a working client-only screenshot and accessibility tree capture.
-  - **Inputs:** The isolated `Example` note and a keyboard only.
+  - **Inputs:** The isolated `Example` note, text `Keyboard save Ω`, and a
+    keyboard only.
   - **Steps:**
     1. Open the folder, select the note, edit it and save using only the
        keyboard.
