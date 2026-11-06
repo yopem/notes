@@ -82,6 +82,8 @@ data.
 | Bound close-request delivery without stale-ID poisoning      | QA-075                                                                                 |
 | Refuse composed input in quiescent capture replies           | QA-076                                                                                 |
 | Enforce native numeric limits at the editor boundary         | QA-077                                                                                 |
+| Represent absent native title and body fields explicitly     | QA-078                                                                                 |
+| Refuse capture that omits a live protected native field      | QA-079                                                                                 |
 
 ## Storage and configuration
 
@@ -2523,3 +2525,77 @@ JavaScript fencing, or product close safety.
     schema was already safe and stays unchanged. No renderer, native extreme
     viewport, real pair producer, IME, atomic capture or product close was
     tested. Decoded-number checks do not detect lexical JSON rounding.
+
+- [ ] **QA-078 — P0 — Represent absent native fields without fake states**
+  - **Purpose:** Support the actual preview and no-editor screens. Preview does
+    not mount the body input. Some screens mount neither note field. An absent
+    native field must not be represented by invented editor state.
+  - **Prerequisites:** Existing optional input-pair transport and fake-host
+    fixtures in `apps/desktop/tests/native-editor.test.ts`. The transport is not
+    used by the app and has no native producer. This case changes its
+    unpublished field-presence contract, not a required host ABI.
+  - **Inputs:** Owner `1`, context `note-a`, title ID `10`, body ID `11`, and
+    the existing canonical editor-state fixture. Use explicit null for an absent
+    ID and its state. Cover neither, either, and both slots present; missing
+    keys, mismatched ID/state presence, duplicate present IDs, and wrong reply
+    IDs.
+  - **Steps:**
+    1. Define the presence cases before implementation. Read the current typed
+       command exports and use their canonical inputs, not invented envelopes.
+    2. Check capture, inspect, seal, and adopt replies. A state must be present
+       exactly when that slot's ID is present. Required keys stay required even
+       when their value is null.
+    3. Keep owner, context, generation, numeric, composition, and no-retry
+       checks. Malformed successful replies must report unknown completion
+       without a release or second host call. Invalid local inputs must make no
+       host call.
+    4. From the repository root, run
+       `node_modules/.bin/bun test apps/desktop/tests/native-editor.test.ts` and
+       the affected native check, zero-warning lint, and format commands from
+       shared setup.
+  - **Expected results:** The client preserves the difference between an absent
+    native field and a real captured state. It does not create fake text,
+    history, revisions, or selections. Existing two-field requests still work.
+    Decoding a null slot does not prove native absence or safe close.
+  - **Evidence:** `native-input-fence/typed-protocol/absent-fields/`; save
+    baseline and repaired focused results, exact commands, source hashes and
+    call counts.
+  - **Cleanup:** Clear fake-host fixtures. Keep local evidence ignored. No app,
+    native window, or note files are needed for this client-boundary case.
+  - **Status:** Pending. The current client requires both fields. The native
+    producer, actual absence proof, product handoff and close remain separate.
+
+- [ ] **QA-079 — P0 — Refuse an omitted live protected field**
+  - **Purpose:** Caller omission must not hide an unsaved native title or body.
+    Explicit null is a wire value, not proof that a field is absent.
+  - **Prerequisites:** A real native pair producer and the actual owned registry
+    path. Both are needed before this case can run. Use isolated native fixtures
+    and the current window's real owner, not a fabricated payload or fake host.
+  - **Inputs:** Actual owned input and textarea fields with context `note-a`,
+    title `Title Ω`, and body `Body 🙂`. Use their real IDs. Repeat with a
+    pending or removed raw identity prop while applied native identity still
+    exists.
+  - **Steps:**
+    1. Discover the implemented canonical request builder and native producer
+       entrypoint. If either is absent, keep this case pending; do not invent a
+       callable API or use the optional client as proof of a native operation.
+    2. Request capture with the live body omitted, then with both fields
+       omitted. Inspect exact native snapshots, capture state, history, and
+       callbacks.
+    3. Repeat when raw props could cause the field to be misclassified as
+       absent. Check applied native identity as well as tree and registry state.
+    4. Send a complete valid capture. Cancel it through the authenticated path
+       to prove that rejected omissions did not leave a partial or unusable
+       state.
+  - **Expected results:** The producer refuses omitted, unrendered, ambiguous,
+    malformed, or pending protected targets without losing their native text. It
+    never treats a store fallback as captured native content. A successful
+    absent slot requires actual window-scoped field-set proof. Failed or unknown
+    transitions retain recoverable state and veto, not partial release.
+  - **Evidence:** `native-input-fence/absent-field-producer/`; save actual
+    native before/after snapshots, replies, callback counts, scope identity and
+    cleanup.
+  - **Cleanup:** End only isolated fixtures and release their owning scope after
+    evidence inspection. Do not unlock detached old entities to clean up a test.
+  - **Status:** Pending implementation. No native pair producer or product
+    absence proof exists. This is not established by QA-078 client results.
