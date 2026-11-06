@@ -184,7 +184,21 @@ async function main() {
       steps,
     })
     steps.push(...(await verifySettings(app, dataDirectory)))
-    steps.push(...(await verifyRegressions(app, dataDirectory)))
+    steps.push(
+      ...(await verifyRegressions(actualApp, dataDirectory, {
+        async captureNoteScroll(phase) {
+          writeFileSync(
+            join(artifacts, `notes-${phase}.json`),
+            JSON.stringify(await actualApp.call("getTree", {}), null, 2),
+          )
+          await captureScreenshot(
+            actualApp,
+            appPid,
+            join(artifacts, `notes-${phase}.png`),
+          )
+        },
+      })),
+    )
 
     await app.close()
     app = await open(1000, 760)

@@ -23,6 +23,7 @@ const regressionWorkspaceSchema = Schema.Struct({
       body: Schema.String,
       notebookId: Schema.String,
       pinned: Schema.Boolean,
+      trashedAt: Schema.NullOr(Schema.String),
     }),
   ),
   selectedNoteId: Schema.NullOr(Schema.String),
@@ -42,9 +43,10 @@ async function textIs(app: App, testId: string, expected: string) {
   assert.equal(actual, expected, testId)
 }
 
-async function selectNoteRow(app: App, title: string) {
+async function revealNoteRow(app: App, title: string) {
   const panel = app.getByTestId("note-list-panel")
   const target = app.getByTestId("note-row").getByText(title)
+  const panelBounds = await panel.bounds()
   const deadline = Date.now() + 5000
   let resetScroll = false
   let lastWheel = 0
@@ -57,17 +59,20 @@ async function selectNoteRow(app: App, title: string) {
     const match = matches[0]
     assert(match)
 
+    const bounds = match.bounds
     const painted = !!(
-      match.bounds &&
-      match.bounds.width > 0 &&
-      match.bounds.height > 0
+      bounds &&
+      bounds.width > 0 &&
+      bounds.height > 0 &&
+      bounds.x + bounds.width / 2 >= panelBounds.x &&
+      bounds.x + bounds.width / 2 < panelBounds.x + panelBounds.width &&
+      bounds.y + bounds.height / 2 >= panelBounds.y &&
+      bounds.y + bounds.height / 2 < panelBounds.y + panelBounds.height
     )
 
     initiallyPainted ??= painted
 
     if (painted) {
-      await target.click()
-
       return { initiallyPainted, wheelCount }
     }
 
@@ -283,6 +288,7 @@ export async function verifyRegressions(
     chooseFolder?: (path: string) => Promise<void>
     expectEmptyTasks?: boolean
     captureTasks?: (phase: "empty" | "populated" | "recovered") => Promise<void>
+    captureNoteScroll?: (phase: "offscreen" | "revealed") => Promise<void>
   } = {},
 ) {
   assert(
@@ -307,6 +313,18 @@ export async function verifyRegressions(
   }
 
   await app.getByTestId("nav-all").click()
+
+  for (let index = 1; index <= 35; index++) {
+    await createNote(
+      app,
+      dataDirectory,
+      `Wheel fixture ${String(index).padStart(2, "0")}`,
+      "Scrolling fixture without tasks.",
+    )
+  }
+
+  steps.push("35 real notes provide offscreen virtual rows")
+
   await createNote(
     app,
     dataDirectory,
@@ -705,10 +723,46 @@ export async function verifyRegressions(
   await app.getByTestId("pending-drafts").waitFor()
   await textIs(app, "save-status", "Not saved · Retry before closing")
   await app.getByTestId("search").fill("")
-  await app.getByTestId("note-list-panel").wheel(0, 100000)
-  const rowNavigation = await selectNoteRow(app, "Regression rescue")
+
+  const activeNoteCount = copiedDraft.notes.filter(
+    (note) => note.trashedAt === null,
+  ).length
+
+  await textIs(app, "note-count", `${activeNoteCount} notes`)
+
+  const scrollBytes = readFileSync(workspacePath, "utf8")
+  const panel = app.getByTestId("note-list-panel")
+  const rescueRow = app.getByTestId("note-row").getByText("Regression rescue")
+  const offscreenDeadline = Date.now() + 5000
+  let sourceIsPainted = true
+  let preparationWheelCount = 0
+
+  while (Date.now() < offscreenDeadline && sourceIsPainted) {
+    await panel.wheel(0, 100000)
+    preparationWheelCount++
+    await Bun.sleep(100)
+
+    const matches = await rescueRow.all()
+
+    assert.equal(matches.length, 1)
+
+    const bounds = matches[0]?.bounds
+
+    sourceIsPainted = !!(bounds && bounds.width > 0 && bounds.height > 0)
+  }
+
+  assert.equal(sourceIsPainted, false, "Source must start unpainted")
+  await options.captureNoteScroll?.("offscreen")
+
+  const rowNavigation = await revealNoteRow(app, "Regression rescue")
+
+  assert.equal(rowNavigation.initiallyPainted, false)
+  assert(rowNavigation.wheelCount > 0)
+  assert.equal(readFileSync(workspacePath, "utf8"), scrollBytes)
+  await options.captureNoteScroll?.("revealed")
+  await rescueRow.click()
   steps.push(
-    `Regression rescue row: initially painted=${rowNavigation.initiallyPainted}; helper wheel count=${rowNavigation.wheelCount}`,
+    `Regression rescue row: initially painted=${rowNavigation.initiallyPainted}; preparation wheel count=${preparationWheelCount}; helper wheel count=${rowNavigation.wheelCount}; scrolling preserves workspace bytes`,
   )
   await app.getByTestId("pending-drafts").waitFor()
   await textIs(app, "save-status", "Not saved · Retry before closing")
