@@ -279,7 +279,7 @@ index 0000000000000000000000000000000000000000..c370237948b59374d967371da15d3062
 +    }
 +}
 diff --git a/packages/native/src/custom_elements/input.rs b/packages/native/src/custom_elements/input.rs
-index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb249e3613 100644
+index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08d2d69b46 100644
 --- a/packages/native/src/custom_elements/input.rs
 +++ b/packages/native/src/custom_elements/input.rs
 @@ -23,6 +23,7 @@ use gpui::{
@@ -397,7 +397,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
      state: Option<Entity<TextEditorState>>,
  }
 
-@@ -332,16 +406,127 @@ impl TextEditorElement {
+@@ -332,16 +406,139 @@ impl TextEditorElement {
      fn new(multiline: bool) -> Self {
          Self {
              multiline,
@@ -467,6 +467,18 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
 +            return;
 +        }
 +        let acknowledgement = acknowledgement.unwrap();
++        if state.revision >= 9_007_199_254_740_991 {
++            if let Some(revision) = acknowledgement {
++                state.ack_revision = state.ack_revision.max(revision);
++                state.pending_values.clear();
++                self.last_prop_value = Some(self.value.clone());
++                self.last_ack_active = true;
++            } else if self.value == state.content {
++                self.last_prop_value = Some(self.value.clone());
++                self.last_ack_active = false;
++            }
++            return;
++        }
 +        if let Some(revision) = acknowledgement {
 +            state.ack_revision = state.ack_revision.max(revision);
 +            state.pending_values.clear();
@@ -525,7 +537,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
  }
 
  impl CustomElement for TextEditorElement {
-@@ -371,6 +556,9 @@ impl CustomElement for TextEditorElement {
+@@ -371,6 +568,9 @@ impl CustomElement for TextEditorElement {
                  let min_rows = self.min_rows;
                  let max_rows = self.max_rows;
                  let caret_color = self.theme.caret;
@@ -535,7 +547,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
                  let callback = callback.clone();
                  let id = ctx.id;
                  let cursor = value.len();
-@@ -412,14 +600,75 @@ impl CustomElement for TextEditorElement {
+@@ -412,14 +612,76 @@ impl CustomElement for TextEditorElement {
                      blink_task: None,
                      pending_values: VecDeque::new(),
                      undo_stack: VecDeque::new(),
@@ -566,7 +578,8 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
 +                        if !state.focus_handle.is_focused(window) {
 +                            return;
 +                        }
-+                        if state.capture_lease.is_some() {
++                        if state.capture_lease.is_some() || state.revision >= 9_007_199_254_740_991
++                        {
 +                            window.prevent_default();
 +                            cx.stop_propagation();
 +                            return;
@@ -613,7 +626,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
              state.callback = callback;
              state.emits_change = emits_change;
              if state.emits_submit != emits_submit {
-@@ -428,19 +677,8 @@ impl CustomElement for TextEditorElement {
+@@ -428,19 +690,8 @@ impl CustomElement for TextEditorElement {
              }
              state.emits_key_down = emits_key_down;
              state.emits_key_up = emits_key_up;
@@ -634,7 +647,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
 
          let element_id = gpui::SharedString::from(format!("__gpuix_editor_{}", ctx.id));
          let mut editor = div()
-@@ -526,9 +764,25 @@ impl CustomElement for TextEditorElement {
+@@ -526,9 +777,25 @@ impl CustomElement for TextEditorElement {
 
      fn set_prop(&mut self, key: &str, value: serde_json::Value) {
          match key {
@@ -660,7 +673,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
              "minRows" => self.min_rows = value.as_u64().unwrap_or(1) as usize,
              "maxRows" => {
                  self.max_rows = value
-@@ -537,6 +791,8 @@ impl CustomElement for TextEditorElement {
+@@ -537,6 +804,8 @@ impl CustomElement for TextEditorElement {
                      as usize
              }
              "theme" => self.theme = Theme::from_prop(Some(&value)),
@@ -669,7 +682,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
              _ => {}
          }
      }
-@@ -544,8 +800,12 @@ impl CustomElement for TextEditorElement {
+@@ -544,8 +813,12 @@ impl CustomElement for TextEditorElement {
      fn supported_props(&self) -> &'static [&'static str] {
          &[
              "value",
@@ -682,7 +695,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
              "minRows",
              "maxRows",
              "theme",
-@@ -554,10 +814,84 @@ impl CustomElement for TextEditorElement {
+@@ -554,10 +827,84 @@ impl CustomElement for TextEditorElement {
 
      fn supported_events(&self) -> &'static [&'static str] {
          &[
@@ -768,7 +781,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
      fn destroy(&mut self) {
          self.state = None;
      }
-@@ -637,12 +971,40 @@ fn edits_coalesce(
+@@ -637,12 +984,40 @@ fn edits_coalesce(
  }
 
  fn push_undo_snapshot(history: &mut VecDeque<EditSnapshot>, snapshot: EditSnapshot) {
@@ -811,7 +824,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
  struct TextEditorState {
      element_id: u64,
      callback: Option<EventCallback>,
-@@ -680,11 +1042,303 @@ struct TextEditorState {
+@@ -680,11 +1055,315 @@ struct TextEditorState {
      blink_task: Option<Task<()>>,
      pending_values: VecDeque<String>,
      undo_stack: VecDeque<EditSnapshot>,
@@ -934,6 +947,18 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
 +            )
 +        {
 +            return Err("Editor input is captured".into());
++        }
++        if self.revision >= 9_007_199_254_740_991
++            && !matches!(
++                command,
++                EditorCommand::CheckInputCapture
++                    | EditorCommand::AcquireInputCapture { .. }
++                    | EditorCommand::ReleaseInputCapture { .. }
++                    | EditorCommand::GetState
++                    | EditorCommand::GetSnapshot
++            )
++        {
++            return Err("Editor revision exhausted".into());
 +        }
 +        match command {
 +            EditorCommand::CheckInputCapture => {
@@ -1116,7 +1141,12 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
      fn reset_blink(&mut self, cx: &Context<Self>) {
          self.blink_anchor = cx.background_executor().now();
      }
-@@ -734,6 +1388,7 @@ impl TextEditorState {
+@@ -730,10 +1409,11 @@ impl TextEditorState {
+     }
+
+     fn set_external_text(&mut self, value: String, cx: &mut Context<Self>) {
+-        if self.content == value {
++        if self.content == value || self.revision >= 9_007_199_254_740_991 {
              return;
          }
          self.content = value;
@@ -1124,7 +1154,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
          let end = self.content.len();
          self.selected_range = end..end;
          self.selection_reversed = false;
-@@ -749,6 +1404,7 @@ impl TextEditorState {
+@@ -749,6 +1429,7 @@ impl TextEditorState {
      }
 
      fn emit_change(&mut self) {
@@ -1132,7 +1162,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
          if self.emits_change {
              self.pending_values.push_back(self.content.clone());
              while self.pending_values.len() > 32 {
-@@ -756,6 +1412,12 @@ impl TextEditorState {
+@@ -756,6 +1437,12 @@ impl TextEditorState {
              }
              emit_event_full(&self.callback, self.element_id, "change", |payload| {
                  payload.value = Some(self.content.clone());
@@ -1145,138 +1175,138 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
              });
          }
      }
-@@ -807,6 +1469,9 @@ impl TextEditorState {
+@@ -807,6 +1494,9 @@ impl TextEditorState {
      }
 
      fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          let offset = offset.min(self.content.len());
          self.selected_range = offset..offset;
          self.selection_reversed = false;
-@@ -816,6 +1481,9 @@ impl TextEditorState {
+@@ -816,6 +1506,9 @@ impl TextEditorState {
      }
 
      fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          let offset = offset.min(self.content.len());
          if self.selection_reversed {
              self.selected_range.start = offset;
-@@ -888,7 +1556,10 @@ impl TextEditorState {
+@@ -888,7 +1581,10 @@ impl TextEditorState {
      }
 
      fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -902,7 +1573,10 @@ impl TextEditorState {
+@@ -902,7 +1598,10 @@ impl TextEditorState {
      }
 
      fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -966,6 +1640,9 @@ impl TextEditorState {
+@@ -966,6 +1665,9 @@ impl TextEditorState {
      }
 
      fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          self.selected_range = 0..self.content.len();
          self.selection_reversed = false;
          self.reset_blink(cx);
-@@ -1026,7 +1703,10 @@ impl TextEditorState {
+@@ -1026,7 +1728,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1041,7 +1721,10 @@ impl TextEditorState {
+@@ -1041,7 +1746,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1056,7 +1739,10 @@ impl TextEditorState {
+@@ -1056,7 +1764,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1075,7 +1761,10 @@ impl TextEditorState {
+@@ -1075,7 +1786,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1097,7 +1786,10 @@ impl TextEditorState {
+@@ -1097,7 +1811,10 @@ impl TextEditorState {
      }
 
      fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only || self.selected_range.is_empty() {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly || self.selected_range.is_empty() {
              return;
          }
          self.copy(&Copy, window, cx);
-@@ -1105,7 +1797,10 @@ impl TextEditorState {
+@@ -1105,7 +1822,10 @@ impl TextEditorState {
      }
 
      fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
              cx.propagate();
              return;
          }
-@@ -1117,20 +1812,27 @@ impl TextEditorState {
+@@ -1117,20 +1837,27 @@ impl TextEditorState {
      }
 
      fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || self.mode == EditorMode::ReadOnly {
@@ -1292,23 +1322,23 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
 
      fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
-+            return;
-+        }
-+        if self.read_only || self.mode == EditorMode::ReadOnly {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
              return;
          }
 -        if let Some(next) = self.redo_stack.pop() {
++        if self.read_only || self.mode == EditorMode::ReadOnly {
++            return;
++        }
 +        if let Some(next) = self.redo_stack.pop_back() {
              let snapshot = self.snapshot();
              push_undo_snapshot(&mut self.undo_stack, snapshot);
              self.restore(next, cx);
-@@ -1138,12 +1840,18 @@ impl TextEditorState {
+@@ -1138,12 +1865,18 @@ impl TextEditorState {
      }
 
      fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.multiline && !self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.multiline && !self.read_only && self.mode.accepts_text() {
@@ -1317,23 +1347,23 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
      }
 
      fn submit(&mut self, _: &Submit, _: &mut Window, _: &mut Context<Self>) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          self.emit_submit();
      }
 
-@@ -1213,6 +1921,9 @@ impl TextEditorState {
+@@ -1213,6 +1946,9 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          if !self.read_only {
              window.request_text_input();
          }
-@@ -1243,6 +1954,9 @@ impl TextEditorState {
+@@ -1243,6 +1979,9 @@ impl TextEditorState {
      }
 
      fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
@@ -1343,32 +1373,33 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
          self.is_selecting = false;
          self.drag_position = None;
          self.drag_generation = self.drag_generation.wrapping_add(1);
-@@ -1250,6 +1964,9 @@ impl TextEditorState {
+@@ -1250,6 +1989,9 @@ impl TextEditorState {
      }
 
      fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          if self.is_selecting {
              self.drag_position = Some(event.position);
              let position = self.drag_selection_position(event.position);
-@@ -1264,6 +1981,9 @@ impl TextEditorState {
+@@ -1264,6 +2006,9 @@ impl TextEditorState {
      }
 
      fn start_drag_autoscroll(&mut self, cx: &mut Context<Self>) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          self.drag_autoscroll_active = true;
          let generation = self.drag_generation;
          cx.spawn(async move |this, cx| loop {
-@@ -1305,7 +2025,11 @@ impl TextEditorState {
+@@ -1305,7 +2050,12 @@ impl TextEditorState {
      }
 
      fn drag_autoscroll_tick(&mut self, generation: u64, cx: &mut Context<Self>) -> bool {
 -        if !self.multiline || !self.is_selecting || self.drag_generation != generation {
 +        if self.capture_lease.is_some()
++            || self.revision >= 9_007_199_254_740_991
 +            || !self.multiline
 +            || !self.is_selecting
 +            || self.drag_generation != generation
@@ -1376,17 +1407,17 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
              return false;
          }
          let (Some(position), Some(bounds)) = (self.drag_position, self.last_bounds) else {
-@@ -1336,6 +2060,9 @@ impl TextEditorState {
+@@ -1336,6 +2086,9 @@ impl TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          let Some(bounds) = self.last_bounds else {
              return;
          };
-@@ -1410,28 +2137,34 @@ impl TextEditorState {
+@@ -1410,28 +2163,34 @@ impl TextEditorState {
          } else {
              style.color
          };
@@ -1441,17 +1472,17 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
          };
          let wrap_width = self.multiline.then_some(width);
          let lines = window
-@@ -1464,6 +2197,9 @@ impl TextEditorState {
+@@ -1464,6 +2223,9 @@ impl TextEditorState {
      }
 
      fn clamp_scroll(&mut self, viewport_width: f32, viewport_height: f32) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          if self.follow_cursor {
              if let Some(cursor) = self.point_for_index(self.cursor_offset()) {
                  let cursor_top = f32::from(cursor.y);
-@@ -1528,6 +2264,9 @@ impl EntityInputHandler for TextEditorState {
+@@ -1528,6 +2290,9 @@ impl EntityInputHandler for TextEditorState {
      }
 
      fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
@@ -1461,50 +1492,53 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
          self.marked_range = None;
          cx.notify();
      }
-@@ -1539,7 +2278,10 @@ impl EntityInputHandler for TextEditorState {
+@@ -1539,7 +2304,10 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
 +        if self.read_only || !self.mode.accepts_text() {
              return;
          }
          let range = range_utf16
-@@ -1575,7 +2317,10 @@ impl EntityInputHandler for TextEditorState {
+@@ -1575,7 +2343,10 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
 -        if self.read_only {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_990 {
 +            return;
 +        }
 +        if self.read_only || !self.mode.accepts_text() {
              return;
          }
          let range = range_utf16
-@@ -1644,6 +2389,9 @@ impl EntityInputHandler for TextEditorState {
+@@ -1644,6 +2415,9 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
-+        if self.capture_lease.is_some() {
++        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
 +            return;
 +        }
          self.selected_range = self.range_from_utf16(&range_utf16);
          self.selection_reversed = false;
          self.follow_cursor = true;
-@@ -1656,7 +2404,7 @@ impl EntityInputHandler for TextEditorState {
+@@ -1656,7 +2430,10 @@ impl EntityInputHandler for TextEditorState {
      }
 
      fn accepts_text_input(&self, _: &mut Window, _: &mut Context<Self>) -> bool {
 -        !self.read_only
-+        self.capture_lease.is_none() && !self.read_only && self.mode.accepts_text()
++        self.capture_lease.is_none()
++            && self.revision < 9_007_199_254_740_991
++            && !self.read_only
++            && self.mode.accepts_text()
      }
  }
 
-@@ -1726,7 +2474,13 @@ impl gpui::Render for TextEditorState {
+@@ -1726,7 +2503,13 @@ impl gpui::Render for TextEditorState {
              })
              .when(self.emits_key_up, move |editor| {
                  editor.on_key_up(move |event, _window, _cx| {
@@ -1519,7 +1553,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
                  })
              })
              .w_full()
-@@ -1803,6 +2557,7 @@ impl gpui::Element for EditorTextElement {
+@@ -1803,6 +2586,7 @@ impl gpui::Element for EditorTextElement {
          self.input.update(cx, |input, _| {
              input.last_bounds = Some(bounds);
              input.clamp_scroll(f32::from(bounds.size.width), f32::from(bounds.size.height));
@@ -1527,7 +1561,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
          });
          let input = self.input.read(cx);
          let origin = point(
-@@ -1945,6 +2700,1470 @@ impl gpui::IntoElement for EditorTextElement {
+@@ -1945,6 +2729,1627 @@ impl gpui::IntoElement for EditorTextElement {
  mod tests {
      use super::*;
 
@@ -2454,6 +2488,163 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..f3844ff3518ce03a78e516eece27fccb
 +                                .unwrap();
 +                            assert_eq!(state.read(cx).content, "A", "{kind} timing={timing}");
 +                        }
++                        view.custom_registry.destroy_all();
++                        view.tree.lock().unwrap().root_id = None;
++                        cx.notify();
++                        window.refresh();
++                    });
++            })
++            .unwrap();
++            cx.run_until_parked();
++        }
++    }
++
++    #[cfg(feature = "test-support")]
++    #[gpui::test]
++    fn revision_limit_refuses_native_edit(cx: &mut gpui::TestAppContext) {
++        use crate::renderer::GpuixView;
++        use crate::retained_tree::RetainedTree;
++        use std::collections::HashMap;
++        use std::sync::{Arc, Mutex};
++
++        for multiline in [false, true] {
++            let kind = if multiline { "textarea" } else { "input" };
++            let mut tree = RetainedTree::new();
++            let batch = serde_json::json!([
++                ["createElement", 1, "div"],
++                ["setRoot", 1],
++                ["createElement", 2, kind],
++                ["appendChild", 1, 2],
++                ["setCustomProp", 2, "value", "Boundary Ω"]
++            ]);
++            crate::renderer::apply_batch_to_tree(&mut tree, batch.to_string().as_bytes()).unwrap();
++            let tree = Arc::new(Mutex::new(tree));
++            let input =
++                std::rc::Rc::new(std::cell::RefCell::new(TextEditorElement::new(multiline)));
++            let handle = cx.add_window(|_, _| {
++                let mut view = GpuixView::new(
++                    tree.clone(),
++                    None,
++                    "Revision limit".into(),
++                    Default::default(),
++                );
++                view.custom_registry.instances.insert(
++                    2,
++                    super::super::CustomElementEntry {
++                        element_type: kind.into(),
++                        element: Box::new(ReadbackInput(input.clone())),
++                        applied_props: HashMap::new(),
++                    },
++                );
++                view
++            });
++            cx.update_window(handle.into(), |root, window, cx| {
++                root.downcast::<GpuixView>()
++                    .unwrap()
++                    .update(cx, |view, cx| {
++                        let state = input.borrow().state.clone().unwrap();
++                        let received = Arc::new(Mutex::new(Vec::new()));
++                        let callback = received.clone();
++                        input
++                            .borrow_mut()
++                            .set_prop("data-editor-owner", serde_json::json!(1));
++                        input
++                            .borrow_mut()
++                            .set_prop("data-editor-context", serde_json::json!("note-a"));
++                        state.update(cx, |state, cx| {
++                            input.borrow_mut().sync_state_props(state, cx);
++                            state.emits_change = true;
++                            state.callback =
++                                Some(Arc::new(move |event| callback.lock().unwrap().push(event)));
++                            state.revision = 9_007_199_254_740_990;
++                            let len = state.content.len();
++                            state.replace_text_in_range(Some(len..len), "!", window, cx);
++                            assert_eq!(state.revision, 9_007_199_254_740_991);
++                            assert_eq!(
++                                received.lock().unwrap()[0].revision,
++                                Some(9_007_199_254_740_991.0)
++                            );
++                            let before = state
++                                .command(EditorCommand::GetSnapshot, window, cx)
++                                .unwrap();
++                            let len = state.content.len();
++                            state.replace_text_in_range(Some(len..len), "?", window, cx);
++                            assert_eq!(
++                                state
++                                    .command(EditorCommand::GetSnapshot, window, cx)
++                                    .unwrap(),
++                                before,
++                                "{kind}: exhausted native edit changed state"
++                            );
++                            assert_eq!(state.revision, 9_007_199_254_740_991);
++                            assert_eq!(received.lock().unwrap().len(), 1);
++                            let max = 9_007_199_254_740_991;
++                            for command in [
++                                EditorCommand::SetMode {
++                                    mode: EditorMode::Normal,
++                                },
++                                EditorCommand::SetSelection {
++                                    revision: max,
++                                    start: 0,
++                                    end: 1,
++                                    direction: Direction::Forward,
++                                },
++                                EditorCommand::ReplaceRange {
++                                    revision: max,
++                                    start: 0,
++                                    end: 0,
++                                    text: "x".into(),
++                                    selection: None,
++                                },
++                                EditorCommand::Undo { revision: max },
++                                EditorCommand::Redo { revision: max },
++                                EditorCommand::SetViewport {
++                                    top: 1.0,
++                                    left: 1.0,
++                                },
++                            ] {
++                                assert!(state.command(command, window, cx).is_err());
++                                assert_eq!(
++                                    state
++                                        .command(EditorCommand::GetSnapshot, window, cx)
++                                        .unwrap(),
++                                    before
++                                );
++                            }
++                            state.undo(&Undo, window, cx);
++                            state.redo(&Redo, window, cx);
++                            state.backspace(&Backspace, window, cx);
++                            state.delete(&Delete, window, cx);
++                            state.select_all(&SelectAll, window, cx);
++                            state.set_selected_text_range(0..1, window, cx);
++                            state.replace_and_mark_text_in_range(Some(0..0), "x", None, window, cx);
++                            state.set_external_text("changed".into(), cx);
++                            assert_eq!(
++                                state
++                                    .command(EditorCommand::GetSnapshot, window, cx)
++                                    .unwrap(),
++                                before
++                            );
++                            assert_eq!(state.revision, max);
++                            assert_eq!(received.lock().unwrap().len(), 1);
++                            assert!(state
++                                .command(EditorCommand::CheckInputCapture, window, cx)
++                                .is_ok());
++                            assert!(state
++                                .command(
++                                    EditorCommand::AcquireInputCapture { lease: 9 },
++                                    window,
++                                    cx
++                                )
++                                .is_ok());
++                            assert!(state
++                                .command(
++                                    EditorCommand::ReleaseInputCapture { lease: 9 },
++                                    window,
++                                    cx
++                                )
++                                .is_ok());
++                        });
 +                        view.custom_registry.destroy_all();
 +                        view.tree.lock().unwrap().root_id = None;
 +                        cx.notify();
