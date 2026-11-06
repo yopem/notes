@@ -1371,6 +1371,10 @@ describe("optional native input pair protocol", function inputPairProtocol() {
           },
         }
 
+        expect(function invalidResponse() {
+          Schema.decodeUnknownSync(InputPairResponseSchema)(response)
+        }).toThrow()
+
         const error = await failure(native, command)
         expect(error._tag).toBe("InputPairInvalidResponse")
         expect(error.message).toContain("completion is unknown")
