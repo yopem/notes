@@ -213,7 +213,7 @@ data.
 
 ## Desktop and existing domain behavior
 
-- [ ] **QA-007 — P1 — Native source workflow after relocation**
+- [x] **QA-007 — P1 — Native source workflow after relocation**
   - **Purpose:** Confirm the moved entrypoint, components, fonts, controls,
     settings, shortcuts, failed-save recovery and restart behavior.
   - **Prerequisites:** Shared setup, QA-001 and graphical prerequisites;
@@ -232,18 +232,22 @@ data.
     `docs/artifacts/monorepo/QA-007/`; inspect each workflow and image.
   - **Cleanup:** Close only owned test windows and remove owned temporary data
     after evidence inspection. Never terminate another project's process.
-  - **Status:** Partial Linux source acceptance. The relocated actual
-    `bun run start` app passed the original five core groups under frozen
-    2902583 helpers, including notebook creation, Unicode edit/preview,
+  - **Status:** Passed for the scoped private Linux source workflow. The
+    relocated actual `bun run start` app passed the original five core groups
+    under frozen 2902583 helpers: notebook creation, Unicode edit/preview,
     pin/search/trash/restore, dark appearance, Escape/Ctrl-N and real
     import/collision-safe export. Independent evidence is
     `native-isolation/accepted-original-core-source.json`: 97 snapshot hashes,
-    eight harness hashes, five fixture hashes, four inspected screenshots, exact
-    original-note preservation and owned cleanup. The accepted source wide and
-    delivered-draft remount runs cover settings and failed-save rescue.
-    Separate-process restart at the smaller source viewports remains pending;
-    the corresponding portable binary restart is not relabeled as source
-    execution.
+    eight harness hashes, five fixture hashes, four inspected screenshots and
+    exact original-note preservation. Source compact/restart also passed at
+    ea4a57d in `accepted-source-compact-restart.json`: 97 source/asset hashes,
+    eight harness and five fixture hashes, actual native app PIDs 40/119 with
+    normal exits, 1000/700-pixel viewports, exact native title/body and settings
+    restoration, full-width empty Trash feedback, three inspected screenshots
+    and owned cleanup. The source wide/remount runs cover settings and failed
+    save rescue. The restart used owned SIGTERM, not ordinary close. Earlier
+    startup stalls, native input/close safety, picker, IME, accessibility and
+    other platforms remain outside this scoped pass.
 
 - [ ] **QA-008 — P1 — Native build and standalone resources**
   - **Purpose:** Confirm that moving native patch/build scripts and font assets
@@ -2461,7 +2465,7 @@ JavaScript fencing, or product close safety.
     in the evidence directory. Real composition refusal and paired acquisition
     remain part of QA-066 and are not proved by these client-only cases.
 
-- [ ] **QA-077 — P1 — Native editor numeric boundaries**
+- [x] **QA-077 — P1 — Native editor numeric boundaries**
   - **Purpose:** Keep the shared editor state, snapshot and viewport contracts
     within the native numeric limits. Cover `editor/native/editor.ts`, its
     input-pair consumer and `tests/native-editor.test.ts`. Effect
@@ -2498,7 +2502,14 @@ JavaScript fencing, or product close safety.
     call counts, not only command exit codes.
   - **Cleanup:** No application data, window or service is used. Keep reports
     local and ignored. Remove only scratch files created for this case.
-  - **Status:** Pending. The no-window Effect probe confirms the existing
-    natural-number schema accepts zero/the maximum safe integer and rejects the
-    first unsafe integer and a fraction. Native viewport range enforcement and
-    the full focused regression case still need implementation/validation.
+  - **Status:** Passed for the headless client boundary at d99279d with pinned
+    Bun `1.4.4-canary.1+b9f2ec363`. Two baseline assertion failures reproduced
+    excessive pixel acceptance. The fixed explicit test file passed 59 cases and
+    2,368 assertions; desktop native typecheck passed 92 files, and scoped
+    zero-warning lint/format passed. Independent review verified the committed
+    and current hashes of both source files, baseline/final logs, canonical
+    schema reuse and single-call unknown-completion assertions. Evidence:
+    `numeric-limits/independent-accepted-boundary.json`. The existing natural
+    schema was already safe and stays unchanged. No renderer, native extreme
+    viewport, real pair producer, IME, atomic capture or product close was
+    tested. Decoded-number checks do not detect lexical JSON rounding.
