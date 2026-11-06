@@ -279,7 +279,7 @@ index 0000000000000000000000000000000000000000..c370237948b59374d967371da15d3062
 +    }
 +}
 diff --git a/packages/native/src/custom_elements/input.rs b/packages/native/src/custom_elements/input.rs
-index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08d2d69b46 100644
+index 7be2d25..e1582dd 100644
 --- a/packages/native/src/custom_elements/input.rs
 +++ b/packages/native/src/custom_elements/input.rs
 @@ -23,6 +23,7 @@ use gpui::{
@@ -341,7 +341,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
      );
  }
 
-@@ -316,15 +350,55 @@ impl CustomElementFactory for TextareaFactory {
+@@ -316,15 +350,87 @@ impl CustomElementFactory for TextareaFactory {
      }
  }
 
@@ -376,6 +376,38 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
 +    }))
 +}
 +
++pub struct InputCaptureHandle {
++    element_id: u64,
++    identity: EditorIdentity,
++    lease: u64,
++    state: Entity<TextEditorState>,
++}
++
++impl InputCaptureHandle {
++    pub fn element_id(&self) -> u64 {
++        self.element_id
++    }
++
++    fn held_state<'a>(&self, cx: &'a App) -> Result<&'a TextEditorState, String> {
++        let state = self.state.read(cx);
++        if state.element_id != self.element_id
++            || state.capture_lease != Some(self.lease)
++            || state.identity.as_ref() != Ok(&Some(self.identity.clone()))
++        {
++            return Err("Input capture no longer matches".into());
++        }
++        Ok(state)
++    }
++
++    pub fn state(&self, cx: &App) -> Result<serde_json::Value, String> {
++        Ok(self.held_state(cx)?.public_state())
++    }
++
++    pub fn snapshot(&self, cx: &App) -> Result<serde_json::Value, String> {
++        self.held_state(cx)?.public_history_snapshot()
++    }
++}
++
  struct TextEditorElement {
      multiline: bool,
 +    identity_seen: bool,
@@ -397,7 +429,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
      state: Option<Entity<TextEditorState>>,
  }
 
-@@ -332,16 +406,139 @@ impl TextEditorElement {
+@@ -332,16 +438,139 @@ impl TextEditorElement {
      fn new(multiline: bool) -> Self {
          Self {
              multiline,
@@ -537,7 +569,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
  }
 
  impl CustomElement for TextEditorElement {
-@@ -371,6 +568,9 @@ impl CustomElement for TextEditorElement {
+@@ -371,6 +600,9 @@ impl CustomElement for TextEditorElement {
                  let min_rows = self.min_rows;
                  let max_rows = self.max_rows;
                  let caret_color = self.theme.caret;
@@ -547,7 +579,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
                  let callback = callback.clone();
                  let id = ctx.id;
                  let cursor = value.len();
-@@ -412,14 +612,76 @@ impl CustomElement for TextEditorElement {
+@@ -412,14 +644,76 @@ impl CustomElement for TextEditorElement {
                      blink_task: None,
                      pending_values: VecDeque::new(),
                      undo_stack: VecDeque::new(),
@@ -626,7 +658,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              state.callback = callback;
              state.emits_change = emits_change;
              if state.emits_submit != emits_submit {
-@@ -428,19 +690,8 @@ impl CustomElement for TextEditorElement {
+@@ -428,19 +722,8 @@ impl CustomElement for TextEditorElement {
              }
              state.emits_key_down = emits_key_down;
              state.emits_key_up = emits_key_up;
@@ -647,7 +679,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
 
          let element_id = gpui::SharedString::from(format!("__gpuix_editor_{}", ctx.id));
          let mut editor = div()
-@@ -526,9 +777,25 @@ impl CustomElement for TextEditorElement {
+@@ -526,9 +809,25 @@ impl CustomElement for TextEditorElement {
 
      fn set_prop(&mut self, key: &str, value: serde_json::Value) {
          match key {
@@ -673,7 +705,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              "minRows" => self.min_rows = value.as_u64().unwrap_or(1) as usize,
              "maxRows" => {
                  self.max_rows = value
-@@ -537,6 +804,8 @@ impl CustomElement for TextEditorElement {
+@@ -537,6 +836,8 @@ impl CustomElement for TextEditorElement {
                      as usize
              }
              "theme" => self.theme = Theme::from_prop(Some(&value)),
@@ -682,7 +714,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              _ => {}
          }
      }
-@@ -544,8 +813,12 @@ impl CustomElement for TextEditorElement {
+@@ -544,8 +845,12 @@ impl CustomElement for TextEditorElement {
      fn supported_props(&self) -> &'static [&'static str] {
          &[
              "value",
@@ -695,7 +727,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              "minRows",
              "maxRows",
              "theme",
-@@ -554,10 +827,84 @@ impl CustomElement for TextEditorElement {
+@@ -554,10 +859,117 @@ impl CustomElement for TextEditorElement {
 
      fn supported_events(&self) -> &'static [&'static str] {
          &[
@@ -778,10 +810,43 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
 +        })
 +    }
 +
++    fn retain_input_capture(
++        &self,
++        id: u64,
++        owner: u64,
++        context: &str,
++        lease: u64,
++        cx: &App,
++    ) -> Result<InputCaptureHandle, String> {
++        let entity = self.state.clone().ok_or("Editor has not rendered")?;
++        let state = entity.read(cx);
++        let identity = EditorIdentity {
++            owner,
++            context: context.to_owned(),
++        };
++        if lease == 0
++            || state.element_id != id
++            || state.capture_lease != Some(lease)
++            || state.identity.as_ref() != Ok(&Some(identity.clone()))
++        {
++            return Err("Input capture does not match".into());
++        }
++        Ok(InputCaptureHandle {
++            element_id: id,
++            identity,
++            lease,
++            state: entity,
++        })
++    }
++
++    fn is_input_capture_entity(&self, handle: &InputCaptureHandle) -> bool {
++        self.state.as_ref() == Some(&handle.state)
++    }
++
      fn destroy(&mut self) {
          self.state = None;
      }
-@@ -637,12 +984,40 @@ fn edits_coalesce(
+@@ -637,12 +1049,40 @@ fn edits_coalesce(
  }
 
  fn push_undo_snapshot(history: &mut VecDeque<EditSnapshot>, snapshot: EditSnapshot) {
@@ -824,7 +889,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
  struct TextEditorState {
      element_id: u64,
      callback: Option<EventCallback>,
-@@ -680,11 +1055,315 @@ struct TextEditorState {
+@@ -680,11 +1120,317 @@ struct TextEditorState {
      blink_task: Option<Task<()>>,
      pending_values: VecDeque<String>,
      undo_stack: VecDeque<EditSnapshot>,
@@ -930,6 +995,21 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
 +        }
 +    }
 +
++    fn public_history_snapshot(&self) -> Result<serde_json::Value, String> {
++        if self.marked_range.is_some() {
++            return Err("Cannot snapshot an active IME composition".into());
++        }
++        serde_json::to_value(EditorSnapshot {
++            version: 1,
++            current: Self::public_snapshot(&self.snapshot()),
++            undo: self.undo_stack.iter().map(Self::public_snapshot).collect(),
++            redo: self.redo_stack.iter().map(Self::public_snapshot).collect(),
++            scroll_top: self.scroll_top,
++            scroll_left: self.scroll_left,
++        })
++        .map_err(|error| error.to_string())
++    }
++
 +    fn command(
 +        &mut self,
 +        command: EditorCommand,
@@ -994,20 +1074,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
 +                return Ok(self.public_state());
 +            }
 +            EditorCommand::GetState => return Ok(self.public_state()),
-+            EditorCommand::GetSnapshot => {
-+                if self.marked_range.is_some() {
-+                    return Err("Cannot snapshot an active IME composition".into());
-+                }
-+                return serde_json::to_value(EditorSnapshot {
-+                    version: 1,
-+                    current: Self::public_snapshot(&self.snapshot()),
-+                    undo: self.undo_stack.iter().map(Self::public_snapshot).collect(),
-+                    redo: self.redo_stack.iter().map(Self::public_snapshot).collect(),
-+                    scroll_top: self.scroll_top,
-+                    scroll_left: self.scroll_left,
-+                })
-+                .map_err(|error| error.to_string());
-+            }
++            EditorCommand::GetSnapshot => return self.public_history_snapshot(),
 +            EditorCommand::SetMode { mode } => {
 +                if self.marked_range.is_some() && mode != self.mode {
 +                    return Err("Editor owns an active IME composition".into());
@@ -1141,7 +1208,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
      fn reset_blink(&mut self, cx: &Context<Self>) {
          self.blink_anchor = cx.background_executor().now();
      }
-@@ -730,10 +1409,11 @@ impl TextEditorState {
+@@ -730,10 +1476,11 @@ impl TextEditorState {
      }
 
      fn set_external_text(&mut self, value: String, cx: &mut Context<Self>) {
@@ -1154,7 +1221,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          let end = self.content.len();
          self.selected_range = end..end;
          self.selection_reversed = false;
-@@ -749,6 +1429,7 @@ impl TextEditorState {
+@@ -749,6 +1496,7 @@ impl TextEditorState {
      }
 
      fn emit_change(&mut self) {
@@ -1162,7 +1229,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          if self.emits_change {
              self.pending_values.push_back(self.content.clone());
              while self.pending_values.len() > 32 {
-@@ -756,6 +1437,12 @@ impl TextEditorState {
+@@ -756,6 +1504,12 @@ impl TextEditorState {
              }
              emit_event_full(&self.callback, self.element_id, "change", |payload| {
                  payload.value = Some(self.content.clone());
@@ -1175,7 +1242,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              });
          }
      }
-@@ -807,6 +1494,9 @@ impl TextEditorState {
+@@ -807,6 +1561,9 @@ impl TextEditorState {
      }
 
      fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -1185,7 +1252,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          let offset = offset.min(self.content.len());
          self.selected_range = offset..offset;
          self.selection_reversed = false;
-@@ -816,6 +1506,9 @@ impl TextEditorState {
+@@ -816,6 +1573,9 @@ impl TextEditorState {
      }
 
      fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -1195,7 +1262,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          let offset = offset.min(self.content.len());
          if self.selection_reversed {
              self.selected_range.start = offset;
-@@ -888,7 +1581,10 @@ impl TextEditorState {
+@@ -888,7 +1648,10 @@ impl TextEditorState {
      }
 
      fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
@@ -1207,7 +1274,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          if self.selected_range.is_empty() {
-@@ -902,7 +1598,10 @@ impl TextEditorState {
+@@ -902,7 +1665,10 @@ impl TextEditorState {
      }
 
      fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
@@ -1219,7 +1286,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          if self.selected_range.is_empty() {
-@@ -966,6 +1665,9 @@ impl TextEditorState {
+@@ -966,6 +1732,9 @@ impl TextEditorState {
      }
 
      fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
@@ -1229,7 +1296,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          self.selected_range = 0..self.content.len();
          self.selection_reversed = false;
          self.reset_blink(cx);
-@@ -1026,7 +1728,10 @@ impl TextEditorState {
+@@ -1026,7 +1795,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1241,7 +1308,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1041,7 +1746,10 @@ impl TextEditorState {
+@@ -1041,7 +1813,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1253,7 +1320,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1056,7 +1764,10 @@ impl TextEditorState {
+@@ -1056,7 +1831,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1265,7 +1332,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1075,7 +1786,10 @@ impl TextEditorState {
+@@ -1075,7 +1853,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1277,7 +1344,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1097,7 +1811,10 @@ impl TextEditorState {
+@@ -1097,7 +1878,10 @@ impl TextEditorState {
      }
 
      fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
@@ -1289,7 +1356,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          self.copy(&Copy, window, cx);
-@@ -1105,7 +1822,10 @@ impl TextEditorState {
+@@ -1105,7 +1889,10 @@ impl TextEditorState {
      }
 
      fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
@@ -1301,7 +1368,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              cx.propagate();
              return;
          }
-@@ -1117,20 +1837,27 @@ impl TextEditorState {
+@@ -1117,20 +1904,27 @@ impl TextEditorState {
      }
 
      fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
@@ -1323,17 +1390,17 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
      fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.capture_lease.is_some() || self.revision >= 9_007_199_254_740_991 {
++            return;
++        }
++        if self.read_only || self.mode == EditorMode::ReadOnly {
              return;
          }
 -        if let Some(next) = self.redo_stack.pop() {
-+        if self.read_only || self.mode == EditorMode::ReadOnly {
-+            return;
-+        }
 +        if let Some(next) = self.redo_stack.pop_back() {
              let snapshot = self.snapshot();
              push_undo_snapshot(&mut self.undo_stack, snapshot);
              self.restore(next, cx);
-@@ -1138,12 +1865,18 @@ impl TextEditorState {
+@@ -1138,12 +1932,18 @@ impl TextEditorState {
      }
 
      fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
@@ -1353,7 +1420,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          self.emit_submit();
      }
 
-@@ -1213,6 +1946,9 @@ impl TextEditorState {
+@@ -1213,6 +2013,9 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1363,7 +1430,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          if !self.read_only {
              window.request_text_input();
          }
-@@ -1243,6 +1979,9 @@ impl TextEditorState {
+@@ -1243,6 +2046,9 @@ impl TextEditorState {
      }
 
      fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
@@ -1373,7 +1440,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          self.is_selecting = false;
          self.drag_position = None;
          self.drag_generation = self.drag_generation.wrapping_add(1);
-@@ -1250,6 +1989,9 @@ impl TextEditorState {
+@@ -1250,6 +2056,9 @@ impl TextEditorState {
      }
 
      fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
@@ -1383,7 +1450,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          if self.is_selecting {
              self.drag_position = Some(event.position);
              let position = self.drag_selection_position(event.position);
-@@ -1264,6 +2006,9 @@ impl TextEditorState {
+@@ -1264,6 +2073,9 @@ impl TextEditorState {
      }
 
      fn start_drag_autoscroll(&mut self, cx: &mut Context<Self>) {
@@ -1393,7 +1460,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          self.drag_autoscroll_active = true;
          let generation = self.drag_generation;
          cx.spawn(async move |this, cx| loop {
-@@ -1305,7 +2050,12 @@ impl TextEditorState {
+@@ -1305,7 +2117,12 @@ impl TextEditorState {
      }
 
      fn drag_autoscroll_tick(&mut self, generation: u64, cx: &mut Context<Self>) -> bool {
@@ -1407,7 +1474,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return false;
          }
          let (Some(position), Some(bounds)) = (self.drag_position, self.last_bounds) else {
-@@ -1336,6 +2086,9 @@ impl TextEditorState {
+@@ -1336,6 +2153,9 @@ impl TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1417,7 +1484,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          let Some(bounds) = self.last_bounds else {
              return;
          };
-@@ -1410,28 +2163,34 @@ impl TextEditorState {
+@@ -1410,28 +2230,34 @@ impl TextEditorState {
          } else {
              style.color
          };
@@ -1472,7 +1539,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          };
          let wrap_width = self.multiline.then_some(width);
          let lines = window
-@@ -1464,6 +2223,9 @@ impl TextEditorState {
+@@ -1464,6 +2290,9 @@ impl TextEditorState {
      }
 
      fn clamp_scroll(&mut self, viewport_width: f32, viewport_height: f32) {
@@ -1482,7 +1549,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          if self.follow_cursor {
              if let Some(cursor) = self.point_for_index(self.cursor_offset()) {
                  let cursor_top = f32::from(cursor.y);
-@@ -1528,6 +2290,9 @@ impl EntityInputHandler for TextEditorState {
+@@ -1528,6 +2357,9 @@ impl EntityInputHandler for TextEditorState {
      }
 
      fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
@@ -1492,7 +1559,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          self.marked_range = None;
          cx.notify();
      }
-@@ -1539,7 +2304,10 @@ impl EntityInputHandler for TextEditorState {
+@@ -1539,7 +2371,10 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1504,7 +1571,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          let range = range_utf16
-@@ -1575,7 +2343,10 @@ impl EntityInputHandler for TextEditorState {
+@@ -1575,7 +2410,10 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1516,7 +1583,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
              return;
          }
          let range = range_utf16
-@@ -1644,6 +2415,9 @@ impl EntityInputHandler for TextEditorState {
+@@ -1644,6 +2482,9 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1526,7 +1593,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          self.selected_range = self.range_from_utf16(&range_utf16);
          self.selection_reversed = false;
          self.follow_cursor = true;
-@@ -1656,7 +2430,10 @@ impl EntityInputHandler for TextEditorState {
+@@ -1656,7 +2497,10 @@ impl EntityInputHandler for TextEditorState {
      }
 
      fn accepts_text_input(&self, _: &mut Window, _: &mut Context<Self>) -> bool {
@@ -1538,7 +1605,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
      }
  }
 
-@@ -1726,7 +2503,13 @@ impl gpui::Render for TextEditorState {
+@@ -1726,7 +2570,13 @@ impl gpui::Render for TextEditorState {
              })
              .when(self.emits_key_up, move |editor| {
                  editor.on_key_up(move |event, _window, _cx| {
@@ -1553,7 +1620,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
                  })
              })
              .w_full()
-@@ -1803,6 +2586,7 @@ impl gpui::Element for EditorTextElement {
+@@ -1803,6 +2653,7 @@ impl gpui::Element for EditorTextElement {
          self.input.update(cx, |input, _| {
              input.last_bounds = Some(bounds);
              input.clamp_scroll(f32::from(bounds.size.width), f32::from(bounds.size.height));
@@ -1561,7 +1628,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          });
          let input = self.input.read(cx);
          let origin = point(
-@@ -1945,6 +2729,1627 @@ impl gpui::IntoElement for EditorTextElement {
+@@ -1945,6 +2796,1874 @@ impl gpui::IntoElement for EditorTextElement {
  mod tests {
      use super::*;
 
@@ -2011,6 +2078,236 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
 +                        view.tree.lock().unwrap().root_id = None;
 +                        cx.notify();
 +                        window.refresh();
++                    });
++            })
++            .unwrap();
++            cx.run_until_parked();
++        }
++    }
++
++    #[cfg(feature = "test-support")]
++    #[gpui::test]
++    fn retained_capture_preserves_exact_held_entity(cx: &mut gpui::TestAppContext) {
++        use crate::renderer::GpuixView;
++        use crate::retained_tree::RetainedTree;
++        use std::cell::RefCell;
++        use std::collections::{HashMap, HashSet};
++        use std::rc::Rc;
++        use std::sync::{Arc, Mutex};
++
++        for multiline in [false, true] {
++            let kind = if multiline { "textarea" } else { "input" };
++            let mut tree = RetainedTree::new();
++            let batch = serde_json::json!([
++                ["createElement", 1, "div"],
++                ["setRoot", 1],
++                ["createElement", 1101, kind],
++                ["appendChild", 1, 1101],
++                ["setCustomProp", 1101, "value", "Retained Ω"],
++                ["setCustomProp", 1101, "data-editor-owner", 1],
++                ["setCustomProp", 1101, "data-editor-context", "note-a"]
++            ]);
++            crate::renderer::apply_batch_to_tree(&mut tree, batch.to_string().as_bytes()).unwrap();
++            let tree = Arc::new(Mutex::new(tree));
++            let old = Rc::new(RefCell::new(TextEditorElement::new(multiline)));
++            let replacement = Rc::new(RefCell::new(TextEditorElement::new(multiline)));
++            let retained = Rc::new(RefCell::new(None));
++            let frame = Rc::new(RefCell::new(None));
++            let received = Arc::new(Mutex::new(Vec::new()));
++            let window_handle = cx.add_window(|_, _| {
++                let mut view = GpuixView::new(
++                    tree.clone(),
++                    None,
++                    "Retained input".into(),
++                    Default::default(),
++                );
++                view.custom_registry.instances.insert(
++                    1101,
++                    super::super::CustomElementEntry {
++                        element_type: kind.into(),
++                        element: Box::new(ReadbackInput(old.clone())),
++                        applied_props: HashMap::new(),
++                    },
++                );
++                view
++            });
++            cx.update_window(window_handle.into(), |root, window, cx| {
++                root.downcast::<GpuixView>()
++                    .unwrap()
++                    .update(cx, |view, cx| {
++                        let entity = old.borrow().state.clone().unwrap();
++                        let callback = received.clone();
++                        entity.update(cx, |state, cx| {
++                            state.emits_change = true;
++                            state.callback =
++                                Some(Arc::new(move |event| callback.lock().unwrap().push(event)));
++                            state.replace_text_in_range(Some(0..0), "X", window, cx);
++                        });
++                        let props = HashMap::from([
++                            ("value".to_string(), serde_json::json!("XRetained Ω")),
++                            ("data-editor-owner".to_string(), serde_json::json!(1)),
++                            (
++                                "data-editor-context".to_string(),
++                                serde_json::json!("note-a"),
++                            ),
++                        ]);
++                        let events = HashSet::new();
++                        assert!(TextEditorElement::new(multiline)
++                            .retain_input_capture(1101, 1, "note-a", 1, cx)
++                            .is_err());
++                        view.custom_registry.get_or_create(2000, "img").unwrap();
++                        assert!(view
++                            .custom_registry
++                            .retain_input_capture(2000, 1, "note-a", 1, cx)
++                            .is_err());
++                        view.custom_registry.destroy(2000);
++                        assert!(view
++                            .custom_registry
++                            .retain_input_capture(1101, 1, "note-a", 1, cx)
++                            .is_err());
++                        view.custom_registry
++                            .editor_command(
++                                1101,
++                                EditorCommand::AcquireInputCapture { lease: 1 },
++                                &props,
++                                &events,
++                                window,
++                                cx,
++                            )
++                            .unwrap();
++                        for (owner, context, lease) in [
++                            (1, "note-a", 0),
++                            (2, "note-a", 1),
++                            (1, "note-b", 1),
++                            (1, "note-a", 2),
++                        ] {
++                            assert!(view
++                                .custom_registry
++                                .retain_input_capture(1101, owner, context, lease, cx)
++                                .is_err());
++                        }
++                        assert!(view
++                            .custom_registry
++                            .retain_input_capture(9999, 1, "note-a", 1, cx)
++                            .is_err());
++                        let capture = view
++                            .custom_registry
++                            .retain_input_capture(1101, 1, "note-a", 1, cx)
++                            .unwrap();
++                        assert!(view.custom_registry.is_input_capture_target(&capture));
++                        assert!(view.custom_registry.contains_input_capture(&capture));
++                        view.custom_registry.instances.insert(
++                            99,
++                            super::super::CustomElementEntry {
++                                element_type: kind.into(),
++                                element: Box::new(ReadbackInput(old.clone())),
++                                applied_props: HashMap::new(),
++                            },
++                        );
++                        let original = view.custom_registry.instances.remove(&1101).unwrap();
++                        assert!(!view.custom_registry.is_input_capture_target(&capture));
++                        assert!(view.custom_registry.contains_input_capture(&capture));
++                        view.custom_registry.instances.remove(&99);
++                        view.custom_registry.instances.insert(1101, original);
++                        assert_eq!(capture.state(cx).unwrap()["text"], "XRetained Ω");
++                        assert!(!capture.snapshot(cx).unwrap()["undo"]
++                            .as_array()
++                            .unwrap()
++                            .is_empty());
++                        *frame.borrow_mut() = Some(entity);
++                        *retained.borrow_mut() = Some(capture);
++                        view.custom_registry.destroy(1101);
++                        assert!(!view
++                            .custom_registry
++                            .contains_input_capture(retained.borrow().as_ref().unwrap()));
++                        view.custom_registry.instances.insert(
++                            1101,
++                            super::super::CustomElementEntry {
++                                element_type: kind.into(),
++                                element: Box::new(ReadbackInput(replacement.clone())),
++                                applied_props: HashMap::new(),
++                            },
++                        );
++                        window.refresh();
++                    });
++            })
++            .unwrap();
++            cx.run_until_parked();
++            cx.update_window(window_handle.into(), |root, window, cx| {
++                root.downcast::<GpuixView>()
++                    .unwrap()
++                    .update(cx, |view, cx| {
++                        let new_entity = replacement.borrow().state.clone().unwrap();
++                        let old_entity = frame.borrow_mut().take().unwrap();
++                        assert_ne!(old_entity.entity_id(), new_entity.entity_id());
++                        let capture = retained.borrow_mut().take().unwrap();
++                        assert!(!view.custom_registry.is_input_capture_target(&capture));
++                        assert!(!view.custom_registry.contains_input_capture(&capture));
++                        assert_eq!(capture.state(cx).unwrap()["text"], "XRetained Ω");
++                        assert!(!capture.snapshot(cx).unwrap()["undo"]
++                            .as_array()
++                            .unwrap()
++                            .is_empty());
++                        let props = HashMap::from([
++                            ("value".to_string(), serde_json::json!("New field")),
++                            ("data-editor-owner".to_string(), serde_json::json!(1)),
++                            (
++                                "data-editor-context".to_string(),
++                                serde_json::json!("note-a"),
++                            ),
++                        ]);
++                        view.custom_registry
++                            .editor_command(
++                                1101,
++                                EditorCommand::GetState,
++                                &props,
++                                &HashSet::new(),
++                                window,
++                                cx,
++                            )
++                            .unwrap();
++                        view.custom_registry
++                            .editor_command(
++                                1101,
++                                EditorCommand::AcquireInputCapture { lease: 2 },
++                                &props,
++                                &HashSet::new(),
++                                window,
++                                cx,
++                            )
++                            .unwrap();
++                        assert!(view
++                            .custom_registry
++                            .retain_input_capture(1101, 1, "note-a", 1, cx)
++                            .is_err());
++                        let new_before = new_entity.read(cx).public_state();
++                        assert_eq!(new_before["text"], "New field");
++                        received.lock().unwrap().clear();
++                        drop(capture);
++                        old_entity.update(cx, |state, cx| {
++                            state.replace_text_in_range(Some(0..0), "bad", window, cx)
++                        });
++                        assert_eq!(old_entity.read(cx).public_state()["text"], "XRetained Ω");
++                        assert!(received.lock().unwrap().is_empty());
++                        assert_eq!(new_entity.read(cx).public_state(), new_before);
++                        let new_capture = view
++                            .custom_registry
++                            .retain_input_capture(1101, 1, "note-a", 2, cx)
++                            .unwrap();
++                        view.custom_registry
++                            .editor_command(
++                                1101,
++                                EditorCommand::ReleaseInputCapture { lease: 2 },
++                                &props,
++                                &HashSet::new(),
++                                window,
++                                cx,
++                            )
++                            .unwrap();
++                        assert!(new_capture.state(cx).is_err());
++                        assert!(new_capture.snapshot(cx).is_err());
++                        view.custom_registry.destroy(1101);
++                        window.remove_window();
 +                    });
 +            })
 +            .unwrap();
@@ -2994,6 +3291,23 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
 +                .editor_command(command, events, window, cx)
 +        }
 +
++        fn retain_input_capture(
++            &self,
++            id: u64,
++            owner: u64,
++            context: &str,
++            lease: u64,
++            cx: &App,
++        ) -> Result<InputCaptureHandle, String> {
++            self.0
++                .borrow()
++                .retain_input_capture(id, owner, context, lease, cx)
++        }
++
++        fn is_input_capture_entity(&self, handle: &InputCaptureHandle) -> bool {
++            self.0.borrow().is_input_capture_entity(handle)
++        }
++
 +        fn destroy(&mut self) {
 +            self.0.borrow_mut().destroy();
 +        }
@@ -3190,7 +3504,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..ec4bf50e413b76c1f05bdea0455e4d08
          let keystroke = gpui::Keystroke::parse(keystroke).unwrap();
          bindings.iter().any(|binding| {
 diff --git a/packages/native/src/custom_elements/mod.rs b/packages/native/src/custom_elements/mod.rs
-index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a3077e3a43c7 100644
+index 158269f..0c65f93 100644
 --- a/packages/native/src/custom_elements/mod.rs
 +++ b/packages/native/src/custom_elements/mod.rs
 @@ -16,6 +16,7 @@ use crate::renderer::EventCallback;
@@ -3201,10 +3515,10 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a307
  pub mod img;
  pub mod input;
  pub mod markdown;
-@@ -227,6 +228,20 @@ pub trait CustomElement: 'static {
+@@ -227,6 +228,35 @@ pub trait CustomElement: 'static {
      /// Clean up resources (GPUI entities, subscriptions, etc.)
      fn destroy(&mut self);
- 
+
 +    fn automation_text(&self, _cx: &gpui::App) -> Option<String> {
 +        None
 +    }
@@ -3219,13 +3533,28 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a307
 +        Err("Element is not a mounted text editor".into())
 +    }
 +
++    fn retain_input_capture(
++        &self,
++        _id: u64,
++        _owner: u64,
++        _context: &str,
++        _lease: u64,
++        _cx: &gpui::App,
++    ) -> Result<input::InputCaptureHandle, String> {
++        Err("Element is not a mounted text editor".into())
++    }
++
++    fn is_input_capture_entity(&self, _handle: &input::InputCaptureHandle) -> bool {
++        false
++    }
++
      /// Current live GPU image on `<img>`, if any.
      fn live_image(&self) -> Option<std::sync::Arc<gpui::RenderImage>> {
          None
-@@ -387,6 +402,27 @@ impl CustomElementRegistry {
+@@ -387,6 +417,59 @@ impl CustomElementRegistry {
          entry.element.render(ctx, window, cx)
      }
- 
+
 +    pub fn automation_text(&self, id: u64, cx: &gpui::App) -> Option<String> {
 +        self.instances.get(&id)?.element.automation_text(cx)
 +    }
@@ -3245,6 +3574,38 @@ index 158269f17cdbc8462f84f05ad4b80645aa9f8a28..31a3c2985f85ff28b46ec8f5edd7a307
 +            .ok_or("Editor has not rendered or was unmounted")?;
 +        entry.sync(props);
 +        entry.element.editor_command(command, events, window, cx)
++    }
++
++    pub fn retain_input_capture(
++        &self,
++        id: u64,
++        owner: u64,
++        context: &str,
++        lease: u64,
++        cx: &gpui::App,
++    ) -> Result<input::InputCaptureHandle, String> {
++        let entry = self
++            .instances
++            .get(&id)
++            .ok_or("Editor has not rendered or was unmounted")?;
++        if !matches!(entry.element_type.as_str(), "input" | "textarea") {
++            return Err("Element is not a mounted text editor".into());
++        }
++        entry
++            .element
++            .retain_input_capture(id, owner, context, lease, cx)
++    }
++
++    pub fn is_input_capture_target(&self, handle: &input::InputCaptureHandle) -> bool {
++        self.instances
++            .get(&handle.element_id())
++            .is_some_and(|entry| entry.element.is_input_capture_entity(handle))
++    }
++
++    pub fn contains_input_capture(&self, handle: &input::InputCaptureHandle) -> bool {
++        self.instances
++            .values()
++            .any(|entry| entry.element.is_input_capture_entity(handle))
 +    }
 +
      /// Store a decoded image on an `<img>` host node, creating the adapter if needed.
