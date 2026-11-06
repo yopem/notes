@@ -2224,7 +2224,9 @@ JavaScript fencing, or product close safety.
   - **Evidence:** `native-input-fence/owned-state/QA-068.txt`; inspect actual
     callback collection, SDK conversion findings and source hashes.
   - **Cleanup:** Drop only the owned headless fixture and callback collectors.
-  - **Status:** Pending. Payload fields and defaults exist only in SDK scratch.
+  - **Status:** Pending. The SDK patch now stamps applied native identity in
+    headless callback tests. Native-to-JavaScript delivery and integration
+    acceptance remain unverified.
 
 - [ ] **QA-069 — P0 — Acknowledge revisions beyond the value queue**
   - **Purpose:** Keep a delayed React acknowledgement from replacing newer
@@ -2275,9 +2277,9 @@ JavaScript fencing, or product close safety.
   - **Evidence:** `native-input-fence/owned-state/QA-070.txt`; inspect native
     identity, full snapshots, unapplied prop state and callback counts.
   - **Cleanup:** Release only holds created by the fixture and drop the fixture.
-  - **Status:** Pending. Existing `entry.sync(props)` only updates the widget
-    prop bank; do not assume it mutates the GPUI entity without checking the
-    concrete input implementation.
+  - **Status:** Pending. Headless tests cover native identity preflight through
+    the registry and input command. Paired capture and product close acceptance
+    remain unverified.
 
 - [ ] **QA-071 — P0 — Retain and release the exact captured entity**
   - **Purpose:** Keep a pruned field recoverable without releasing a new field.

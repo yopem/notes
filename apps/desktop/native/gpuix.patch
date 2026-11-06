@@ -279,13 +279,13 @@ index 0000000000000000000000000000000000000000..c370237948b59374d967371da15d3062
 +    }
 +}
 diff --git a/packages/native/src/custom_elements/input.rs b/packages/native/src/custom_elements/input.rs
-index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df8f141d01 100644
+index 7be2d2501320f75b30ab3f697a16cdde19c64dca..3a6f737ba1edf442de2900c9035a90abe1294fe5 100644
 --- a/packages/native/src/custom_elements/input.rs
 +++ b/packages/native/src/custom_elements/input.rs
 @@ -23,6 +23,7 @@ use gpui::{
  use unicode_segmentation::UnicodeSegmentation;
  use web_time::Instant;
- 
+
 +use super::editor_protocol::*;
  use super::{CustomElement, CustomElementFactory, CustomRenderContext};
  use crate::renderer::{emit_event_full, emit_key_event, EventCallback};
@@ -293,7 +293,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 @@ -136,6 +137,35 @@ fn drag_scroll_delta(
      distance.signum() * (distance.abs() * 0.2).clamp(1.0, line_height)
  }
- 
+
 +fn underline_marked_runs(runs: Vec<TextRun>, marked: &Range<usize>) -> Vec<TextRun> {
 +    let mut result = Vec::new();
 +    let mut at = 0;
@@ -340,8 +340,47 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +        .map(|context| KeyBinding::new("ctrl-c", gpui::NoAction, Some(context))),
      );
  }
- 
-@@ -321,10 +355,14 @@ struct TextEditorElement {
+
+@@ -316,15 +350,53 @@ impl CustomElementFactory for TextareaFactory {
+     }
+ }
+
++#[derive(Clone, Debug, PartialEq, Eq)]
++struct EditorIdentity {
++    owner: u64,
++    context: String,
++}
++
++fn editor_identity(
++    owner: &serde_json::Value,
++    context: &serde_json::Value,
++    identity_seen: bool,
++) -> Result<Option<EditorIdentity>, String> {
++    if !identity_seen {
++        return Ok(None);
++    }
++    let owner = owner
++        .as_f64()
++        .filter(|value| {
++            value.is_finite()
++                && *value >= 1.0
++                && *value <= 9_007_199_254_740_991.0
++                && value.fract() == 0.0
++        })
++        .ok_or("Invalid editor owner: expected a positive safe integer")?;
++    let context = context.as_str().filter(|value| !value.is_empty() && value.len() <= 1024 && value.trim() == *value && !value.chars().any(char::is_control))
++        .ok_or("Invalid editor context: expected nonempty text up to 1024 bytes without control or edge whitespace")?;
++    Ok(Some(EditorIdentity {
++        owner: owner as u64,
++        context: context.to_owned(),
++    }))
++}
++
+ struct TextEditorElement {
+     multiline: bool,
++    identity_seen: bool,
++    owner_prop: serde_json::Value,
++    context_prop: serde_json::Value,
      value: String,
      placeholder: String,
      read_only: bool,
@@ -355,8 +394,14 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +    path: Option<String>,
      state: Option<Entity<TextEditorState>>,
  }
- 
-@@ -335,13 +373,61 @@ impl TextEditorElement {
+
+@@ -332,16 +404,80 @@ impl TextEditorElement {
+     fn new(multiline: bool) -> Self {
+         Self {
+             multiline,
++            identity_seen: false,
++            owner_prop: serde_json::Value::Null,
++            context_prop: serde_json::Value::Null,
              value: String::new(),
              placeholder: String::new(),
              read_only: false,
@@ -388,12 +433,17 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +        state.syntax_theme = self.theme.clone();
 +        state.language = self.language.clone();
 +        state.path = self.path.clone();
++        let identity_changed = state.capture_lease.is_none()
++            && state.identity
++                != editor_identity(&self.owner_prop, &self.context_prop, self.identity_seen);
 +        if state.capture_lease.is_some() {
 +            self.reconcile_capture_value(state);
 +            self.last_mode_prop = Some(self.editor_mode);
 +            self.last_prop_value = Some(self.value.clone());
 +            self.read_only = state.read_only;
 +        } else {
++            state.identity =
++                editor_identity(&self.owner_prop, &self.context_prop, self.identity_seen);
 +            state.read_only = self.read_only;
 +        }
 +        if state.capture_lease.is_none()
@@ -410,15 +460,23 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +            state.caret_color = self.theme.caret;
 +            cx.notify();
 +        }
-+        if state.capture_lease.is_none() && self.last_prop_value.as_ref() != Some(&self.value) {
++        if state.capture_lease.is_none()
++            && (identity_changed || self.last_prop_value.as_ref() != Some(&self.value))
++        {
++            if identity_changed {
++                state.pending_values.clear();
++                state.undo_stack.clear();
++                state.redo_stack.clear();
++                state.last_edit = None;
++            }
 +            state.sync_prop_value(self.value.clone(), cx);
 +        }
 +        self.last_prop_value = Some(self.value.clone());
 +    }
  }
- 
+
  impl CustomElement for TextEditorElement {
-@@ -371,6 +457,9 @@ impl CustomElement for TextEditorElement {
+@@ -371,6 +507,9 @@ impl CustomElement for TextEditorElement {
                  let min_rows = self.min_rows;
                  let max_rows = self.max_rows;
                  let caret_color = self.theme.caret;
@@ -428,7 +486,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
                  let callback = callback.clone();
                  let id = ctx.id;
                  let cursor = value.len();
-@@ -412,14 +501,73 @@ impl CustomElement for TextEditorElement {
+@@ -412,14 +551,74 @@ impl CustomElement for TextEditorElement {
                      blink_task: None,
                      pending_values: VecDeque::new(),
                      undo_stack: VecDeque::new(),
@@ -439,6 +497,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +                    language,
 +                    path,
 +                    revision: 0,
++                    identity: Ok(None),
 +                    capture_lease: None,
 +                    mode: EditorMode::Insert,
 +                    modal_enabled: false,
@@ -447,7 +506,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
                  })
              })
              .clone();
- 
+
 -        let prop_changed = self.last_prop_value.as_ref() != Some(&self.value);
          state.update(cx, |state, cx| {
 +            if state.key_subscription.is_none() {
@@ -504,7 +563,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              state.callback = callback;
              state.emits_change = emits_change;
              if state.emits_submit != emits_submit {
-@@ -428,19 +576,8 @@ impl CustomElement for TextEditorElement {
+@@ -428,19 +627,8 @@ impl CustomElement for TextEditorElement {
              }
              state.emits_key_down = emits_key_down;
              state.emits_key_up = emits_key_up;
@@ -522,10 +581,21 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +            self.sync_state_props(state, cx);
          });
 -        self.last_prop_value = Some(self.value.clone());
- 
+
          let element_id = gpui::SharedString::from(format!("__gpuix_editor_{}", ctx.id));
          let mut editor = div()
-@@ -529,6 +666,13 @@ impl CustomElement for TextEditorElement {
+@@ -526,9 +714,24 @@ impl CustomElement for TextEditorElement {
+
+     fn set_prop(&mut self, key: &str, value: serde_json::Value) {
+         match key {
++            "data-editor-owner" => {
++                self.identity_seen = true;
++                self.owner_prop = value;
++            }
++            "data-editor-context" => {
++                self.identity_seen = true;
++                self.context_prop = value;
++            }
              "value" => self.value = value.as_str().unwrap_or_default().to_string(),
              "placeholder" => self.placeholder = value.as_str().unwrap_or_default().to_string(),
              "readOnly" => self.read_only = value.as_bool().unwrap_or(false),
@@ -539,7 +609,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              "minRows" => self.min_rows = value.as_u64().unwrap_or(1) as usize,
              "maxRows" => {
                  self.max_rows = value
-@@ -537,6 +681,8 @@ impl CustomElement for TextEditorElement {
+@@ -537,6 +740,8 @@ impl CustomElement for TextEditorElement {
                      as usize
              }
              "theme" => self.theme = Theme::from_prop(Some(&value)),
@@ -548,7 +618,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              _ => {}
          }
      }
-@@ -546,6 +692,9 @@ impl CustomElement for TextEditorElement {
+@@ -546,6 +751,9 @@ impl CustomElement for TextEditorElement {
              "value",
              "placeholder",
              "readOnly",
@@ -558,8 +628,8 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              "minRows",
              "maxRows",
              "theme",
-@@ -554,10 +703,65 @@ impl CustomElement for TextEditorElement {
- 
+@@ -554,10 +762,73 @@ impl CustomElement for TextEditorElement {
+
      fn supported_events(&self) -> &'static [&'static str] {
          &[
 -            "change", "submit", "click", "keyDown", "keyUp", "focus", "blur", "fileDrop",
@@ -574,7 +644,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +            "editorState",
          ]
      }
- 
+
 +    fn automation_text(&self, cx: &App) -> Option<String> {
 +        Some(self.state.as_ref()?.read(cx).content.clone())
 +    }
@@ -596,6 +666,14 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +            ) {
 +                let release = matches!(command, EditorCommand::ReleaseInputCapture { .. });
 +                let acquire = matches!(command, EditorCommand::AcquireInputCapture { .. });
++                if !release {
++                    let pending_identity =
++                        editor_identity(&self.owner_prop, &self.context_prop, self.identity_seen)?;
++                    let applied_identity = state.identity.as_ref().map_err(Clone::clone)?;
++                    if &pending_identity != applied_identity {
++                        return Err("Editor has pending identity props".into());
++                    }
++                }
 +                if !release
 +                    && state.capture_lease.is_none()
 +                    && (self.last_mode_prop != Some(self.editor_mode)
@@ -625,9 +703,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
      fn destroy(&mut self) {
          self.state = None;
      }
-@@ -637,12 +841,40 @@ fn edits_coalesce(
+@@ -637,12 +908,40 @@ fn edits_coalesce(
  }
- 
+
  fn push_undo_snapshot(history: &mut VecDeque<EditSnapshot>, snapshot: EditSnapshot) {
 -    if history.len() == UNDO_LIMIT {
 -        history.pop_front();
@@ -646,7 +724,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
      }
      history.push_back(snapshot);
  }
- 
+
 +#[derive(PartialEq)]
 +struct StateStamp {
 +    revision: u64,
@@ -668,7 +746,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
  struct TextEditorState {
      element_id: u64,
      callback: Option<EventCallback>,
-@@ -680,11 +912,301 @@ struct TextEditorState {
+@@ -680,11 +979,302 @@ struct TextEditorState {
      blink_task: Option<Task<()>>,
      pending_values: VecDeque<String>,
      undo_stack: VecDeque<EditSnapshot>,
@@ -679,13 +757,14 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +    language: Option<String>,
 +    path: Option<String>,
 +    revision: u64,
++    identity: Result<Option<EditorIdentity>, String>,
 +    capture_lease: Option<u64>,
 +    mode: EditorMode,
 +    modal_enabled: bool,
 +    key_subscription: Option<gpui::Subscription>,
 +    last_reported: Option<StateStamp>,
  }
- 
+
  impl TextEditorState {
 +    fn public_snapshot(snapshot: &EditSnapshot) -> TextSnapshot {
 +        TextSnapshot {
@@ -971,7 +1050,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
      fn reset_blink(&mut self, cx: &Context<Self>) {
          self.blink_anchor = cx.background_executor().now();
      }
-@@ -734,6 +1256,7 @@ impl TextEditorState {
+@@ -734,6 +1324,7 @@ impl TextEditorState {
              return;
          }
          self.content = value;
@@ -979,17 +1058,30 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          let end = self.content.len();
          self.selected_range = end..end;
          self.selection_reversed = false;
-@@ -749,6 +1272,7 @@ impl TextEditorState {
+@@ -749,6 +1340,7 @@ impl TextEditorState {
      }
- 
+
      fn emit_change(&mut self) {
 +        self.revision += 1;
          if self.emits_change {
              self.pending_values.push_back(self.content.clone());
              while self.pending_values.len() > 32 {
-@@ -807,6 +1331,9 @@ impl TextEditorState {
+@@ -756,6 +1348,12 @@ impl TextEditorState {
+             }
+             emit_event_full(&self.callback, self.element_id, "change", |payload| {
+                 payload.value = Some(self.content.clone());
++                if let Ok(Some(identity)) = &self.identity {
++                    payload.protocol = Some(1);
++                    payload.owner = Some(identity.owner as f64);
++                    payload.context = Some(identity.context.clone());
++                    payload.revision = Some(self.revision as f64);
++                }
+             });
+         }
      }
- 
+@@ -807,6 +1405,9 @@ impl TextEditorState {
+     }
+
      fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -997,9 +1089,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          let offset = offset.min(self.content.len());
          self.selected_range = offset..offset;
          self.selection_reversed = false;
-@@ -816,6 +1343,9 @@ impl TextEditorState {
+@@ -816,6 +1417,9 @@ impl TextEditorState {
      }
- 
+
      fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -1007,9 +1099,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          let offset = offset.min(self.content.len());
          if self.selection_reversed {
              self.selected_range.start = offset;
-@@ -888,7 +1418,10 @@ impl TextEditorState {
+@@ -888,7 +1492,10 @@ impl TextEditorState {
      }
- 
+
      fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.capture_lease.is_some() {
@@ -1019,9 +1111,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          if self.selected_range.is_empty() {
-@@ -902,7 +1435,10 @@ impl TextEditorState {
+@@ -902,7 +1509,10 @@ impl TextEditorState {
      }
- 
+
      fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.capture_lease.is_some() {
@@ -1031,9 +1123,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          if self.selected_range.is_empty() {
-@@ -966,6 +1502,9 @@ impl TextEditorState {
+@@ -966,6 +1576,9 @@ impl TextEditorState {
      }
- 
+
      fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -1041,7 +1133,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          self.selected_range = 0..self.content.len();
          self.selection_reversed = false;
          self.reset_blink(cx);
-@@ -1026,7 +1565,10 @@ impl TextEditorState {
+@@ -1026,7 +1639,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1053,7 +1145,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1041,7 +1583,10 @@ impl TextEditorState {
+@@ -1041,7 +1657,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1065,7 +1157,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1056,7 +1601,10 @@ impl TextEditorState {
+@@ -1056,7 +1675,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1077,7 +1169,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1075,7 +1623,10 @@ impl TextEditorState {
+@@ -1075,7 +1697,10 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1089,9 +1181,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          if self.selected_range.is_empty() {
-@@ -1097,7 +1648,10 @@ impl TextEditorState {
+@@ -1097,7 +1722,10 @@ impl TextEditorState {
      }
- 
+
      fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only || self.selected_range.is_empty() {
 +        if self.capture_lease.is_some() {
@@ -1101,9 +1193,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          self.copy(&Copy, window, cx);
-@@ -1105,7 +1659,10 @@ impl TextEditorState {
+@@ -1105,7 +1733,10 @@ impl TextEditorState {
      }
- 
+
      fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.capture_lease.is_some() {
@@ -1113,9 +1205,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              cx.propagate();
              return;
          }
-@@ -1117,20 +1674,27 @@ impl TextEditorState {
+@@ -1117,20 +1748,27 @@ impl TextEditorState {
      }
- 
+
      fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.capture_lease.is_some() {
@@ -1131,7 +1223,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              self.restore(previous, cx);
          }
      }
- 
+
      fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
 -        if self.read_only {
 +        if self.capture_lease.is_some() {
@@ -1145,9 +1237,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              let snapshot = self.snapshot();
              push_undo_snapshot(&mut self.undo_stack, snapshot);
              self.restore(next, cx);
-@@ -1138,12 +1702,18 @@ impl TextEditorState {
+@@ -1138,12 +1776,18 @@ impl TextEditorState {
      }
- 
+
      fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
 -        if self.multiline && !self.read_only {
 +        if self.capture_lease.is_some() {
@@ -1157,15 +1249,15 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              self.replace_text_in_range(None, "\n", window, cx);
          }
      }
- 
+
      fn submit(&mut self, _: &Submit, _: &mut Window, _: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
 +        }
          self.emit_submit();
      }
- 
-@@ -1213,6 +1783,9 @@ impl TextEditorState {
+
+@@ -1213,6 +1857,9 @@ impl TextEditorState {
          window: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1175,9 +1267,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          if !self.read_only {
              window.request_text_input();
          }
-@@ -1243,6 +1816,9 @@ impl TextEditorState {
+@@ -1243,6 +1890,9 @@ impl TextEditorState {
      }
- 
+
      fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -1185,9 +1277,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          self.is_selecting = false;
          self.drag_position = None;
          self.drag_generation = self.drag_generation.wrapping_add(1);
-@@ -1250,6 +1826,9 @@ impl TextEditorState {
+@@ -1250,6 +1900,9 @@ impl TextEditorState {
      }
- 
+
      fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -1195,9 +1287,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          if self.is_selecting {
              self.drag_position = Some(event.position);
              let position = self.drag_selection_position(event.position);
-@@ -1264,6 +1843,9 @@ impl TextEditorState {
+@@ -1264,6 +1917,9 @@ impl TextEditorState {
      }
- 
+
      fn start_drag_autoscroll(&mut self, cx: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -1205,9 +1297,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          self.drag_autoscroll_active = true;
          let generation = self.drag_generation;
          cx.spawn(async move |this, cx| loop {
-@@ -1305,7 +1887,11 @@ impl TextEditorState {
+@@ -1305,7 +1961,11 @@ impl TextEditorState {
      }
- 
+
      fn drag_autoscroll_tick(&mut self, generation: u64, cx: &mut Context<Self>) -> bool {
 -        if !self.multiline || !self.is_selecting || self.drag_generation != generation {
 +        if self.capture_lease.is_some()
@@ -1218,7 +1310,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return false;
          }
          let (Some(position), Some(bounds)) = (self.drag_position, self.last_bounds) else {
-@@ -1336,6 +1922,9 @@ impl TextEditorState {
+@@ -1336,6 +1996,9 @@ impl TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1228,7 +1320,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          let Some(bounds) = self.last_bounds else {
              return;
          };
-@@ -1410,28 +1999,34 @@ impl TextEditorState {
+@@ -1410,28 +2073,34 @@ impl TextEditorState {
          } else {
              style.color
          };
@@ -1283,9 +1375,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          };
          let wrap_width = self.multiline.then_some(width);
          let lines = window
-@@ -1464,6 +2059,9 @@ impl TextEditorState {
+@@ -1464,6 +2133,9 @@ impl TextEditorState {
      }
- 
+
      fn clamp_scroll(&mut self, viewport_width: f32, viewport_height: f32) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -1293,9 +1385,9 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          if self.follow_cursor {
              if let Some(cursor) = self.point_for_index(self.cursor_offset()) {
                  let cursor_top = f32::from(cursor.y);
-@@ -1528,6 +2126,9 @@ impl EntityInputHandler for TextEditorState {
+@@ -1528,6 +2200,9 @@ impl EntityInputHandler for TextEditorState {
      }
- 
+
      fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
 +        if self.capture_lease.is_some() {
 +            return;
@@ -1303,7 +1395,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          self.marked_range = None;
          cx.notify();
      }
-@@ -1539,7 +2140,10 @@ impl EntityInputHandler for TextEditorState {
+@@ -1539,7 +2214,10 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1315,7 +1407,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          let range = range_utf16
-@@ -1575,7 +2179,10 @@ impl EntityInputHandler for TextEditorState {
+@@ -1575,7 +2253,10 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1327,7 +1419,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
              return;
          }
          let range = range_utf16
-@@ -1644,6 +2251,9 @@ impl EntityInputHandler for TextEditorState {
+@@ -1644,6 +2325,9 @@ impl EntityInputHandler for TextEditorState {
          _: &mut Window,
          cx: &mut Context<Self>,
      ) {
@@ -1337,16 +1429,16 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          self.selected_range = self.range_from_utf16(&range_utf16);
          self.selection_reversed = false;
          self.follow_cursor = true;
-@@ -1656,7 +2266,7 @@ impl EntityInputHandler for TextEditorState {
+@@ -1656,7 +2340,7 @@ impl EntityInputHandler for TextEditorState {
      }
- 
+
      fn accepts_text_input(&self, _: &mut Window, _: &mut Context<Self>) -> bool {
 -        !self.read_only
 +        self.capture_lease.is_none() && !self.read_only && self.mode.accepts_text()
      }
  }
- 
-@@ -1726,7 +2336,13 @@ impl gpui::Render for TextEditorState {
+
+@@ -1726,7 +2410,13 @@ impl gpui::Render for TextEditorState {
              })
              .when(self.emits_key_up, move |editor| {
                  editor.on_key_up(move |event, _window, _cx| {
@@ -1361,7 +1453,7 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
                  })
              })
              .w_full()
-@@ -1803,6 +2419,7 @@ impl gpui::Element for EditorTextElement {
+@@ -1803,6 +2493,7 @@ impl gpui::Element for EditorTextElement {
          self.input.update(cx, |input, _| {
              input.last_bounds = Some(bounds);
              input.clamp_scroll(f32::from(bounds.size.width), f32::from(bounds.size.height));
@@ -1369,10 +1461,463 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
          });
          let input = self.input.read(cx);
          let origin = point(
-@@ -1945,6 +2562,709 @@ impl gpui::IntoElement for EditorTextElement {
+@@ -1945,6 +2636,1174 @@ impl gpui::IntoElement for EditorTextElement {
  mod tests {
      use super::*;
- 
+
++    #[cfg(feature = "test-support")]
++    #[gpui::test]
++    fn owned_input_metadata_and_capture_refusal(cx: &mut gpui::TestAppContext) {
++        use crate::renderer::GpuixView;
++        use crate::retained_tree::RetainedTree;
++        use std::collections::{HashMap, HashSet};
++        use std::sync::{Arc, Mutex};
++
++        for multiline in [false, true] {
++            let kind = if multiline { "textarea" } else { "input" };
++            let mut tree = RetainedTree::new();
++            let batch = serde_json::json!([
++                ["createElement", 1, "div"],
++                ["setRoot", 1],
++                ["createElement", 2, kind],
++                ["appendChild", 1, 2],
++                ["setCustomProp", 2, "value", "Original Ω"]
++            ]);
++            crate::renderer::apply_batch_to_tree(&mut tree, batch.to_string().as_bytes()).unwrap();
++            let tree = Arc::new(Mutex::new(tree));
++            let input =
++                std::rc::Rc::new(std::cell::RefCell::new(TextEditorElement::new(multiline)));
++            let handle = cx.add_window(|_, _| {
++                let mut view = GpuixView::new(
++                    tree.clone(),
++                    None,
++                    "Owned input test".into(),
++                    Default::default(),
++                );
++                view.custom_registry.instances.insert(
++                    2,
++                    super::super::CustomElementEntry {
++                        element_type: kind.into(),
++                        element: Box::new(ReadbackInput(input.clone())),
++                        applied_props: HashMap::new(),
++                    },
++                );
++                view
++            });
++            cx.update_window(handle.into(), |root, window, cx| {
++                root.downcast::<GpuixView>()
++                    .unwrap()
++                    .update(cx, |view, cx| {
++                        let state = input.borrow().state.clone().unwrap();
++                        let received = Arc::new(Mutex::new(Vec::new()));
++                        let callback = received.clone();
++                        state.update(cx, |state, _| {
++                            state.emits_change = true;
++                            state.callback =
++                                Some(Arc::new(move |event| callback.lock().unwrap().push(event)));
++                        });
++                        state.update(cx, |state, cx| {
++                            state.replace_text_in_range(
++                                Some(0.."Original Ω".len()),
++                                "legacy",
++                                window,
++                                cx,
++                            )
++                        });
++                        {
++                            let events = received.lock().unwrap();
++                            let event = events.last().unwrap();
++                            assert_eq!(event.value.as_deref(), Some("legacy"));
++                            assert_eq!(
++                                (
++                                    event.protocol,
++                                    event.owner,
++                                    event.context.as_deref(),
++                                    event.revision
++                                ),
++                                (None, None, None, None)
++                            );
++                        }
++                        state.update(cx, |state, cx| {
++                            state.set_external_text("Original Ω".into(), cx)
++                        });
++                        received.lock().unwrap().clear();
++                        let mut props = HashMap::from([
++                            ("value".to_string(), serde_json::json!("Original Ω")),
++                            ("data-editor-owner".to_string(), serde_json::json!(1)),
++                            (
++                                "data-editor-context".to_string(),
++                                serde_json::json!("note-a"),
++                            ),
++                        ]);
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &HashSet::new(),
++                                window,
++                                cx,
++                            )
++                            .is_err());
++                        state.update(cx, |state, cx| {
++                            input.borrow_mut().sync_state_props(state, cx)
++                        });
++                        state.update(cx, |state, cx| {
++                            state.replace_text_in_range(
++                                Some(0.."Original Ω".len()),
++                                "Draft Ω🙂",
++                                window,
++                                cx,
++                            )
++                        });
++                        {
++                            let events = received.lock().unwrap();
++                            let event = events.last().unwrap();
++                            assert_eq!(event.protocol, Some(1));
++                            assert_eq!(event.owner, Some(1.0));
++                            assert_eq!(event.context.as_deref(), Some("note-a"));
++                            assert_eq!(event.revision, Some(state.read(cx).revision as f64));
++                            assert_eq!(event.value.as_deref(), Some("Draft Ω🙂"));
++                        }
++                        state.update(cx, |state, cx| {
++                            state.replace_text_in_range(
++                                Some(0.."Draft Ω🙂".len()),
++                                "second",
++                                window,
++                                cx,
++                            )
++                        });
++                        {
++                            let events = received.lock().unwrap();
++                            let event = events.last().unwrap();
++                            assert_eq!(
++                                (
++                                    event.protocol,
++                                    event.owner,
++                                    event.context.as_deref(),
++                                    event.revision,
++                                    event.value.as_deref()
++                                ),
++                                (
++                                    Some(1),
++                                    Some(1.0),
++                                    Some("note-a"),
++                                    Some(state.read(cx).revision as f64),
++                                    Some("second")
++                                )
++                            );
++                        }
++                        props.insert("value".into(), serde_json::json!("second"));
++                        let events = HashSet::new();
++                        props.insert("data-editor-owner".into(), serde_json::json!(2));
++                        props.insert("data-editor-context".into(), serde_json::json!("note-b"));
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        state.update(cx, |state, cx| {
++                            state.replace_text_in_range(
++                                Some(0.."second".len()),
++                                "pending",
++                                window,
++                                cx,
++                            )
++                        });
++                        {
++                            let delivered = received.lock().unwrap();
++                            let event = delivered.last().unwrap();
++                            assert_eq!(
++                                (
++                                    event.protocol,
++                                    event.owner,
++                                    event.context.as_deref(),
++                                    event.revision,
++                                    event.value.as_deref()
++                                ),
++                                (
++                                    Some(1),
++                                    Some(1.0),
++                                    Some("note-a"),
++                                    Some(state.read(cx).revision as f64),
++                                    Some("pending")
++                                )
++                            );
++                        }
++                        props.insert("value".into(), serde_json::json!("pending"));
++                        props.insert("data-editor-owner".into(), serde_json::json!(1));
++                        props.insert("data-editor-context".into(), serde_json::json!("note-a"));
++                        let snapshot = state.update(cx, |state, cx| {
++                            state
++                                .command(EditorCommand::GetSnapshot, window, cx)
++                                .unwrap()
++                        });
++                        let count = received.lock().unwrap().len();
++                        let invalid = [
++                            serde_json::json!(0),
++                            serde_json::json!(-1),
++                            serde_json::json!(1.5),
++                            serde_json::json!(9007199254740992_u64),
++                            serde_json::json!("1"),
++                            serde_json::json!(null),
++                        ];
++                        for owner in invalid {
++                            props.insert("data-editor-owner".into(), owner);
++                            assert!(view
++                                .custom_registry
++                                .editor_command(
++                                    2,
++                                    EditorCommand::CheckInputCapture,
++                                    &props,
++                                    &events,
++                                    window,
++                                    cx
++                                )
++                                .is_err());
++                            assert!(view
++                                .custom_registry
++                                .editor_command(
++                                    2,
++                                    EditorCommand::AcquireInputCapture { lease: 1 },
++                                    &props,
++                                    &events,
++                                    window,
++                                    cx
++                                )
++                                .is_err());
++                            assert_eq!(
++                                state.update(cx, |state, cx| state
++                                    .command(EditorCommand::GetSnapshot, window, cx)
++                                    .unwrap()),
++                                snapshot
++                            );
++                        }
++                        props.remove("data-editor-owner");
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::AcquireInputCapture { lease: 1 },
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        props.insert("data-editor-owner".into(), serde_json::Value::Null);
++                        props.insert("data-editor-context".into(), serde_json::Value::Null);
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::AcquireInputCapture { lease: 1 },
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        props.insert("data-editor-owner".into(), serde_json::json!(1));
++                        props.remove("data-editor-context");
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::AcquireInputCapture { lease: 1 },
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        for context in [
++                            serde_json::json!(""),
++                            serde_json::json!(" note-a"),
++                            serde_json::json!("note-a "),
++                            serde_json::json!("\0"),
++                            serde_json::json!("x".repeat(1025)),
++                            serde_json::json!(42),
++                            serde_json::json!(null),
++                            serde_json::json!("note-b"),
++                        ] {
++                            props.insert("data-editor-context".into(), context);
++                            assert!(view
++                                .custom_registry
++                                .editor_command(
++                                    2,
++                                    EditorCommand::CheckInputCapture,
++                                    &props,
++                                    &events,
++                                    window,
++                                    cx
++                                )
++                                .is_err());
++                            assert!(view
++                                .custom_registry
++                                .editor_command(
++                                    2,
++                                    EditorCommand::AcquireInputCapture { lease: 1 },
++                                    &props,
++                                    &events,
++                                    window,
++                                    cx
++                                )
++                                .is_err());
++                            assert_eq!(
++                                state.update(cx, |state, cx| state
++                                    .command(EditorCommand::GetSnapshot, window, cx)
++                                    .unwrap()),
++                                snapshot
++                            );
++                        }
++                        props.insert("data-editor-context".into(), serde_json::json!("note-a"));
++                        props.insert("data-editor-owner".into(), serde_json::json!(2));
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        assert_eq!(received.lock().unwrap().len(), count);
++                        props.insert("data-editor-owner".into(), serde_json::json!(1));
++                        let result = view.custom_registry.editor_command(
++                            2,
++                            EditorCommand::AcquireInputCapture { lease: 1 },
++                            &props,
++                            &events,
++                            window,
++                            cx,
++                        );
++                        assert!(result.is_ok(), "{result:?}");
++                        props.insert("data-editor-context".into(), serde_json::json!("note-b"));
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        assert_eq!(
++                            state.update(cx, |state, cx| state
++                                .command(EditorCommand::GetSnapshot, window, cx)
++                                .unwrap()),
++                            snapshot
++                        );
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::ReleaseInputCapture { lease: 1 },
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_ok());
++                        assert_eq!(received.lock().unwrap().len(), count);
++                        props.insert("data-editor-owner".into(), serde_json::json!(2));
++                        assert!(view
++                            .custom_registry
++                            .editor_command(
++                                2,
++                                EditorCommand::CheckInputCapture,
++                                &props,
++                                &events,
++                                window,
++                                cx
++                            )
++                            .is_err());
++                        state.update(cx, |state, cx| {
++                            input.borrow_mut().sync_state_props(state, cx)
++                        });
++                        state.update(cx, |state, cx| {
++                            state.replace_text_in_range(
++                                Some(0.."pending".len()),
++                                "new owner",
++                                window,
++                                cx,
++                            )
++                        });
++                        let delivered = received.lock().unwrap();
++                        let event = delivered.last().unwrap();
++                        assert_eq!(
++                            (
++                                event.protocol,
++                                event.owner,
++                                event.context.as_deref(),
++                                event.revision,
++                                event.value.as_deref()
++                            ),
++                            (
++                                Some(1),
++                                Some(2.0),
++                                Some("note-b"),
++                                Some(state.read(cx).revision as f64),
++                                Some("new owner")
++                            )
++                        );
++                        drop(delivered);
++                        view.custom_registry.destroy_all();
++                        view.tree.lock().unwrap().root_id = None;
++                        cx.notify();
++                        window.refresh();
++                    });
++            })
++            .unwrap();
++            cx.run_until_parked();
++        }
++    }
++
 +    #[cfg(feature = "test-support")]
 +    #[gpui::test]
 +    fn input_capture_holds_native_state_until_exact_release(cx: &mut gpui::TestAppContext) {
@@ -1882,6 +2427,18 @@ index 7be2d2501320f75b30ab3f697a16cdde19c64dca..299cf74b95858aa5e1879f51d79817df
 +
 +        fn automation_text(&self, cx: &App) -> Option<String> {
 +            self.0.borrow().automation_text(cx)
++        }
++
++        fn editor_command(
++            &mut self,
++            command: EditorCommand,
++            events: &std::collections::HashSet<String>,
++            window: &mut Window,
++            cx: &mut App,
++        ) -> Result<serde_json::Value, String> {
++            self.0
++                .borrow_mut()
++                .editor_command(command, events, window, cx)
 +        }
 +
 +        fn destroy(&mut self) {
@@ -4586,3 +5143,29 @@ index 0000000000000000000000000000000000000000..ea565e71b031e79bb2f5c5c361d030ec
 +    let outcome = if released { "released" } else { "stale" };
 +    serde_json::json!({"protocol": 2, "owner": owner, "outcome": outcome}).to_string()
 +}
+diff --git a/packages/native/src/element_tree.rs b/packages/native/src/element_tree.rs
+index 1b0bdd2dbb80342f785f0a6661d3d9ee31af00fe..7158a47b76dd35b3e5d630e3aa39ebf150ef8153 100644
+--- a/packages/native/src/element_tree.rs
++++ b/packages/native/src/element_tree.rs
+@@ -100,6 +100,10 @@ pub struct EventPayload {
+     /// linkClick (the URL); `selectionChange` (joined selected text, or
+     /// absent when the selection is empty).
+     pub value: Option<String>,
++    pub protocol: Option<u32>,
++    pub owner: Option<f64>,
++    pub context: Option<String>,
++    pub revision: Option<f64>,
+
+     /// Line number on the pre-change side. Populated for: `<diff>` lineClick.
+     pub old_line: Option<f64>,
+@@ -162,6 +166,10 @@ impl Default for EventPayload {
+             touch_phase: None,
+             hovered: None,
+             value: None,
++            protocol: None,
++            owner: None,
++            context: None,
++            revision: None,
+             old_line: None,
+             new_line: None,
+             start_index: None,
