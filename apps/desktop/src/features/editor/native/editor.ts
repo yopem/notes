@@ -224,7 +224,7 @@ export function createNativeCloseOwner(
   const eventType = "windowCloseRequested"
   const previous = handlers.get(eventId)?.get(eventType)
   const token = {}
-  const seen = new Set<number>()
+  let deliveredThrough = 0
   let owner = 0
   let disposed = false
 
@@ -238,8 +238,8 @@ export function createNativeCloseOwner(
   }
 
   function deliver(requestId: number) {
-    if (!isCurrent() || seen.has(requestId)) return
-    seen.add(requestId)
+    if (!isCurrent() || requestId <= deliveredThrough) return
+    deliveredThrough = requestId
     options.onRequest(requestId)
   }
 
@@ -312,7 +312,9 @@ export function createNativeCloseOwner(
 
     if (response.owner !== owner || response.requestId !== id)
       throw new Error("Invalid close cancellation identity")
-    seen.add(id)
+
+    if (response.outcome === "cancelled")
+      deliveredThrough = Math.max(deliveredThrough, id)
 
     return response
   }
@@ -324,7 +326,6 @@ export function createNativeCloseOwner(
 
     if (!isCurrent())
       return { protocol: 2, owner, requestId: id, outcome: "stale" }
-    seen.add(id)
 
     const pending = native.approveCloseOwnerV2?.(
       JSON.stringify({ protocol: 2, owner, requestId: id }),
@@ -332,10 +333,17 @@ export function createNativeCloseOwner(
 
     if (!(pending instanceof Promise))
       throw new Error("Close approval must return a Promise")
+
+    if (id === bound.pendingRequest)
+      deliveredThrough = Math.max(deliveredThrough, id)
+
     const response = decodeCloseResponse(CloseApprovalSchema, await pending)
 
     if (response.owner !== owner || response.requestId !== id)
       throw new Error("Invalid close approval identity")
+
+    if (isCurrent() && response.outcome === "closing")
+      deliveredThrough = Math.max(deliveredThrough, id)
 
     return response
   }

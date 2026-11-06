@@ -655,6 +655,96 @@ describe("native close owner v2", function closeOwnerV2() {
     })
     binding.detach()
   })
+  test("delivers monotonic requests after stale future controls", function boundedDelivery() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const binding = dispatcher.attach()
+    const requests: number[] = []
+
+    const controller = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: (id) => requests.push(id),
+    })
+
+    expect(controller.cancel(1000).outcome).toBe("stale")
+
+    for (let id = 1; id <= 1000; id++) {
+      fake.request(id)
+      dispatcher.dispatch(event(binding.windowKeyEventId, controller.owner, id))
+      dispatcher.dispatch(event(binding.windowKeyEventId, controller.owner, id))
+
+      if (id > 1)
+        dispatcher.dispatch(
+          event(binding.windowKeyEventId, controller.owner, id - 1),
+        )
+
+      expect(controller.cancel(id).outcome).toBe("cancelled")
+    }
+
+    expect(requests).toEqual(Array.from({ length: 1000 }, (_, id) => id + 1))
+    controller.dispose()
+    binding.detach()
+  })
+  test("delivers a future request after stale approval", async function staleApproval() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const binding = dispatcher.attach()
+    const requests: number[] = []
+
+    const controller = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: (id) => requests.push(id),
+    })
+
+    expect((await controller.approve(1000)).outcome).toBe("stale")
+    fake.request(1000)
+    dispatcher.dispatch(event(binding.windowKeyEventId, controller.owner, 1000))
+    expect(requests).toEqual([1000])
+    controller.dispose()
+    binding.detach()
+  })
+  test("suppresses pending replay after immediate valid controls", async function immediatePendingControls() {
+    for (const action of ["cancel", "approve"] as const) {
+      const fake = host()
+      const dispatcher = createRendererState(fake.native)
+      const binding = dispatcher.attach()
+      const requests: number[] = []
+      fake.request(9)
+
+      const controller = createNativeCloseOwner(fake.native, {
+        expectedOwner: null,
+        onRequest: (id) => requests.push(id),
+      })
+
+      const result = controller[action](9)
+      await Promise.resolve()
+      expect(requests).toEqual([])
+      expect((await result).outcome).toBe(
+        action === "cancel" ? "cancelled" : "closing",
+      )
+      controller.dispose()
+      binding.detach()
+    }
+  })
+  test("does not suppress pending replay for an unrelated approval", async function unrelatedPendingApproval() {
+    const fake = host()
+    const dispatcher = createRendererState(fake.native)
+    const binding = dispatcher.attach()
+    const requests: number[] = []
+    fake.request(9)
+
+    const controller = createNativeCloseOwner(fake.native, {
+      expectedOwner: null,
+      onRequest: (id) => requests.push(id),
+    })
+
+    const stale = controller.approve(1000)
+    await Promise.resolve()
+    expect(requests).toEqual([9])
+    expect((await stale).outcome).toBe("stale")
+    controller.dispose()
+    binding.detach()
+  })
   test("replays pending once and isolates same-root replacement and cancellation", async function retarget() {
     const fake = host()
     const dispatcher = createRendererState(fake.native)
