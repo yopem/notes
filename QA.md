@@ -2240,7 +2240,7 @@ JavaScript fencing, or product close safety.
     headless callback tests. Native-to-JavaScript delivery and integration
     acceptance remain unverified.
 
-- [ ] **QA-069 — P0 — Acknowledge revisions beyond the value queue**
+- [x] **QA-069 — P0 — Acknowledge revisions beyond the value queue**
   - **Purpose:** Keep a delayed React acknowledgement from replacing newer
     native text or its undo history.
   - **Prerequisites:** Native setup and QA-068 identity support. Tests must
@@ -2261,10 +2261,20 @@ JavaScript fencing, or product close safety.
     acknowledgements are not accepted as native acknowledgements. An explicit
     legacy replacement keeps its existing meaning. Held acknowledgements do not
     leave stale queued values that later swallow a legitimate replacement.
-  - **Evidence:** `native-input-fence/owned-state/QA-069.txt`; inspect both
-    original regression failures and repaired full snapshot comparisons.
-  - **Cleanup:** Drop the isolated fixtures. No disk note data is used.
-  - **Status:** Pending.
+  - **Evidence:**
+    `native-input-fence/owned-state/revision-acks/independent-accepted-source.json`;
+    inspect `baseline.log`, the three filter logs, and `test-first.rs` in the
+    same directory. Independent review rebuilt the input section from the pinned
+    base and Git patch, matched its bytes and the complete test-first fixture,
+    and inspected the full-snapshot and callback assertions.
+  - **Cleanup:** Headless fixtures ended. No disk note data or user windows were
+    used. The isolated source replay remains as local evidence.
+  - **Status:** Passed for Linux headless native source on 2026-11-06 at
+    `44a6383`: one baseline assertion failed; the repaired focused filter passed
+    1 test, input passed 26, and protocol passed 7. Counts overlap. The later
+    `c1200c2` input filter also passed the ACK regression among 27 tests. This
+    does not establish a rebuilt host, native-to-JavaScript delivery, product
+    handlers, IME, pair atomicity, platform coverage, or warning clearance.
 
 - [ ] **QA-070 — P0 — Refuse an unapplied input identity change**
   - **Purpose:** Prevent capture from labelling old native text as a new note.
