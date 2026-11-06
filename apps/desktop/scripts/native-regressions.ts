@@ -60,6 +60,7 @@ async function revealNoteRow(app: App, title: string) {
     assert(match)
 
     const bounds = match.bounds
+
     const painted = !!(
       bounds &&
       bounds.width > 0 &&
