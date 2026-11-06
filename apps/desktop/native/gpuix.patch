@@ -2156,7 +2156,7 @@ index c5f4fa1212554676217279fa2a3873c26c58a477..e8aa3bb2ea2c27284982e18beb404999
  // types instead of a copy that silently drifts from them.
  pub mod retained_tree;
 diff --git a/packages/native/src/renderer.rs b/packages/native/src/renderer.rs
-index 8c104a4..16ef253 100644
+index 8c104a4f650d898e7064f189ac36ef4aef791ab5..fe688c51b50854bf3cd40609b1666386cc374e63 100644
 --- a/packages/native/src/renderer.rs
 +++ b/packages/native/src/renderer.rs
 @@ -26,7 +26,9 @@ use std::cell::RefCell;
@@ -2536,7 +2536,7 @@ index 8c104a4..16ef253 100644
 +    }
 +
 +    fn queued_owned_request() -> (
-+        Mutex<crate::window_close::CloseGuardState>,
++        Arc<Mutex<crate::window_close::CloseGuardState>>,
 +        crate::window_close::ApprovalToken,
 +    ) {
 +        let mut state = crate::window_close::CloseGuardState::default();
@@ -2544,7 +2544,7 @@ index 8c104a4..16ef253 100644
 +        state.request_close().unwrap();
 +        let request = state.snapshot().unwrap().pending_request.unwrap();
 +        let token = state.approve(binding.owner, request).unwrap();
-+        (Mutex::new(state), token)
++        (Arc::new(Mutex::new(state)), token)
 +    }
 +
 +    #[test]
