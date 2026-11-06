@@ -1894,13 +1894,20 @@ mark those cases passed until capture works and the evidence is inspected.
     namespace isolation and owned cleanup. Evidence:
     `native-close-lifecycle/v2/live-acceptance/independent-accepted-protocol.json`.
     This does not test a second close while detached or a deterministic
-    queued-approval/retarget race. The new view-scope check in 705b7a7 is not in
-    that tested host and still needs compilation and acceptance. No product UI
-    installs this guard. Note/draft transfer, input quiescence, macOS/Dock quit
-    and other-platform acceptance remain incomplete. QA-075 records the later
-    constant-space client delivery fix and stale future-ID regressions. Native
-    dependency/compiler warnings remain. Never treat a queued reply alone as
-    proof of window closure.
+    queued-approval/retarget race. The view-scope check in 705b7a7 and its test
+    type fix in 921b367 now compile under Rust 1.97.1. All 16 focused native
+    close tests pass, including another window with matching numeric IDs, an
+    unbound window, and matching-scope execution under the owner lock. The 304
+    unrelated cases were not run. Tested renderer source matches the committed
+    patch; evidence is `native-close-lifecycle/v2/scope-compile/`. The stopped
+    fresh release-profile dependency compile ran no assertions; the passing run
+    used the existing cached test profile. This newer scope check is not in the
+    published/tested host and still needs rebuild and live acceptance. No
+    product UI installs this guard. Note/draft transfer, input quiescence,
+    macOS/Dock quit and other-platform acceptance remain incomplete. QA-075
+    records the later constant-space client delivery fix and stale future-ID
+    regressions. Native dependency/compiler warnings remain. Never treat a
+    queued reply alone as proof of window closure.
 
 - [ ] **QA-062 — P1 — Await actual native font completion without blocking JS**
   - **Purpose:** Replace the synchronous two-second font wait with a verified
