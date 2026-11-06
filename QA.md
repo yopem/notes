@@ -72,6 +72,13 @@ data.
 | Fence each asynchronous close attempt                        | QA-065                                                                                 |
 | Atomically freeze native title/body input                    | QA-066                                                                                 |
 | Fill the compact note-list pane and show empty feedback      | QA-067                                                                                 |
+| Stamp native input with its actual owner and context         | QA-068                                                                                 |
+| Reconcile native revision acknowledgements                   | QA-069                                                                                 |
+| Refuse pending input identity changes before capture         | QA-070                                                                                 |
+| Retain the exact captured native input entity                | QA-071                                                                                 |
+| Stop owned edits before revision exhaustion                  | QA-072                                                                                 |
+| Keep two-field acquisition atomic on failure                 | QA-073                                                                                 |
+| Keep adopted captures held until safe release                | QA-074                                                                                 |
 
 ## Storage and configuration
 
@@ -408,9 +415,18 @@ workspaces had no findings.
     Inspect counts and observable outcomes, not only command exit codes.
   - **Cleanup:** Close only owned native sessions. Remove isolated QA data after
     its evidence is inspected. Keep reports ignored and local.
-  - **Status:** Pending. Native workspace lint passed with zero warnings and
-    errors; typecheck and format passed. Native regression evidence remains
-    blocked by the client-only screenshot failure recorded in QA-015.
+  - **Status:** Pending full core workflow coverage. All workspace native
+    typechecks, lint with `--max-warnings=0`, and workspace/root formatting
+    passed at aff1407. Private source and portable binary wide workflows passed
+    at 84fecfe. Compact restart/layout passed at 2e65f91. These runs have
+    inspected screenshots and data evidence. Capture is no longer a general
+    blocker. Reuse the original core notebook/import/export/shortcut workflow in
+    the private compositor before closing this complete regression case. The old
+    direct capture adapter does not support Weston. Evidence includes
+    `native-isolation/compact-restart/final-workspace-checks.txt`,
+    `native-isolation/accepted-v2-source-milestone.json`,
+    `native-isolation/accepted-portable-standalone.json`, and
+    `native-isolation/accepted-portable-compact-layout.json`.
 
 ## Effect migration
 
@@ -2103,3 +2119,203 @@ mark those cases passed until capture works and the evidence is inspected.
     `native-isolation/accepted-portable-compact-layout.json` and
     `native-isolation/compact-restart/layout-checks.txt`. This is not ordinary
     close, IME, screen-reader, native picker or other-platform acceptance.
+
+## Owned native input protocol
+
+These cases extend QA-066 before its next implementation stage. Use the SDK
+scratch tree at `docs/tmp/native-async-release/source`. Use Rust 1.97.1 and the
+shared Cargo target at `docs/tmp/native-async-font-api/target`. No case below
+permits a live user window, addon publication, or a new test library. Add cases
+to the existing input/protocol test modules before changing their behavior. Run
+only the affected filters from the SDK root:
+
+```sh
+CARGO_TARGET_DIR="$PWD/../../native-async-font-api/target" \
+  cargo +1.97.1 test --manifest-path packages/native/Cargo.toml \
+  --lib custom_elements::input::tests -- --nocapture
+CARGO_TARGET_DIR="$PWD/../../native-async-font-api/target" \
+  cargo +1.97.1 test --manifest-path packages/native/Cargo.toml \
+  --lib custom_elements::editor_protocol::tests -- --nocapture
+```
+
+The coordinator filter is blocked until its module exists. Discover and record
+its exact test filter at that point. Keep all evidence below
+`docs/artifacts/native-input-fence/`. Report overlapping filter counts. A
+headless pass does not prove real event delivery, IME, drag, wheel, layout,
+JavaScript fencing, or product close safety.
+
+- [ ] **QA-068 — P0 — Stamp the actual native input identity**
+  - **Purpose:** Prevent a change from one owner or note from reaching another.
+  - **Prerequisites:** Native setup above, existing headless input fixture,
+    `EventPayload` optional metadata fields, and no mounted user application.
+  - **Inputs:** Input and textarea IDs `1101` and `1102`; owner `1`; context
+    `note-a`; text `Draft Ω`; one native edit to `Draft Ω🙂`. Also use an
+    ordinary input with no ownership metadata.
+  - **Steps:**
+    1. Before implementation, add tests that collect the real native callback
+       payload for each field type. Set `data-editor-owner=1` and
+       `data-editor-context=note-a` through the actual prop path.
+    2. Make a native edit. Check protocol, owner, context, revision and value.
+    3. Run the same edit without owned metadata. Inspect the SDK React event
+       conversion and record whether it preserves the added keys.
+    4. Run the affected filters. Save the callback assertions and source hashes.
+  - **Expected results:** Owned changes carry protocol `1`, actual owner `1`,
+    actual context `note-a`, an exact safe integer revision and the exact text.
+    Legacy callbacks keep the four metadata values absent. A capture or
+    acknowledgement emits no change callback. No unverified JavaScript fence is
+    described as implemented.
+  - **Evidence:** `native-input-fence/owned-state/QA-068.txt`; inspect actual
+    callback collection, SDK conversion findings and source hashes.
+  - **Cleanup:** Drop only the owned headless fixture and callback collectors.
+  - **Status:** Pending. Payload fields and defaults exist only in SDK scratch.
+
+- [ ] **QA-069 — P0 — Acknowledge revisions beyond the value queue**
+  - **Purpose:** Keep a delayed React acknowledgement from replacing newer
+    native text or its undo history.
+  - **Prerequisites:** Native setup and QA-068 identity support. Tests must
+    inspect full snapshots, not text alone.
+  - **Inputs:** Owner `1`, context `note-a`, more than `32` native changes, an
+    acknowledgement for the first change, and a later current revision. Use
+    distinct emoji text, a reversed selection and nonempty undo/redo state.
+  - **Steps:**
+    1. Define the queue-eviction regression before implementation. Generate more
+       than 32 changes and send the first value with its actual revision.
+    2. Compare text, revision, selection, history and callback count before and
+       after that acknowledgement. Repeat while a capture is held.
+    3. Repeat with a wrong context, wrong owner, future revision and a genuine
+       external value replacement without an acknowledgement.
+    4. Run the affected filters and save the snapshot comparisons.
+  - **Expected results:** A matching owned acknowledgement never restores old
+    text or resets newer history, even after value-queue eviction. Invalid
+    acknowledgements are not accepted as native acknowledgements. An explicit
+    legacy replacement keeps its existing meaning. Held acknowledgements do not
+    leave stale queued values that later swallow a legitimate replacement.
+  - **Evidence:** `native-input-fence/owned-state/QA-069.txt`; inspect both
+    original regression failures and repaired full snapshot comparisons.
+  - **Cleanup:** Drop the isolated fixtures. No disk note data is used.
+  - **Status:** Pending.
+
+- [ ] **QA-070 — P0 — Refuse an unapplied input identity change**
+  - **Purpose:** Prevent capture from labelling old native text as a new note.
+  - **Prerequisites:** Native setup and the actual registry prop path. Registry
+    bookkeeping may update the widget prop bank, but must not synchronize
+    pending props into native state during preflight.
+  - **Inputs:** Native owner `1`, context `note-a`, text `Original Ω`; pending
+    props owner `2`, context `note-b`, text `Replacement`. Also use pending
+    mode/readOnly changes and malformed or missing owned identity values.
+  - **Steps:**
+    1. Define a regression that updates props without a native render.
+    2. Call the actual registry check and acquire paths. Compare full native
+       state and callbacks with the baseline.
+    3. Repeat during an existing hold. Then complete the normal unheld prop
+       synchronization and check the new native identity.
+    4. Run the affected filters and save native and prop-bank comparisons.
+  - **Expected results:** Pending external identity, value, mode or readOnly
+    changes refuse capture without applying or discarding them. Invalid owned
+    metadata fails closed. A held native identity cannot be silently replaced.
+    Ordinary later rendering applies legitimate unheld changes. No callback runs
+    while the coordinator holds its owner/tree mutexes.
+  - **Evidence:** `native-input-fence/owned-state/QA-070.txt`; inspect native
+    identity, full snapshots, unapplied prop state and callback counts.
+  - **Cleanup:** Release only holds created by the fixture and drop the fixture.
+  - **Status:** Pending. Existing `entry.sync(props)` only updates the widget
+    prop bank; do not assume it mutates the GPUI entity without checking the
+    concrete input implementation.
+
+- [ ] **QA-071 — P0 — Retain and release the exact captured entity**
+  - **Purpose:** Keep a pruned field recoverable without releasing a new field.
+  - **Prerequisites:** Native setup, a strong `InputCaptureHandle`, registry
+    retention support and existing internal capture commands.
+  - **Inputs:** Widget `1101`, hold `1`, text `Retained Ω`; destroy that widget
+    and create a different entity, including a fixture that reuses numeric
+    widget ID `1101`. Give the replacement hold `2` and text `New field`.
+  - **Steps:**
+    1. Define a retention regression before implementation. Retain the entity
+       before acquisition, acquire hold 1, and destroy its registry widget.
+    2. Inspect the retained original state. Try a wrong hold and a replacement
+       entity. Compare entity identity, state and callback counts.
+    3. Release a still-mounted field through its widget command. Release the
+       detached original only through its exact retained handle.
+    4. Run the affected filters and save entity/state assertions.
+  - **Expected results:** Retention is strong and does not acquire a hold by
+    itself. The original text/history survive widget destruction. A stale or
+    wrong handle never releases or mutates the replacement entity. Mounted
+    release keeps widget bookkeeping consistent. Detached release changes only
+    its matching original hold. Repeated or mismatched release fails safely.
+  - **Evidence:** `native-input-fence/owned-state/QA-071.txt`; inspect exact
+    entity comparisons, snapshots and release results.
+  - **Cleanup:** Release owned holds and drop retained handles and fixtures.
+  - **Status:** Pending. Retention is not history transfer to a replacement.
+
+- [ ] **QA-072 — P0 — Stop edits before owned revision exhaustion**
+  - **Purpose:** Prevent rounded or reused JavaScript revision values.
+  - **Prerequisites:** Native setup and a test-only way to set the revision. Do
+    not add a public test backdoor or change production counter limits.
+  - **Inputs:** Revision `9007199254740990`, owner `1`, context `note-a`, text
+    `Boundary Ω`, then two attempted text changes. Also use unsafe, fractional
+    and negative acknowledgement/owner values.
+  - **Steps:**
+    1. Define the limit test before implementation. Set the native revision to
+       one below the largest safe JavaScript integer.
+    2. Make the last valid edit, then attempt another native and command edit.
+    3. Compare content, history, selection and callback counts. Decode invalid
+       metadata and confirm no unsafe value becomes an acknowledgement.
+    4. Run the affected filters and save exact numeric assertions.
+  - **Expected results:** The final valid revision is exact. The next edit is
+    refused before changing text/history, rather than rounding, wrapping,
+    reusing a revision or silently losing an edit after mutation. Existing
+    legacy behavior remains covered separately.
+  - **Evidence:** `native-input-fence/owned-state/QA-072.txt`; inspect native
+    mutation preflight and actual callback revision values.
+  - **Cleanup:** Drop isolated boundary fixtures. No user data is used.
+  - **Status:** Pending.
+
+- [ ] **QA-073 — P0 — Undo partial two-field acquisition**
+  - **Purpose:** Keep a failed capture from leaving only one field held.
+  - **Prerequisites:** Native setup, completed retained-field APIs and the real
+    pair coordinator. Its headless test module/filter is not yet available.
+  - **Inputs:** Current binding owner `1`, context `note-a`, title `1101` and
+    textarea `1102`; distinct title/body snapshots. Refuse the second acquire,
+    then separately refuse rollback release of the first.
+  - **Steps:**
+    1. Before coordinator implementation, define both failure interleavings in
+       its focused headless module. Record the exact filter when created.
+    2. Preflight both fields before acquisition. Trigger second-field failure.
+    3. Inspect both native holds, full snapshots, callback counts and policy
+       phase. Repeat with a rollback failure.
+    4. Retry inspect/capture and attempt close approval. Save the outcomes.
+  - **Expected results:** A first-field release succeeds after ordinary
+    second-field failure, with unchanged text/history. A failed rollback keeps
+    the exact retained handles in an uncertain record, refuses new acquisition
+    and close, and remains inspectable. No partial failure reports ready or
+    discards the only rescue state. No internal hold ID is exposed on the wire.
+  - **Evidence:** `native-input-fence/pair-coordinator/QA-073.txt`; inspect the
+    full state transitions, retained entities and refusal results.
+  - **Cleanup:** Release only fixture-owned holds and drop fixtures. Record any
+    deliberately unreleasable headless state before dropping its test scope.
+  - **Status:** Blocked on the native retained-field APIs and coordinator.
+
+- [ ] **QA-074 — P0 — Refuse unsafe release after owner adoption**
+  - **Purpose:** Prevent owner retargeting from resuming old-stamped input.
+  - **Prerequisites:** Native setup, owned native identity, a completed pair
+    coordinator and actual close binding snapshots. No product UI is needed.
+  - **Inputs:** A held capture under owner `1`, retargeted binding owner `2`,
+    unchanged context `note-a`, a detached title and a mounted body. Also try
+    stale owner/generation values and a binding from another window scope.
+  - **Steps:**
+    1. Define owner-adoption and unsafe-cancel cases before implementation.
+    2. Retarget the native binding and adopt through the current owner.
+    3. Try cancel, inspect and seal with old and current credentials. Inspect
+       both field identities, holds, history and callback counts.
+    4. Save exact wire replies, source hashes and headless filter results.
+  - **Expected results:** Adoption authenticates the real current window owner,
+    increases the generation and preserves the original hold identity. Stale
+    operations cannot unfreeze either field. Cancellation either safely
+    reconciles both actual native identities and widget bookkeeping or refuses
+    while retaining rescue state and the close veto. It must not claim that
+    retained old entities transfer history to new widgets.
+  - **Evidence:** `native-input-fence/pair-coordinator/QA-074.txt`; inspect the
+    rejection paths and both native identities, not only response status.
+  - **Cleanup:** Release only safely releasable owned holds. Drop the headless
+    fixture after saving any intentionally quarantined state.
+  - **Status:** Blocked on completed identity and pair coordination APIs.
