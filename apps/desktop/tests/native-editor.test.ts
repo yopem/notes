@@ -14,6 +14,7 @@ import {
 import {
   type InputPairCommand,
   inputPairCommand,
+  InputPairResponseSchema,
 } from "@/features/editor/native/input-fence"
 import { registerFonts } from "@/native/fonts"
 
@@ -1158,6 +1159,85 @@ describe("optional native input pair protocol", function inputPairProtocol() {
       expect(
         await Effect.runPromise(
           inputPairCommand(host(JSON.stringify(response)), command),
+        ),
+      ).toEqual(response)
+    }
+  })
+
+  const composed = { ...state, composition: { start: 0, end: 1 } }
+
+  for (const [name, title, body] of [
+    ["title", composed, state],
+    ["body", state, composed],
+    ["both", composed, composed],
+  ] as const) {
+    for (const [operation, command, phase, generation] of [
+      ["capture", capture, "held", 5],
+      ["seal", seal, "sealed", 6],
+      ["adopt held", adopt, "held", 6],
+      ["adopt sealed", adopt, "sealed", 6],
+      ["inspect held", inspect, "held", 5],
+      ["inspect sealed", inspect, "sealed", 5],
+    ] as const) {
+      test(`rejects ${name} composition in ${operation}`, async function composedReply() {
+        const response = {
+          ...reply,
+          capture: { ...held, phase, generation, title, body },
+        }
+
+        const calls: string[] = []
+
+        const native = {
+          inputPairCommandV1(request: string) {
+            calls.push(request)
+
+            return Promise.resolve(JSON.stringify(response))
+          },
+        }
+
+        const error = await failure(native, command)
+        expect(error._tag).toBe("InputPairInvalidResponse")
+        expect(error.message).toContain("completion is unknown")
+        expect(calls).toEqual([JSON.stringify(command)])
+        expect(function decodeResponse() {
+          Schema.decodeUnknownSync(InputPairResponseSchema, {
+            onExcessProperty: "error",
+          })(response)
+        }).toThrow()
+      })
+    }
+  }
+
+  test("retains composition in ordinary editor state and uncertain inspection", async function uncertainComposition() {
+    const native = {
+      applyBatch() {
+        return []
+      },
+      editorCommand() {
+        return JSON.stringify(composed)
+      },
+    }
+
+    expect(createNativeEditor({ native }, 7).getState()).toEqual(composed)
+
+    for (const [title, body] of [
+      [composed, state],
+      [state, composed],
+      [composed, composed],
+    ] as const) {
+      const response = {
+        ...reply,
+        capture: { ...held, phase: "uncertain" as const, title, body },
+      }
+
+      expect(
+        Schema.decodeUnknownSync(InputPairResponseSchema, {
+          onExcessProperty: "error",
+        })(response),
+      ).toEqual(response)
+      expect(
+        await Effect.runPromise(
+          inputPairCommand(host(JSON.stringify(response)), inspect),
         ),
       ).toEqual(response)
     }

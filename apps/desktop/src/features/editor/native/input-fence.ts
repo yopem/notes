@@ -69,7 +69,14 @@ const Capture = Schema.Struct({
   bodyId: Id,
   title: EditorStateSchema,
   body: EditorStateSchema,
-}).check(Schema.makeFilter((value) => value.titleId !== value.bodyId))
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      value.titleId !== value.bodyId &&
+      (value.phase === "uncertain" ||
+        (value.title.composition === null && value.body.composition === null)),
+  ),
+)
 
 export const InputPairResponseSchema = Schema.Struct({
   protocol: Protocol,
