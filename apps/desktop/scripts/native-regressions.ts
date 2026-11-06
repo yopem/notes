@@ -333,7 +333,31 @@ export async function verifyRegressions(
     "- [ ] Call Ω\n- [x] Ship\n\n```md\n- [ ] Fenced task\n```",
   )
   await createNote(app, dataDirectory, "Task trash", "- [ ] Trashed task")
+
+  const taskWorkspaceBeforeTrash = await savedNoteIs(
+    dataDirectory,
+    "Task trash",
+    "- [ ] Trashed task",
+  )
+
+  const remainingActiveNoteCount =
+    taskWorkspaceBeforeTrash.notes.filter((note) => note.trashedAt === null)
+      .length - 1
+
   await app.getByTestId("trash-note").click()
+  await textIs(app, "note-count", `${remainingActiveNoteCount} notes`)
+
+  const taskWorkspaceAfterTrash = await savedNoteIs(
+    dataDirectory,
+    "Task trash",
+    "- [ ] Trashed task",
+  )
+
+  assert(
+    taskWorkspaceAfterTrash.notes.find((note) => note.title === "Task trash")
+      ?.trashedAt,
+  )
+
   await createNote(app, dataDirectory, "Task malformed", "---\nx: [broken\n---")
   const beforeFolder = readFileSync(workspacePath, "utf8")
   await app.getByTestId("open-folder").click()
