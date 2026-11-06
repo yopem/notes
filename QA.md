@@ -2377,7 +2377,7 @@ JavaScript fencing, or product close safety.
     native acquisition. This pass does not establish product or live close
     safety.
 
-- [ ] **QA-076 — P1 — Refuse composed quiescent capture replies**
+- [x] **QA-076 — P1 — Refuse composed quiescent capture replies**
   - **Purpose:** Do not treat a malformed native capture reply as quiescent
     while either title or body has active composition. This checks the optional
     typed client, not actual native acquisition or IME behavior.
@@ -2405,5 +2405,11 @@ JavaScript fencing, or product close safety.
     `docs/artifacts/native-input-fence/typed-protocol/ime-replies/`; record
     baseline/fixed output, native-call counts, source hashes and runtime.
   - **Cleanup:** Drop only fake hosts. No application data changes.
-  - **Status:** Pending. Real composition refusal and paired acquisition remain
-    part of QA-066 and are not proved by these client-only cases.
+  - **Status:** Passed for the optional client boundary at 5acd5a1 on the pinned
+    Linux Bun runtime. Eighteen baseline cases reproduced the invalid
+    acceptance. The fixed explicit test file passed 56 cases and 2,289
+    assertions; desktop typecheck passed 92 files and scoped native zero-warning
+    lint/format passed. Independent review checked both committed/current source
+    hashes and the baseline/final logs in `independent-accepted-boundary.json`
+    in the evidence directory. Real composition refusal and paired acquisition
+    remain part of QA-066 and are not proved by these client-only cases.
