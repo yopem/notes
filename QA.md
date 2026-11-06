@@ -231,7 +231,18 @@ data.
     `docs/artifacts/monorepo/QA-007/`; inspect each workflow and image.
   - **Cleanup:** Close only owned test windows and remove owned temporary data
     after evidence inspection. Never terminate another project's process.
-  - **Status:** Pending; prior flat-layout passes do not apply.
+  - **Status:** Partial Linux source acceptance. The relocated actual
+    `bun run start` app passed the original five core groups under frozen
+    2902583 helpers, including notebook creation, Unicode edit/preview,
+    pin/search/trash/restore, dark appearance, Escape/Ctrl-N and real
+    import/collision-safe export. Independent evidence is
+    `native-isolation/accepted-original-core-source.json`: 97 snapshot hashes,
+    eight harness hashes, five fixture hashes, four inspected screenshots, exact
+    original-note preservation and owned cleanup. The accepted source wide and
+    delivered-draft remount runs cover settings and failed-save rescue.
+    Separate-process restart at the smaller source viewports remains pending;
+    the corresponding portable binary restart is not relabeled as source
+    execution.
 
 - [ ] **QA-008 — P1 — Native build and standalone resources**
   - **Purpose:** Confirm that moving native patch/build scripts and font assets
@@ -278,8 +289,15 @@ data.
     SIGTERM, not ordinary close. The fixed-width compact column found during
     screenshot review is repaired and privately accepted under QA-067 at
     2e65f91. That rerun also passes separate-process restart with executable
-    `be07e8bdabb40a89d4bd508423d3c4ec2743bb0afc8def6ce3d3ce48df379aa8`. Other
-    platforms remain unrun, so the full case stays open.
+    `be07e8bdabb40a89d4bd508423d3c4ec2743bb0afc8def6ce3d3ce48df379aa8`. That
+    binary also passed the original core notebook/search/trash/shortcut and real
+    Markdown import/export groups from `/` with source assets/addon and SDK
+    bindings hidden. Both Markdown artifacts retain the exact import bytes; the
+    original welcome record stays unchanged and all four notes persist.
+    Independent evidence is
+    `native-isolation/accepted-original-core-binary.json`, with 97 snapshot
+    hashes and four inspected screenshots. Other platforms remain unrun, so the
+    full case stays open.
 
 - [ ] **QA-009 — P1 — Moved domain service regressions**
   - **Purpose:** Preserve vault safety, tasks, recurrence, templates, assistant
@@ -385,7 +403,7 @@ resolved. Keep native regression checks pending even when lint is clean.
 Baseline at `48e0257`: 177 desktop warnings and zero errors. The other
 workspaces had no findings.
 
-- [ ] **QA-013 — P1 — Zero workspace lint diagnostics**
+- [x] **QA-013 — P1 — Zero workspace lint diagnostics**
   - **Purpose:** Remove all existing warnings and errors without weakening the
     current policy or changing native notes behavior.
   - **Prerequisites:** Shared setup, pinned project-local Bun, approved local
@@ -402,7 +420,10 @@ workspaces had no findings.
        `bun run format:check`. Run each workspace's native lint command with
        `--no-script --max-warnings=0` from that workspace.
     4. Run the existing affected test files and native E2E workflow through
-       `bun run test:native`. Inspect the report, screenshots and saved data.
+       `bun run test:native`. When its capture adapter does not support the
+       private compositor, reuse the same core, settings and regression helpers
+       there with real isolated apps. Keep every assertion. Inspect reports,
+       screenshots and saved data for source and portable binary runs.
     5. Confirm that all other rules keep their severity. The user approved
        disabling only the DOM-specific `react-doctor/no-unknown-property` rule
        because GPUix has native host props. Typecheck those props with GPUix
@@ -417,18 +438,26 @@ workspaces had no findings.
     Inspect counts and observable outcomes, not only command exit codes.
   - **Cleanup:** Close only owned native sessions. Remove isolated QA data after
     its evidence is inspected. Keep reports ignored and local.
-  - **Status:** Pending full core workflow coverage. All workspace native
-    typechecks, lint with `--max-warnings=0`, and workspace/root formatting
-    passed at aff1407. Private source and portable binary wide workflows passed
-    at 84fecfe. Compact restart/layout passed at 2e65f91. These runs have
-    inspected screenshots and data evidence. Capture is no longer a general
-    blocker. Reuse the original core notebook/import/export/shortcut workflow in
-    the private compositor before closing this complete regression case. The old
-    direct capture adapter does not support Weston. Evidence includes
-    `native-isolation/compact-restart/final-workspace-checks.txt`,
-    `native-isolation/accepted-v2-source-milestone.json`,
-    `native-isolation/accepted-portable-standalone.json`, and
-    `native-isolation/accepted-portable-compact-layout.json`.
+  - **Status:** Passed for the scoped Linux native Bun policy and affected
+    regression milestone. At f5942fc, all workspace native typechecks, lint with
+    `--max-warnings=0`, workspace formatting and eight root-file format checks
+    passed. The original five core groups passed in source and portable binary
+    apps using frozen 2902583 helper code: notebook creation, Unicode editing
+    and preview, pin/search/trash/restore, dark appearance, Escape and Ctrl-N,
+    and real Markdown import/collision-safe export. Independent review rehashed
+    97 snapshot files, eight harness files and five supplemental fixtures per
+    run, inspected four screenshots per run, and checked exact original-note
+    preservation, four final notes and both export artifacts. The binary ran
+    from `/` without a native override, with source assets/addon and SDK
+    bindings hidden. Evidence:
+    `native-isolation/accepted-original-core-source.json`,
+    `native-isolation/accepted-original-core-binary.json`, and
+    `native-isolation/original-core/workspace-checks.txt`. Earlier accepted
+    source/portable wide and compact restart/layout reports remain applicable.
+    Existing relevant service and editor tests are recorded in their cases. This
+    closes native Bun lint regression coverage, not native dependency compiler
+    warnings, IME/screen-reader/OS-picker checks, product input/close
+    protection, other platforms or full feature parity.
 
 ## Effect migration
 
