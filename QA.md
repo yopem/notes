@@ -80,6 +80,7 @@ data.
 | Keep two-field acquisition atomic on failure                 | QA-073                                                                                 |
 | Keep adopted captures held until safe release                | QA-074                                                                                 |
 | Bound close-request delivery without stale-ID poisoning      | QA-075                                                                                 |
+| Refuse composed input in quiescent capture replies           | QA-076                                                                                 |
 
 ## Storage and configuration
 
@@ -2365,3 +2366,34 @@ JavaScript fencing, or product close safety.
     save baseline failures, repaired results, source hashes and native calls.
   - **Cleanup:** Drop only fake hosts and handlers. No application data changes.
   - **Status:** Pending. This does not establish product or live close safety.
+
+- [ ] **QA-076 — P1 — Refuse composed quiescent capture replies**
+  - **Purpose:** Do not treat a malformed native capture reply as quiescent
+    while either title or body has active composition. This checks the optional
+    typed client, not actual native acquisition or IME behavior.
+  - **Prerequisites:** Existing native editor fake-host tests, the canonical
+    editor-state schema, pinned Bun and no live app. The native pair API is not
+    yet available; isolated boundary tests are required for this step.
+  - **Inputs:** Valid owner `1`, context `note-A`, distinct fields `11` and
+    `12`, and a valid capture generation. Set title, body, or both composition
+    fields to `{start: 0, end: 1}` within their text. Repeat with `held` and
+    `sealed` replies and retain a valid `uncertain` recovery reply.
+  - **Steps:**
+    1. Add invalid-reply cases to `apps/desktop/tests/native-editor.test.ts`
+       before changing `input-fence.ts`. Record the current failing assertions.
+    2. Exercise capture, seal, adopt and inspect reply validation. Check that
+       valid null-composition replies still pass and composition remains valid
+       in ordinary editor states outside a quiescent capture.
+    3. Check the native-call count and typed error. Run this explicit test file,
+       desktop typecheck and affected native lint/format checks.
+  - **Expected results:** A held or sealed record with composition produces
+    `InputPairInvalidResponse` with unknown completion. No automatic retry or
+    release occurs. An uncertain recovery record is not claimed quiescent and
+    can retain its actual composed state for inspection. The future consumer
+    must keep its veto and recovery data after an invalid response.
+  - **Evidence:**
+    `docs/artifacts/native-input-fence/typed-protocol/ime-replies/`; record
+    baseline/fixed output, native-call counts, source hashes and runtime.
+  - **Cleanup:** Drop only fake hosts. No application data changes.
+  - **Status:** Pending. Real composition refusal and paired acquisition remain
+    part of QA-066 and are not proved by these client-only cases.
