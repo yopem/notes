@@ -79,6 +79,7 @@ data.
 | Stop owned edits before revision exhaustion                  | QA-072                                                                                 |
 | Keep two-field acquisition atomic on failure                 | QA-073                                                                                 |
 | Keep adopted captures held until safe release                | QA-074                                                                                 |
+| Bound close-request delivery without stale-ID poisoning      | QA-075                                                                                 |
 
 ## Storage and configuration
 
@@ -2336,3 +2337,31 @@ JavaScript fencing, or product close safety.
   - **Cleanup:** Release only safely releasable owned holds. Drop the headless
     fixture after saving any intentionally quarantined state.
   - **Status:** Blocked on completed identity and pair coordination APIs.
+
+- [ ] **QA-075 — P1 — Bound close-request delivery state**
+  - **Purpose:** Keep close-request deduplication bounded. Do not suppress a
+    later genuine request because an earlier operation used an unknown ID.
+  - **Prerequisites:** Existing native editor fake-host tests, the actual
+    `createNativeCloseOwner` adapter, pinned Bun and no live user window.
+  - **Inputs:** Owner `1`; requests `1` through `1000`; duplicate and reordered
+    old notifications. Before delivery, cancel and approve future request `1000`
+    with native `stale` replies. Also use a real binding-pending request and an
+    immediate valid cancellation before its replay microtask.
+  - **Steps:**
+    1. Add failing cases to `apps/desktop/tests/native-editor.test.ts` before
+       changing the adapter. Use the existing host and handler fixtures.
+    2. Exercise future stale operations, then deliver every genuine request.
+       Repeat old notifications and inspect callback order and native calls.
+    3. Exercise the initial pending-request replay and valid early cancellation
+       or approval. Check stale-controller behavior remains unchanged.
+    4. Run this explicit test file, desktop typecheck, and affected native
+       lint/format checks. Record the source revision and evidence.
+  - **Expected results:** Every valid new request is delivered once. An
+    arbitrary stale operation cannot poison future delivery. Completed valid
+    requests are not revived by delayed replay. Deduplication uses constant
+    space, not a set or list that grows with request count. Native operations
+    still authenticate owner/request and never retry automatically.
+  - **Evidence:** `docs/artifacts/native-close-lifecycle/v2/bounded-delivery/`;
+    save baseline failures, repaired results, source hashes and native calls.
+  - **Cleanup:** Drop only fake hosts and handlers. No application data changes.
+  - **Status:** Pending. This does not establish product or live close safety.
