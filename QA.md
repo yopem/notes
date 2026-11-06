@@ -81,6 +81,7 @@ data.
 | Keep adopted captures held until safe release                | QA-074                                                                                 |
 | Bound close-request delivery without stale-ID poisoning      | QA-075                                                                                 |
 | Refuse composed input in quiescent capture replies           | QA-076                                                                                 |
+| Enforce native numeric limits at the editor boundary         | QA-077                                                                                 |
 
 ## Storage and configuration
 
@@ -2449,3 +2450,45 @@ JavaScript fencing, or product close safety.
     hashes and the baseline/final logs in `independent-accepted-boundary.json`
     in the evidence directory. Real composition refusal and paired acquisition
     remain part of QA-066 and are not proved by these client-only cases.
+
+- [ ] **QA-077 — P1 — Native editor numeric boundaries**
+  - **Purpose:** Keep the shared editor state, snapshot and viewport contracts
+    within the native numeric limits. Cover `editor/native/editor.ts`, its
+    input-pair consumer and `tests/native-editor.test.ts`. Effect
+    `Schema.Natural` already rejects unsafe decoded integers; preserve that
+    behavior. Investigate finite viewport values above the native `f32` limit.
+  - **Prerequisites:** Shared pinned Bun setup and the existing headless native
+    editor test file. Use its protocol hosts. Do not initialize a renderer or
+    connect to a user window. Read the pinned Rust field types before setting a
+    bound. This is a client boundary case, not native capture acceptance.
+  - **Inputs:** Decoded integer values `0`, `9007199254740991`,
+    `9007199254740992`, `-1` and `1.5`; native pixel maximum
+    `3.4028234663852886e38`; excessive pixels `1e39` and `Number.MAX_VALUE`;
+    negative and nonfinite values. Cover every viewport member and snapshot
+    scroll offset, plus held/sealed input-pair replies.
+  - **Steps:**
+    1. Record focused failing numeric cases in the existing test file before the
+       implementation change. Retain integer and composition regressions.
+    2. From `apps/desktop`, run
+       `../../node_modules/.bin/bun test tests/native-editor.test.ts`.
+    3. Confirm invalid local viewport/snapshot arguments never call the host.
+       Confirm malformed successful pair replies produce unknown-completion
+       failures without retry or automatic release.
+    4. Run the approved native desktop typecheck and scoped zero-warning
+       lint/format commands. Inspect saved logs and changed source hashes.
+  - **Expected results:** Valid native-range values and safe integer boundaries
+    remain accepted. Values outside native `f32` range and unsafe decoded
+    integers are refused. The canonical schema serves both consumers; no
+    duplicate schema or weaker fallback is added. Unknown native completion
+    remains unknown. Decoded-number checks do not prove exact validation of a
+    JSON token that was rounded before schema decoding.
+  - **Evidence:** Save baseline/final test output, exact commands, revision,
+    runtime and source hashes under
+    `docs/artifacts/native-input-fence/numeric-limits/`. Inspect failures and
+    call counts, not only command exit codes.
+  - **Cleanup:** No application data, window or service is used. Keep reports
+    local and ignored. Remove only scratch files created for this case.
+  - **Status:** Pending. The no-window Effect probe confirms the existing
+    natural-number schema accepts zero/the maximum safe integer and rejects the
+    first unsafe integer and a fraction. Native viewport range enforcement and
+    the full focused regression case still need implementation/validation.
