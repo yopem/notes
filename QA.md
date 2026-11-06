@@ -1978,15 +1978,21 @@ mark those cases passed until capture works and the evidence is inspected.
     rows exist outside the painted viewport. Exercise real wheel navigation.
   - **Prerequisites:** Private QA-056 setup, the verified asynchronous font
     host, and the existing wide regression. Use no user windows or data.
-  - **Inputs:** 1360 by 900 window; the regression's generated notes and source
-    row `Regression rescue`. Keep the source's pending draft after duplication.
+  - **Inputs:** 1360 by 900 window; 35 generated plain-text notes named
+    `Wheel fixture 01` through `Wheel fixture 35`, the other regression notes,
+    and source row `Regression rescue`. Create the fixtures through the real
+    New-note workflow. Keep the source's pending draft after duplication.
   - **Steps:**
     1. From the repository root, run the private `wide bundled` fixture with a
        unique run ID and a recorded full source commit, as in shared setup.
-    2. Reach the existing failed-duplicate recovery scenario. Locate the source
-       row through the note-list panel. If it is not painted, use wheel events
-       inside that panel and wait for positive native bounds before selection.
-    3. Select the original source and complete Retry. Inspect the saved source,
+    2. Reach the existing failed-duplicate recovery scenario. Clear search and
+       wait for the complete active-note count. Use real wheel input to move the
+       source outside the painted list. Require an initially unpainted row.
+    3. Reveal the source through wheel input inside the list. Require a positive
+       helper wheel count and native row bounds inside the panel. Save the
+       offscreen/revealed trees and private screenshots. Before selecting,
+       confirm the workspace bytes are unchanged by scrolling.
+    4. Select the original source and complete Retry. Inspect the saved source,
        independent duplicate, pending warning and remaining wide scenarios.
   - **Expected results:** Selection uses a painted row, not a retained hidden
     descendant. Scrolling does not edit either note or clear the pending draft.
@@ -2002,10 +2008,12 @@ mark those cases passed until capture works and the evidence is inspected.
   - **Status:** The revised painted-row helper and complete private 84fecfe
     source wide workflow pass, including rescue selection, exact pending draft,
     export and Retry assertions. Evidence: `app-run-20261105T202828Z-2647396`.
-    Actual initial unpainted state and wheel-call counts are not yet retained
-    separately, so the explicit offscreen-scroll acceptance remains pending.
-    Existing scenario instrumentation is being expanded without removing any
-    ordering, identity or draft assertions.
+    Actual initial unpainted state and positive helper wheel count are not yet
+    independently accepted. The planned 35-note fixture must force that state;
+    recording zero wheel calls is not a pass. Separate reveal from selection so
+    scrolling can be checked against unchanged workspace bytes. Keep every
+    ordering, identity, duplicate and draft assertion. Expanded offscreen-scroll
+    acceptance remains pending.
 
 - [ ] **QA-064 — P0 — Guard normal menu and keyboard quit**
   - **Purpose:** A normal application quit must not bypass an active close owner
