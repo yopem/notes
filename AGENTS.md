@@ -1633,3 +1633,24 @@ applicable category into concrete cases with the details required above.
 - A bridge or fake-host test does not prove draft-safe close behavior. Complete
   native input handoff, save/recovery decisions, and isolated ordinary-close
   acceptance before making that claim.
+
+## Native owned editor events
+
+- The native source patch is not proof that the published host supports owned
+  editor events. Verify the built producer before enabling an owned consumer.
+- Set both `data-editor-owner` and `data-editor-context` for an owned field.
+  Use the current native window owner and a bounded opaque context. Reject
+  partial, invalid, or pending identity during capture.
+- Validate protocol, owner, context, revision, and field identity in the actual
+  title or body handler before changing drafts or stored notes. The SDK root
+  observer runs after the field handler; it is not an input fence. Do not use
+  the stock event declaration as proof that runtime metadata is absent.
+- For owned fields, reject missing or invalid metadata. Do not fall back to an
+  empty value or the legacy handler. Reject stale context and owner events, and
+  events at or below a completed capture watermark, before a data mutation.
+- `data-editor-ack-revision` reports an actual native revision. An old valid
+  acknowledgement must not replace newer text, selection, or history after
+  value-queue eviction. Do not clear it to force an edit through a held capture.
+- Keep revisions exact within the JavaScript safe-integer range. Refuse a
+  mutation before revision exhaustion changes text or history. Native metadata
+  alone does not freeze fields, preserve drafts, or make close safe.
