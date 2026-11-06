@@ -10,7 +10,10 @@ import { Predicate, Result, Schema } from "effect"
 
 const OffsetSchema = Schema.Natural
 
-const PixelSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
+const PixelSchema = Schema.Finite.check(
+  Schema.isGreaterThanOrEqualTo(0),
+  Schema.isLessThanOrEqualTo(3.4028234663852886e38),
+)
 
 const EditorModeSchema = Schema.Literals(["insert", "normal", "readOnly"])
 
