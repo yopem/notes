@@ -148,6 +148,116 @@ describe("native editor wire boundary", function nativeEditorBoundary() {
     expect(calls).toBe(0)
   })
 
+  test("bounds all native viewport and snapshot pixels", function pixelLimits() {
+    const maximum = 3.4028234663852886e38
+    const snapshot = {
+      version: 1 as const,
+      current: { text: "", start: 0, end: 0, direction: "forward" as const },
+      undo: [],
+      redo: [],
+      scrollTop: 0,
+      scrollLeft: 0,
+    }
+    let response: unknown = state
+    let calls = 0
+    const editor = createNativeEditor(
+      {
+        applyBatch() {
+          return []
+        },
+        editorCommand() {
+          calls += 1
+          return JSON.stringify(response)
+        },
+      },
+      1,
+    )
+
+    for (const key of [
+      "top",
+      "left",
+      "width",
+      "height",
+      "contentHeight",
+      "contentWidth",
+    ] as const) {
+      for (const value of [1e39, Number.MAX_VALUE, -1]) {
+        response = { ...state, viewport: { ...state.viewport, [key]: value } }
+        expect(function invalidState() {
+          editor.getState()
+        }).toThrow()
+      }
+      response = { ...state, viewport: { ...state.viewport, [key]: maximum } }
+      expect(editor.getState().viewport[key]).toBe(maximum)
+    }
+
+    for (const key of ["scrollTop", "scrollLeft"] as const) {
+      for (const value of [1e39, Number.MAX_VALUE, -1]) {
+        response = { ...snapshot, [key]: value }
+        expect(function invalidSnapshot() {
+          editor.getSnapshot()
+        }).toThrow()
+      }
+      response = { ...snapshot, [key]: maximum }
+      expect(editor.getSnapshot()[key]).toBe(maximum)
+    }
+
+    response = state
+    const before = calls
+    for (const value of [
+      1e39,
+      Number.MAX_VALUE,
+      -1,
+      Number.NaN,
+      Infinity,
+      -Infinity,
+    ]) {
+      for (const key of ["top", "left"] as const) {
+        expect(function invalidViewport() {
+          editor.setViewport({ top: 0, left: 0, [key]: value })
+        }).toThrow()
+      }
+      for (const key of ["scrollTop", "scrollLeft"] as const) {
+        expect(function invalidRestore() {
+          editor.restoreSnapshot(0, { ...snapshot, [key]: value })
+        }).toThrow()
+      }
+    }
+    expect(calls).toBe(before)
+    editor.setViewport({ top: maximum, left: maximum })
+    editor.restoreSnapshot(0, {
+      ...snapshot,
+      scrollTop: maximum,
+      scrollLeft: maximum,
+    })
+    expect(calls).toBe(before + 2)
+  })
+
+  test("retains safe natural number boundaries", function naturalLimits() {
+    let response = state
+    const editor = createNativeEditor(
+      {
+        applyBatch() {
+          return []
+        },
+        editorCommand() {
+          return JSON.stringify(response)
+        },
+      },
+      1,
+    )
+    for (const value of [0, Number.MAX_SAFE_INTEGER]) {
+      response = { ...state, revision: value }
+      expect(editor.getState().revision).toBe(value)
+    }
+    for (const value of [Number.MAX_SAFE_INTEGER + 1, -1, 1.5]) {
+      response = { ...state, revision: value }
+      expect(function invalidRevision() {
+        editor.getState()
+      }).toThrow()
+    }
+  })
+
   test("filters state events by type and editor id", function stateEvent() {
     expect(
       readNativeEditorEvent(
@@ -1207,6 +1317,36 @@ describe("optional native input pair protocol", function inputPairProtocol() {
       })
     }
   }
+
+  test("rejects excessive held and sealed pixels with unknown completion", async function excessivePixels() {
+    for (const [command, phase, generation] of [
+      [capture, "held", 5],
+      [seal, "sealed", 6],
+    ] as const) {
+      for (const field of ["title", "body"] as const) {
+        const calls: string[] = []
+        const response = {
+          ...reply,
+          capture: {
+            ...held,
+            phase,
+            generation,
+            [field]: { ...state, viewport: { ...state.viewport, width: 1e39 } },
+          },
+        }
+        const native = {
+          inputPairCommandV1(request: string) {
+            calls.push(request)
+            return Promise.resolve(JSON.stringify(response))
+          },
+        }
+        const error = await failure(native, command)
+        expect(error._tag).toBe("InputPairInvalidResponse")
+        expect(error.message).toContain("completion is unknown")
+        expect(calls).toEqual([JSON.stringify(command)])
+      }
+    }
+  })
 
   test("retains composition in ordinary editor state and uncertain inspection", async function uncertainComposition() {
     const native = {
