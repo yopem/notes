@@ -1868,9 +1868,10 @@ mark those cases passed until capture works and the evidence is inspected.
     queued-approval/retarget race. The new view-scope check in 705b7a7 is not in
     that tested host and still needs compilation and acceptance. No product UI
     installs this guard. Note/draft transfer, input quiescence, macOS/Dock quit
-    and other-platform acceptance remain incomplete. Native dependency/compiler
-    warnings and the unbounded request-deduplication set are not resolved. Never
-    treat a queued reply alone as proof of window closure.
+    and other-platform acceptance remain incomplete. QA-075 records the later
+    constant-space client delivery fix and stale future-ID regressions. Native
+    dependency/compiler warnings remain. Never treat a queued reply alone as
+    proof of window closure.
 
 - [ ] **QA-062 — P1 — Await actual native font completion without blocking JS**
   - **Purpose:** Replace the synchronous two-second font wait with a verified
@@ -2339,7 +2340,7 @@ JavaScript fencing, or product close safety.
     fixture after saving any intentionally quarantined state.
   - **Status:** Blocked on completed identity and pair coordination APIs.
 
-- [ ] **QA-075 — P1 — Bound close-request delivery state**
+- [x] **QA-075 — P1 — Bound close-request delivery state**
   - **Purpose:** Keep close-request deduplication bounded. Do not suppress a
     later genuine request because an earlier operation used an unknown ID.
   - **Prerequisites:** Existing native editor fake-host tests, the actual
@@ -2365,7 +2366,16 @@ JavaScript fencing, or product close safety.
   - **Evidence:** `docs/artifacts/native-close-lifecycle/v2/bounded-delivery/`;
     save baseline failures, repaired results, source hashes and native calls.
   - **Cleanup:** Drop only fake hosts and handlers. No application data changes.
-  - **Status:** Pending. This does not establish product or live close safety.
+  - **Status:** Passed for the scoped client boundary at 2902583 on the pinned
+    Linux Bun runtime. Both stale-future-ID regressions failed before the fix.
+    The fixed existing test file passed 37 cases and 2,210 assertions; desktop
+    typecheck passed 92 files and affected native zero-warning lint/format
+    passed. Independent review checked the actual constant-space code, baseline,
+    final logs and both tested Git-blob hashes. Evidence:
+    `bounded-delivery/independent-accepted-boundary.json` under the directory
+    above. The optional input-pair tests in that file remain separate from
+    native acquisition. This pass does not establish product or live close
+    safety.
 
 - [ ] **QA-076 — P1 — Refuse composed quiescent capture replies**
   - **Purpose:** Do not treat a malformed native capture reply as quiescent
