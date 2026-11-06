@@ -590,6 +590,23 @@ export async function verifyRegressions(
   await app.getByTestId("nav-trash").click()
   await app.getByTestId("note-row").getByText("Regression outside").click()
   await app.getByTestId("restore-note").click()
+
+  const activeNotesAfterRestore =
+    afterTrash.notes.filter((note) => note.trashedAt === null).length + 1
+
+  await textIs(app, "note-count", `${activeNotesAfterRestore} notes`)
+
+  const restoredOutside = await savedNoteIs(
+    dataDirectory,
+    "Regression outside",
+    "Outside filter",
+  )
+
+  assert.equal(
+    restoredOutside.notes.find((note) => note.title === "Regression outside")
+      ?.trashedAt,
+    null,
+  )
   steps.push("Trash selects the next visible note, not the first sorted note")
 
   await createNote(app, dataDirectory, "Regression rescue", "Saved rescue body")
