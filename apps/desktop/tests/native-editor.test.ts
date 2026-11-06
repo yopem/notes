@@ -150,6 +150,7 @@ describe("native editor wire boundary", function nativeEditorBoundary() {
 
   test("bounds all native viewport and snapshot pixels", function pixelLimits() {
     const maximum = 3.4028234663852886e38
+
     const snapshot = {
       version: 1 as const,
       current: { text: "", start: 0, end: 0, direction: "forward" as const },
@@ -158,8 +159,10 @@ describe("native editor wire boundary", function nativeEditorBoundary() {
       scrollTop: 0,
       scrollLeft: 0,
     }
-    let response: unknown = state
+
+    let response = JSON.stringify(state)
     let calls = 0
+
     const editor = createNativeEditor(
       {
         applyBatch() {
@@ -167,7 +170,8 @@ describe("native editor wire boundary", function nativeEditorBoundary() {
         },
         editorCommand() {
           calls += 1
-          return JSON.stringify(response)
+
+          return response
         },
       },
       1,
@@ -182,28 +186,42 @@ describe("native editor wire boundary", function nativeEditorBoundary() {
       "contentWidth",
     ] as const) {
       for (const value of [1e39, Number.MAX_VALUE, -1]) {
-        response = { ...state, viewport: { ...state.viewport, [key]: value } }
+        response = JSON.stringify({
+          ...state,
+          viewport: { ...state.viewport, [key]: value },
+        })
+
         expect(function invalidState() {
           editor.getState()
         }).toThrow()
       }
-      response = { ...state, viewport: { ...state.viewport, [key]: maximum } }
+
+      response = JSON.stringify({
+        ...state,
+        viewport: { ...state.viewport, [key]: maximum },
+      })
+
       expect(editor.getState().viewport[key]).toBe(maximum)
     }
 
     for (const key of ["scrollTop", "scrollLeft"] as const) {
       for (const value of [1e39, Number.MAX_VALUE, -1]) {
-        response = { ...snapshot, [key]: value }
+        response = JSON.stringify({ ...snapshot, [key]: value })
+
         expect(function invalidSnapshot() {
           editor.getSnapshot()
         }).toThrow()
       }
-      response = { ...snapshot, [key]: maximum }
+
+      response = JSON.stringify({ ...snapshot, [key]: maximum })
+
       expect(editor.getSnapshot()[key]).toBe(maximum)
     }
 
-    response = state
+    response = JSON.stringify(state)
+
     const before = calls
+
     for (const value of [
       1e39,
       Number.MAX_VALUE,
@@ -217,24 +235,29 @@ describe("native editor wire boundary", function nativeEditorBoundary() {
           editor.setViewport({ top: 0, left: 0, [key]: value })
         }).toThrow()
       }
+
       for (const key of ["scrollTop", "scrollLeft"] as const) {
         expect(function invalidRestore() {
           editor.restoreSnapshot(0, { ...snapshot, [key]: value })
         }).toThrow()
       }
     }
+
     expect(calls).toBe(before)
+
     editor.setViewport({ top: maximum, left: maximum })
     editor.restoreSnapshot(0, {
       ...snapshot,
       scrollTop: maximum,
       scrollLeft: maximum,
     })
+
     expect(calls).toBe(before + 2)
   })
 
   test("retains safe natural number boundaries", function naturalLimits() {
     let response = state
+
     const editor = createNativeEditor(
       {
         applyBatch() {
@@ -246,12 +269,16 @@ describe("native editor wire boundary", function nativeEditorBoundary() {
       },
       1,
     )
+
     for (const value of [0, Number.MAX_SAFE_INTEGER]) {
       response = { ...state, revision: value }
+
       expect(editor.getState().revision).toBe(value)
     }
+
     for (const value of [Number.MAX_SAFE_INTEGER + 1, -1, 1.5]) {
       response = { ...state, revision: value }
+
       expect(function invalidRevision() {
         editor.getState()
       }).toThrow()
@@ -1325,6 +1352,7 @@ describe("optional native input pair protocol", function inputPairProtocol() {
     ] as const) {
       for (const field of ["title", "body"] as const) {
         const calls: string[] = []
+
         const response = {
           ...reply,
           capture: {
@@ -1334,12 +1362,15 @@ describe("optional native input pair protocol", function inputPairProtocol() {
             [field]: { ...state, viewport: { ...state.viewport, width: 1e39 } },
           },
         }
+
         const native = {
           inputPairCommandV1(request: string) {
             calls.push(request)
+
             return Promise.resolve(JSON.stringify(response))
           },
         }
+
         const error = await failure(native, command)
         expect(error._tag).toBe("InputPairInvalidResponse")
         expect(error.message).toContain("completion is unknown")
