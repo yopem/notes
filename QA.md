@@ -760,9 +760,14 @@ mark those cases passed until capture works and the evidence is inspected.
     content in `docs/artifacts/vault-workspace/QA-025/`; inspect each artifact.
   - **Cleanup:** Close only test-owned processes and remove their isolated data
     after evidence review.
-  - **Status:** Blocked. GPUix does not expose a documented close-veto callback,
-    and screenshot capture is blocked by QA-015. A native bridge requires
-    source, build and platform verification before this scenario can run.
+  - **Status:** Pending product integration. The custom v2 host has scoped
+    private Linux protocol evidence for a real close request, mapped veto, owner
+    retarget/replay, cancellation and approved native window destruction.
+    Capture now works in the private compositor. This fixture has no note editor
+    or save/discard workflow. The product still installs no close owner and has
+    no complete native input fence. This P0 case therefore stays open; the
+    minimal fixture is not draft-safe product-close acceptance. Evidence:
+    `native-close-lifecycle/v2/live-acceptance/independent-accepted-protocol.json`.
 
 - [x] **QA-026 — P0 — Keep assistant errors free of private details**
   - **Purpose:** Prevent an adapter failure from exposing filesystem paths,
@@ -1847,11 +1852,23 @@ mark those cases passed until capture works and the evidence is inspected.
     without renderer initialization. Publication/probe evidence is under
     `native-close-lifecycle/v2/`. The f556a32 adapter passes 28 fake-host cases
     and 133 assertions with stale-root and owner-specific disposal checks. An
-    independent bounded source review found no repair defect. No product UI
-    installs this guard yet. Ordinary close, pending-root transfer, input
-    quiescence, macOS/Dock quit and other-platform acceptance remain incomplete.
-    Native dependency/compiler warnings and the unbounded request-deduplication
-    set are not resolved. Never treat a queued reply as proof of window closure.
+    independent bounded source review found no repair defect. At aff1407, a
+    minimal private Linux fixture received an actual `xdg_toplevel.close`,
+    stayed mapped, replaced its root and replayed request 1 through owners 1, 2
+    and 3. Stale controller and raw operations refused. Release/rebind and
+    cancellation kept the window mapped. A separate current approval resolved
+    `closing`, then the native toplevel was destroyed and its client exited
+    normally. No signal forced its closure. Independent review verified 105
+    source files, 140 official runtime files, six screenshot/tree sets,
+    namespace isolation and owned cleanup. Evidence:
+    `native-close-lifecycle/v2/live-acceptance/independent-accepted-protocol.json`.
+    This does not test a second close while detached or a deterministic
+    queued-approval/retarget race. The new view-scope check in 705b7a7 is not in
+    that tested host and still needs compilation and acceptance. No product UI
+    installs this guard. Note/draft transfer, input quiescence, macOS/Dock quit
+    and other-platform acceptance remain incomplete. Native dependency/compiler
+    warnings and the unbounded request-deduplication set are not resolved. Never
+    treat a queued reply alone as proof of window closure.
 
 - [ ] **QA-062 — P1 — Await actual native font completion without blocking JS**
   - **Purpose:** Replace the synchronous two-second font wait with a verified
